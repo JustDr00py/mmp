@@ -26,7 +26,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [ ] 3.5 Optional auto-match after each provider refresh (config toggle + min_providers). AC: refresh of a new provider attaches its streams to matching channels.
 
 ## M4 — Proxy core (critical path)
-- [ ] 4.1 `ringbuf`: single writer, many readers with independent cursors, live-edge join, and overrun handling (a slow reader skips ahead). AC: race tests with slow/fast readers.
+- [x] 4.1 `ringbuf`: single writer, many readers with independent cursors, live-edge join, and overrun handling (a slow reader skips ahead). AC: race tests with slow/fast readers. — done: `internal/proxy/ringbuf.go` (absolute uint64 cursors, RWMutex copy + close-and-replace notify chan; writer never blocks; join at edge w/ optional packet-aligned backlog; lapped reader rejoins ¼ ring behind edge, `Skipped()` counts loss; Close drains → EOF); race tests w/ 8 mixed-speed readers, torn-packet detection, -cpu 1,2,8
 - [ ] 4.2 `tswatch`: 188-byte alignment/resync, CC error counting, bitrate window, stall timer. AC: synthetic broken TS tests.
 - [ ] 4.3 `capacity`: per-provider slot acquire/release with the max_connections limit. AC: concurrent acquire test never exceeds the limit.
 - [ ] 4.4 `upstream_http`: open a TS over HTTP with UA/headers and context cancel. AC: httptest test.
