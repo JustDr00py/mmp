@@ -19,10 +19,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [x] 2.5 Admin API: providers CRUD, "refresh now", list/search provider streams. AC: API tests. — done: `internal/api` `/api/v1/providers` CRUD + `POST /{id}/refresh` + `/streams?q=` (passwords never serialized; empty password on update keeps old); fake-store unit tests + live E2E verified
 
 ## M3 — Channels & matching
-- [ ] 3.1 Channels, groups, and bouquets CRUD API. AC: API tests.
-- [ ] 3.2 `channel_streams` priority list API (add/remove/reorder). AC: reorder persists.
-- [ ] 3.3 Name normalizer (strip HD/FHD/4K, country prefixes, separators). AC: table-driven tests.
-- [ ] 3.4 Matcher: tvg-id → normalized name → regex rules; propose or auto-create channels. AC: test with 3 fake providers groups the same channel correctly.
+- [x] 3.1 Channels, groups, and bouquets CRUD API. AC: API tests. — done: `internal/api/channels.go` (`/channel-groups`, `/channels` w/ q/group_id filters + auto-numbering, `/bouquets` + `/bouquets/{id}/channels`); integration tests vs Postgres
+- [x] 3.2 `channel_streams` priority list API (add/remove/reorder). AC: reorder persists. — done: `/channels/{id}/streams` GET/POST (append priority)/DELETE + `PUT /streams/order` (unnest WITH ORDINALITY); integration test verifies persisted order
+- [x] 3.3 Name normalizer (strip HD/FHD/4K, country prefixes, separators). AC: table-driven tests. — done: `internal/channel/normalize.go` (`NormalizeName`: accent folding, quality/country tokens, guarded long prefixes); table + equivalence tests
+- [x] 3.4 Matcher: tvg-id → normalized name → regex rules; propose or auto-create channels. AC: test with 3 fake providers groups the same channel correctly. — done: `internal/channel/matcher.go` (union-find over tvg-id → normalized name → first matching regex rule; attaches to existing channels; failover order by provider priority), `service.go` (propose/apply in one tx), migration 00003 `match_rules`, API `/match/rules|proposals|apply` (keys + min_providers); unit + 3-provider integration tests pass
+- [ ] 3.5 Optional auto-match after each provider refresh (config toggle + min_providers). AC: refresh of a new provider attaches its streams to matching channels.
 
 ## M4 — Proxy core (critical path)
 - [ ] 4.1 `ringbuf`: single writer, many readers with independent cursors, live-edge join, and overrun handling (a slow reader skips ahead). AC: race tests with slow/fast readers.

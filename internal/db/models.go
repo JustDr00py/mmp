@@ -78,6 +78,15 @@ type Event struct {
 	Message      string    `json:"message"`
 }
 
+type MatchRule struct {
+	ID          int64     `json:"id"`
+	Pattern     string    `json:"pattern"`
+	ChannelName string    `json:"channel_name"`
+	Priority    int32     `json:"priority"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type Provider struct {
 	ID                  int64      `json:"id"`
 	Name                string     `json:"name"`

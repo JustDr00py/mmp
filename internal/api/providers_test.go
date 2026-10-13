@@ -19,8 +19,10 @@ import (
 	"github.com/sysadmin/mmp/internal/source"
 )
 
-// fakeStore is an in-memory Store.
+// fakeStore is an in-memory Store. The embedded *db.Queries satisfies the
+// channel/bouquet methods (they panic if a provider-focused test calls them).
 type fakeStore struct {
+	*db.Queries
 	providers        map[int64]db.Provider
 	streams          map[int64][]db.ProviderStream // providerID -> streams
 	nextID           int64

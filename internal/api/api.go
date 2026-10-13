@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/source"
 )
@@ -21,6 +22,7 @@ type Env struct {
 	Log     *slog.Logger
 	Store   Store
 	Refresh Refresher
+	Match   Matcher
 }
 
 // Store is the persistence surface the API needs (satisfied by *db.Queries).
@@ -33,6 +35,36 @@ type Store interface {
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
 	ListProviderStreams(ctx context.Context, arg db.ListProviderStreamsParams) ([]db.ProviderStream, error)
 	SearchProviderStreams(ctx context.Context, arg db.SearchProviderStreamsParams) ([]db.ProviderStream, error)
+
+	CreateChannelGroup(ctx context.Context, arg db.CreateChannelGroupParams) (db.ChannelGroup, error)
+	ListChannelGroups(ctx context.Context) ([]db.ChannelGroup, error)
+	UpdateChannelGroup(ctx context.Context, arg db.UpdateChannelGroupParams) (db.ChannelGroup, error)
+	DeleteChannelGroup(ctx context.Context, id int64) error
+
+	CreateChannel(ctx context.Context, arg db.CreateChannelParams) (db.Channel, error)
+	GetChannel(ctx context.Context, id int64) (db.Channel, error)
+	ListChannels(ctx context.Context, arg db.ListChannelsParams) ([]db.Channel, error)
+	UpdateChannel(ctx context.Context, arg db.UpdateChannelParams) (db.Channel, error)
+	DeleteChannel(ctx context.Context, id int64) error
+	NextChannelNumber(ctx context.Context) (int32, error)
+
+	AddStreamToChannel(ctx context.Context, arg db.AddStreamToChannelParams) error
+	RemoveStreamFromChannel(ctx context.Context, arg db.RemoveStreamFromChannelParams) error
+	ReorderChannelStreams(ctx context.Context, arg db.ReorderChannelStreamsParams) error
+	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
+
+	CreateBouquet(ctx context.Context, arg db.CreateBouquetParams) (db.Bouquet, error)
+	ListBouquets(ctx context.Context) ([]db.Bouquet, error)
+	GetBouquet(ctx context.Context, id int64) (db.Bouquet, error)
+	UpdateBouquet(ctx context.Context, arg db.UpdateBouquetParams) (db.Bouquet, error)
+	DeleteBouquet(ctx context.Context, id int64) error
+	AddChannelToBouquet(ctx context.Context, arg db.AddChannelToBouquetParams) error
+	RemoveChannelFromBouquet(ctx context.Context, arg db.RemoveChannelFromBouquetParams) error
+	ListBouquetChannels(ctx context.Context, bouquetID int64) ([]db.Channel, error)
+
+	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
+	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
+	DeleteMatchRule(ctx context.Context, id int64) error
 }
 
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
@@ -40,19 +72,18 @@ type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider) (source.Result, error)
 }
 
+// Matcher proposes and applies cross-provider channel groupings
+// (satisfied by *channel.Service).
+type Matcher interface {
+	Propose(ctx context.Context) ([]channel.Proposal, error)
+	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
+}
+
 // Mount registers the API routes on r (mounted at /api/v1).
 func Mount(r chi.Router, env *Env) {
-	r.Route("/providers", func(r chi.Router) {
-		r.Get("/", env.listProviders)
-		r.Post("/", env.createProvider)
-		r.Route("/{id}", func(r chi.Router) {
-			r.Get("/", env.getProvider)
-			r.Put("/", env.updateProvider)
-			r.Delete("/", env.deleteProvider)
-			r.Post("/refresh", env.refreshProvider)
-			r.Get("/streams", env.listProviderStreams)
-		})
-	})
+	MountProviders(r, env)
+	MountChannels(r, env)
+	MountMatch(r, env)
 }
 
 // writeJSON writes v as JSON with status.

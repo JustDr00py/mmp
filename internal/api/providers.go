@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -87,6 +89,21 @@ func defBool(p *bool, def bool) bool {
 		return *p
 	}
 	return def
+}
+
+// MountProviders registers provider routes.
+func MountProviders(r chi.Router, env *Env) {
+	r.Route("/providers", func(r chi.Router) {
+		r.Get("/", env.listProviders)
+		r.Post("/", env.createProvider)
+		r.Route("/{id}", func(r chi.Router) {
+			r.Get("/", env.getProvider)
+			r.Put("/", env.updateProvider)
+			r.Delete("/", env.deleteProvider)
+			r.Post("/refresh", env.refreshProvider)
+			r.Get("/streams", env.listProviderStreams)
+		})
+	})
 }
 
 func (env *Env) listProviders(w http.ResponseWriter, r *http.Request) {

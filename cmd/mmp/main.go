@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sysadmin/mmp/internal/api"
+	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/server"
@@ -66,7 +67,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	defer pool.Close()
 
 	refresher := source.NewRefresher(log, pool)
-	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher}
+	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher, Match: channel.NewService(log, pool)}
 	srv := server.New(cfg, log, pool)
 	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
 
