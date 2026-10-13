@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 )
 
 const createChannel = `-- name: CreateChannel :one
@@ -207,7 +208,7 @@ func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]C
 const listEnabledChannels = `-- name: ListEnabledChannels :many
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
 FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled
@@ -215,14 +216,15 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListEnabledChannelsRow struct {
-	ID        int64  `json:"id"`
-	Number    *int32 `json:"number"`
-	Name      string `json:"name"`
-	TvgID     string `json:"tvg_id"`
-	LogoUrl   string `json:"logo_url"`
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
-	GroupSort int32  `json:"group_sort"`
+	ID        int64     `json:"id"`
+	Number    *int32    `json:"number"`
+	Name      string    `json:"name"`
+	TvgID     string    `json:"tvg_id"`
+	LogoUrl   string    `json:"logo_url"`
+	GroupID   int64     `json:"group_id"`
+	GroupName string    `json:"group_name"`
+	GroupSort int32     `json:"group_sort"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Every enabled channel (admin playlists).
@@ -244,6 +246,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 			&i.GroupID,
 			&i.GroupName,
 			&i.GroupSort,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -258,7 +261,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 const listUserChannels = `-- name: ListUserChannels :many
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
 FROM user_bouquets ub
 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
 JOIN channels c ON c.id = bc.channel_id
@@ -268,14 +271,15 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListUserChannelsRow struct {
-	ID        int64  `json:"id"`
-	Number    *int32 `json:"number"`
-	Name      string `json:"name"`
-	TvgID     string `json:"tvg_id"`
-	LogoUrl   string `json:"logo_url"`
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
-	GroupSort int32  `json:"group_sort"`
+	ID        int64     `json:"id"`
+	Number    *int32    `json:"number"`
+	Name      string    `json:"name"`
+	TvgID     string    `json:"tvg_id"`
+	LogoUrl   string    `json:"logo_url"`
+	GroupID   int64     `json:"group_id"`
+	GroupName string    `json:"group_name"`
+	GroupSort int32     `json:"group_sort"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Enabled channels in any of the user's bouquets (customer playlists).
@@ -297,6 +301,7 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 			&i.GroupID,
 			&i.GroupName,
 			&i.GroupSort,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -26,9 +26,9 @@ func newGuideHandlers(t *testing.T) (*fakeStore, http.Handler) {
 	est := time.FixedZone("EST", -5*3600)
 	store.guide = map[string][]db.ListGuideProgrammesRow{
 		"news.us": {
-			{TvgKey: "news.us", Title: "Morning <News> & Weather", SubTitle: "Ep. 1", Description: "Line one\nline two \x01",
+			{TvgKey: "news.us", ID: 501, Title: "Morning <News> & Weather", SubTitle: "Ep. 1", Description: "Line one\nline two \x01",
 				StartTime: time.Date(2026, 10, 13, 7, 0, 0, 0, est), StopTime: time.Date(2026, 10, 13, 8, 0, 0, 0, est)},
-			{TvgKey: "news.us", Title: "Noon", StartTime: guideNow, StopTime: guideNow.Add(30 * time.Minute)},
+			{TvgKey: "news.us", ID: 502, Title: "Noon", StartTime: guideNow, StopTime: guideNow.Add(30 * time.Minute)},
 		},
 		"sports.uk": {
 			{TvgKey: "sports.uk", Title: "Match", StartTime: guideNow, StopTime: guideNow.Add(2 * time.Hour)},

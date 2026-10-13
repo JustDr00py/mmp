@@ -1,0 +1,17 @@
+[
+  {
+    "category_id": "2",
+    "category_name": "Docs",
+    "parent_id": 0
+  },
+  {
+    "category_id": "1",
+    "category_name": "News",
+    "parent_id": 0
+  },
+  {
+    "category_id": "0",
+    "category_name": "Uncategorized",
+    "parent_id": 0
+  }
+]

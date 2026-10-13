@@ -1,0 +1,28 @@
+{
+  "server_info": {
+    "url": "mmp.example",
+    "port": "8080",
+    "https_port": "443",
+    "server_protocol": "http",
+    "rtmp_port": "0",
+    "timezone": "UTC",
+    "timestamp_now": 1791892800,
+    "time_now": "2026-10-13 12:00:00",
+    "process": true
+  },
+  "user_info": {
+    "username": "alice",
+    "password": "alice-pw1",
+    "message": "",
+    "auth": 1,
+    "status": "Active",
+    "exp_date": "4070908800",
+    "is_trial": "0",
+    "active_cons": "0",
+    "created_at": "1700000000",
+    "max_connections": "1",
+    "allowed_output_formats": [
+      "ts"
+    ]
+  }
+}

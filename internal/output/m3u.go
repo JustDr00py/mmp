@@ -42,6 +42,8 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Get("/playlist/{token}.m3u", h.tokenPlaylist)
 	r.Get("/xmltv.php", h.xmltvPHP)
 	r.Get("/epg/{token}.xml", h.tokenGuide)
+	r.Get("/player_api.php", h.playerAPI)
+	r.Post("/player_api.php", h.playerAPI)
 }
 
 // Channel is one playable channel as customers see it.
@@ -53,6 +55,8 @@ type Channel struct {
 	Logo      string
 	GroupID   int64
 	GroupName string
+	GroupSort int32
+	Added     time.Time
 }
 
 // channelsFor lists what u may watch: admins see every enabled channel,
@@ -65,7 +69,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName})
+			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt})
 		}
 		return out, nil
 	}
@@ -74,7 +78,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName})
+		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt})
 	}
 	return out, nil
 }

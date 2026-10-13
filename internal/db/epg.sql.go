@@ -73,7 +73,7 @@ WITH best AS (
       AND p.stop_time > $1 AND p.start_time < $2
     ORDER BY lower(p.channel_tvg_id), COALESCE(pr.priority, 2147483647), s.id
 )
-SELECT b.tvg_key::text AS tvg_key, p.title, p.sub_title, p.description, p.start_time, p.stop_time
+SELECT b.tvg_key::text AS tvg_key, p.id, p.title, p.sub_title, p.description, p.start_time, p.stop_time
 FROM best b
 JOIN epg_programmes p
   ON p.epg_source_id = b.epg_source_id AND lower(p.channel_tvg_id) = b.tvg_key
@@ -89,6 +89,7 @@ type ListGuideProgrammesParams struct {
 
 type ListGuideProgrammesRow struct {
 	TvgKey      string    `json:"tvg_key"`
+	ID          int64     `json:"id"`
 	Title       string    `json:"title"`
 	SubTitle    string    `json:"sub_title"`
 	Description string    `json:"description"`
@@ -111,6 +112,7 @@ func (q *Queries) ListGuideProgrammes(ctx context.Context, arg ListGuideProgramm
 		var i ListGuideProgrammesRow
 		if err := rows.Scan(
 			&i.TvgKey,
+			&i.ID,
 			&i.Title,
 			&i.SubTitle,
 			&i.Description,

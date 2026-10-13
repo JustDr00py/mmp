@@ -75,17 +75,20 @@ func newTestHandlers(t *testing.T) (*Handlers, http.Handler) {
 		return h
 	}
 	past := time.Now().Add(-time.Hour)
+	future := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 	users := fakeUsers{
-		"alice": {ID: 1, Username: "alice", PasswordHash: hash("alice-pw1"), Role: auth.RoleCustomer, Enabled: true, StreamToken: "tok-alice", MaxConnections: 1},
-		"root":  {ID: 2, Username: "root", PasswordHash: hash("root-pw1"), Role: auth.RoleAdmin, Enabled: true, StreamToken: "tok-root"},
-		"old":   {ID: 3, Username: "old", PasswordHash: hash("old-pw1"), Role: auth.RoleCustomer, Enabled: true, StreamToken: "tok-old", ExpiresAt: &past},
-		"off":   {ID: 4, Username: "off", PasswordHash: hash("off-pw1"), Role: auth.RoleCustomer, Enabled: false, StreamToken: "tok-off"},
+		"alice": {ID: 1, Username: "alice", PasswordHash: hash("alice-pw1"), Role: auth.RoleCustomer, Enabled: true, StreamToken: "tok-alice", MaxConnections: 1,
+			CreatedAt: time.Unix(1700000000, 0), ExpiresAt: &future},
+		"root": {ID: 2, Username: "root", PasswordHash: hash("root-pw1"), Role: auth.RoleAdmin, Enabled: true, StreamToken: "tok-root"},
+		"old":  {ID: 3, Username: "old", PasswordHash: hash("old-pw1"), Role: auth.RoleCustomer, Enabled: true, StreamToken: "tok-old", ExpiresAt: &past},
+		"off":  {ID: 4, Username: "off", PasswordHash: hash("off-pw1"), Role: auth.RoleCustomer, Enabled: false, StreamToken: "tok-off"},
 	}
-	news := db.ListUserChannelsRow{ID: 10, Number: i32(101), Name: `News "24"`, TvgID: "news.us", LogoUrl: "http://logo/n.png", GroupID: 1, GroupName: "News"}
+	added := time.Unix(1700000500, 0)
+	news := db.ListUserChannelsRow{ID: 10, Number: i32(101), Name: `News "24"`, TvgID: "news.us", LogoUrl: "http://logo/n.png", GroupID: 1, GroupName: "News", CreatedAt: added}
 	store := &fakeStore{
 		byUser: map[int64][]db.ListUserChannelsRow{1: {news}},
 		all: []db.ListEnabledChannelsRow{
-			{ID: 10, Number: i32(101), Name: `News "24"`, TvgID: "news.us", LogoUrl: "http://logo/n.png", GroupID: 1, GroupName: "News"},
+			{ID: 10, Number: i32(101), Name: `News "24"`, TvgID: "news.us", LogoUrl: "http://logo/n.png", GroupID: 1, GroupName: "News", GroupSort: 5, CreatedAt: added},
 			{ID: 11, Name: "Evil\n#EXTINF:-1,Injected\nhttp://attacker/x.ts", GroupName: "Sports"},
 		},
 	}

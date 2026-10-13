@@ -1,0 +1,56 @@
+[
+  {
+    "num": 301,
+    "name": "Evil\n#EXTINF:-1,Injected\nhttp://attacker/x.ts",
+    "stream_type": "live",
+    "stream_id": 11,
+    "stream_icon": "",
+    "epg_channel_id": null,
+    "added": "0",
+    "is_adult": "0",
+    "category_id": "0",
+    "category_ids": [
+      0
+    ],
+    "custom_sid": "",
+    "tv_archive": 0,
+    "direct_source": "",
+    "tv_archive_duration": 0
+  },
+  {
+    "num": 200,
+    "name": "Sports UK",
+    "stream_type": "live",
+    "stream_id": 12,
+    "stream_icon": "http://logo/s.png?a=1&b=2",
+    "epg_channel_id": "Sports.UK",
+    "added": "0",
+    "is_adult": "0",
+    "category_id": "0",
+    "category_ids": [
+      0
+    ],
+    "custom_sid": "",
+    "tv_archive": 0,
+    "direct_source": "",
+    "tv_archive_duration": 0
+  },
+  {
+    "num": 302,
+    "name": "Sports UK Backup",
+    "stream_type": "live",
+    "stream_id": 13,
+    "stream_icon": "",
+    "epg_channel_id": "sports.uk",
+    "added": "0",
+    "is_adult": "0",
+    "category_id": "0",
+    "category_ids": [
+      0
+    ],
+    "custom_sid": "",
+    "tv_archive": 0,
+    "direct_source": "",
+    "tv_archive_duration": 0
+  }
+]

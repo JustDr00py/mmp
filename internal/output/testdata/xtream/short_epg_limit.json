@@ -1,0 +1,16 @@
+{
+  "epg_listings": [
+    {
+      "id": "501",
+      "epg_id": "501",
+      "title": "TW9ybmluZyA8TmV3cz4gJiBXZWF0aGVy",
+      "lang": "",
+      "start": "2026-10-13 12:00:00",
+      "end": "2026-10-13 13:00:00",
+      "description": "TGluZSBvbmUKbGluZSB0d28gAQ==",
+      "channel_id": "news.us",
+      "start_timestamp": "1791892800",
+      "stop_timestamp": "1791896400"
+    }
+  ]
+}
