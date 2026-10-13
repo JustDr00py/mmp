@@ -37,7 +37,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 
 ## M5 — Users & customer outputs
 - [x] 5.1 Users model: bcrypt, roles, expiry, max_connections, bouquets, stream_token. AC: unit tests. — done: `internal/auth/users.go` (bcrypt cost 11, unknown-user timing equaliser, Xtream-URL-safe username/password rules, 256-bit stream tokens, `Usable` → disabled/expired) + `users.sql`; admin API `/api/v1/users` CRUD + `rotate-token` (hash never serialized, empty password keeps old, 409 dup, last-enabled-admin guard, user+bouquet writes in one tx via `Env.InTx`); unit + Postgres tests
-- [ ] 5.2 Admin login (session cookie) + API tokens; middleware. AC: unauthorized → 401.
+- [x] 5.2 Admin login (session cookie) + API tokens; middleware. AC: unauthorized → 401. — done: migration 00004 (`admin_sessions`, `api_tokens`; SHA-256 of secrets only), `internal/auth/session.go` (`Authenticator`: login w/ uniform 401 + timing equaliser, HttpOnly/SameSite=Strict/Secure-on-https cookie, Bearer tokens w/ last_used, `RequireAdmin` re-checks admin+enabled+unexpired per request, `EnsureAdmin` bootstrap from MMP_ADMIN_USERNAME/PASSWORD), `/auth/login|logout|me` + `/tokens` CRUD, all other /api/v1 routes behind the middleware, hourly expired-session purge; Postgres test covers anon/bad bearer/bad logins/expired/logged-out/disabled → 401
 - [ ] 5.3 Customer auth (Xtream user/pass + token) with per-user connection accounting. AC: the (max+1)th connection is rejected.
 - [ ] 5.4 M3U output: `/get.php` (m3u / m3u_plus) and `/playlist/{token}.m3u`. AC: VLC loads the playlist, and URLs point to MMP.
 - [ ] 5.5 XMLTV output: `/xmltv.php`, `/epg/{token}.xml`, filtered by bouquet. AC: validates as XMLTV.

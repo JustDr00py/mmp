@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/sysadmin/mmp/internal/api"
+	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
@@ -100,9 +101,32 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	})
 	defer streams.Shutdown()
 
+	queries := db.New(pool)
+	if err := auth.EnsureAdmin(ctx, queries, log, cfg.Admin.Username, cfg.Admin.Password); err != nil {
+		return err
+	}
+	authn := auth.NewAuthenticator(queries, log, cfg.Auth.SessionTTL.Duration,
+		strings.HasPrefix(cfg.BaseURL, "https://"))
+	go func() { // purge expired admin sessions hourly
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n, err := queries.DeleteExpiredSessions(ctx); err != nil {
+					log.Warn("purge sessions", "err", err)
+				} else if n > 0 {
+					log.Info("purged expired sessions", "count", n)
+				}
+			}
+		}
+	}()
+
 	refresher := source.NewRefresher(log, pool)
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: channel.NewService(log, pool), Streams: streams,
+		Match: channel.NewService(log, pool), Streams: streams, Auth: authn,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}

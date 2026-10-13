@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -737,4 +739,184 @@ func TestUsersAPI(t *testing.T) {
 	if code, _, _ := call(t, h, http.MethodGet, path, nil); code != http.StatusNotFound {
 		t.Errorf("get deleted = %d", code)
 	}
+}
+
+// TestAdminAuth is the 5.2 AC: with auth on, every admin route answers 401
+// without a valid admin credential; sessions and API tokens work.
+func TestAdminAuth(t *testing.T) {
+	env := newAPITestEnv(t)
+	ctx := context.Background()
+	q := env.Store.(*db.Queries)
+	env.Auth = auth.NewAuthenticator(q, nil, time.Hour, false)
+
+	// Bootstrap creates the first admin once.
+	if err := auth.EnsureAdmin(ctx, q, slog.New(slog.DiscardHandler), "root", "root-pw1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.EnsureAdmin(ctx, q, slog.New(slog.DiscardHandler), "other", "other-pw1"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := q.CountAdmins(ctx); n != 1 {
+		t.Fatalf("admins after double bootstrap = %d", n)
+	}
+	hash, _ := auth.HashPassword("cust-pw1")
+	if _, err := q.CreateUser(ctx, db.CreateUserParams{Username: "cust", PasswordHash: hash, Role: auth.RoleCustomer,
+		MaxConnections: 1, Enabled: true, StreamToken: "tok-cust"}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(apiServer(env))
+	t.Cleanup(srv.Close)
+	do := func(c *http.Client, method, path, bearer string, body any) (*http.Response, map[string]any) {
+		t.Helper()
+		var rd io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = strings.NewReader(string(b))
+		}
+		req, _ := http.NewRequest(method, srv.URL+path, rd)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&m)
+		return resp, m
+	}
+	anon := &http.Client{}
+
+	// No credentials: 401 everywhere, including the stream endpoint.
+	for _, p := range []string{"/api/v1/providers", "/api/v1/channels", "/api/v1/users", "/api/v1/channels/1/stream", "/api/v1/auth/me", "/api/v1/tokens"} {
+		if resp, _ := do(anon, http.MethodGet, p, "", nil); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET %s anonymous = %d, want 401", p, resp.StatusCode)
+		}
+	}
+	if resp, _ := do(anon, http.MethodPost, "/api/v1/providers", "", map[string]any{"name": "x"}); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("anonymous POST = %d", resp.StatusCode)
+	}
+	if resp, _ := do(anon, http.MethodGet, "/api/v1/providers", "not-a-token", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("bad bearer = %d", resp.StatusCode)
+	}
+
+	// Bad logins all look the same.
+	for name, body := range map[string]map[string]any{
+		"wrong password": {"username": "root", "password": "nope-nope"},
+		"unknown user":   {"username": "ghost", "password": "root-pw1"},
+		"customer":       {"username": "cust", "password": "cust-pw1"},
+	} {
+		resp, m := do(anon, http.MethodPost, "/api/v1/auth/login", "", body)
+		if resp.StatusCode != http.StatusUnauthorized || m["error"] != "invalid credentials" {
+			t.Errorf("%s login = %d %v", name, resp.StatusCode, m)
+		}
+	}
+
+	// Good login: hardened cookie, then cookie-authenticated requests work.
+	jar, _ := cookiejar.New(nil)
+	admin := &http.Client{Jar: jar}
+	resp, m := do(admin, http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "root", "password": "root-pw1"})
+	if resp.StatusCode != 200 || m["username"] != "root" {
+		t.Fatalf("login = %d %v", resp.StatusCode, m)
+	}
+	if _, leaked := m["password_hash"]; leaked {
+		t.Error("login leaked password_hash")
+	}
+	var sc *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == auth.SessionCookie {
+			sc = c
+		}
+	}
+	if sc == nil || !sc.HttpOnly || sc.SameSite != http.SameSiteStrictMode || len(sc.Value) != 43 {
+		t.Fatalf("session cookie = %+v", sc)
+	}
+	if resp, m := do(admin, http.MethodGet, "/api/v1/auth/me", "", nil); resp.StatusCode != 200 || m["username"] != "root" {
+		t.Errorf("me = %d %v", resp.StatusCode, m)
+	}
+	if resp, _ := do(admin, http.MethodGet, "/api/v1/providers", "", nil); resp.StatusCode != 200 {
+		t.Errorf("providers with session = %d", resp.StatusCode)
+	}
+
+	// API token: shown once, works as Bearer, tracks last use, revocable.
+	resp, tok := do(admin, http.MethodPost, "/api/v1/tokens", "", map[string]any{"name": "ci"})
+	if resp.StatusCode != http.StatusCreated || len(tok["token"].(string)) != 43 {
+		t.Fatalf("create token = %d %v", resp.StatusCode, tok)
+	}
+	secret := tok["token"].(string)
+	if resp, _ := do(anon, http.MethodGet, "/api/v1/channels", secret, nil); resp.StatusCode != 200 {
+		t.Errorf("bearer = %d", resp.StatusCode)
+	}
+	toks, _ := q.ListAPITokens(ctx)
+	if len(toks) != 1 || toks[0].LastUsedAt == nil || toks[0].Username != "root" {
+		t.Errorf("tokens = %+v", toks)
+	}
+	if resp, _ := do(admin, http.MethodGet, "/api/v1/tokens", "", nil); resp.StatusCode != 200 {
+		t.Errorf("list tokens = %d", resp.StatusCode)
+	}
+	tokPath := "/api/v1/tokens/" + strconv.FormatInt(int64(tok["id"].(float64)), 10)
+	if resp, _ := do(admin, http.MethodDelete, tokPath, "", nil); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("delete token = %d", resp.StatusCode)
+	}
+	if resp, _ := do(anon, http.MethodGet, "/api/v1/channels", secret, nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("revoked bearer = %d, want 401", resp.StatusCode)
+	}
+
+	// Disabling the admin cuts off its live session immediately.
+	resp, second := do(admin, http.MethodPost, "/api/v1/users", "", map[string]any{"username": "root2", "password": "root-pw2", "role": "admin"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("second admin = %d", resp.StatusCode)
+	}
+	jar2, _ := cookiejar.New(nil)
+	admin2 := &http.Client{Jar: jar2}
+	if resp, _ := do(admin2, http.MethodPost, "/api/v1/auth/login", "", map[string]any{"username": "root2", "password": "root-pw2"}); resp.StatusCode != 200 {
+		t.Fatal("root2 login")
+	}
+	root2 := "/api/v1/users/" + strconv.FormatInt(int64(second["id"].(float64)), 10)
+	if resp, _ := do(admin, http.MethodPut, root2, "", map[string]any{"enabled": false}); resp.StatusCode != 200 {
+		t.Fatal("disable root2")
+	}
+	if resp, _ := do(admin2, http.MethodGet, "/api/v1/auth/me", "", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("disabled admin session = %d, want 401", resp.StatusCode)
+	}
+
+	// Expired sessions are rejected.
+	if err := q.CreateSession(ctx, db.CreateSessionParams{TokenHash: auth.HashToken("old-session"), UserID: 1,
+		ExpiresAt: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "old-session"})
+	if resp, err := anon.Do(req); err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expired session = %v %v", resp.StatusCode, err)
+	} else {
+		resp.Body.Close()
+	}
+	if n, _ := q.DeleteExpiredSessions(ctx); n != 1 {
+		t.Errorf("purged %d expired sessions, want 1", n)
+	}
+
+	// Logout invalidates the session server-side, not just the cookie.
+	cookie := jar.Cookies(mustURL(t, srv.URL))[0]
+	if resp, _ := do(admin, http.MethodPost, "/api/v1/auth/logout", "", nil); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("logout = %d", resp.StatusCode)
+	}
+	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/api/v1/auth/me", nil)
+	req.AddCookie(cookie) // replay the old cookie value
+	if resp, err := anon.Do(req); err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("replayed logged-out cookie = %v %v", resp.StatusCode, err)
+	} else {
+		resp.Body.Close()
+	}
+}
+
+func mustURL(t *testing.T, s string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }

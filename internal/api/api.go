@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/source"
@@ -24,6 +25,8 @@ type Env struct {
 	Refresh Refresher
 	Match   Matcher
 	Streams StreamAttacher
+	// Auth guards every route but login. Nil disables auth (unit tests).
+	Auth *auth.Authenticator
 	// InTx runs fn against a transactional Store. Nil runs fn directly on
 	// Store (unit tests with in-memory fakes).
 	InTx func(ctx context.Context, fn func(Store) error) error
@@ -88,6 +91,10 @@ type Store interface {
 	AddUserBouquets(ctx context.Context, arg db.AddUserBouquetsParams) error
 	ListUserBouquetIDs(ctx context.Context, userID int64) ([]int64, error)
 	CountAdmins(ctx context.Context) (int64, error)
+
+	CreateAPIToken(ctx context.Context, arg db.CreateAPITokenParams) (db.CreateAPITokenRow, error)
+	ListAPITokens(ctx context.Context) ([]db.ListAPITokensRow, error)
+	DeleteAPIToken(ctx context.Context, id int64) (int64, error)
 }
 
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
@@ -103,11 +110,19 @@ type Matcher interface {
 }
 
 // Mount registers the API routes on r (mounted at /api/v1).
+// Everything except POST /auth/login requires an admin when env.Auth is set.
 func Mount(r chi.Router, env *Env) {
-	MountProviders(r, env)
-	MountChannels(r, env)
-	MountMatch(r, env)
-	MountUsers(r, env)
+	mountAuthPublic(r, env)
+	r.Group(func(r chi.Router) {
+		if env.Auth != nil {
+			r.Use(env.Auth.RequireAdmin)
+		}
+		mountAuthPrivate(r, env)
+		MountProviders(r, env)
+		MountChannels(r, env)
+		MountMatch(r, env)
+		MountUsers(r, env)
+	})
 }
 
 // writeJSON writes v as JSON with status.

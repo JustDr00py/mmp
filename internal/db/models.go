@@ -8,6 +8,22 @@ import (
 	"time"
 )
 
+type AdminSession struct {
+	TokenHash []byte    `json:"token_hash"`
+	UserID    int64     `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type ApiToken struct {
+	ID         int64      `json:"id"`
+	UserID     int64      `json:"user_id"`
+	Name       string     `json:"name"`
+	TokenHash  []byte     `json:"token_hash"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+}
+
 type Bouquet struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`

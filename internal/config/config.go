@@ -71,6 +71,14 @@ type Config struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
 		EPGInterval Duration `yaml:"epg_interval"` // EPG refresh cadence
 	} `yaml:"refresh"`
+	Auth struct {
+		SessionTTL Duration `yaml:"session_ttl"` // admin browser session lifetime
+	} `yaml:"auth"`
+	// Admin bootstraps the first admin user when none exists. Never logged.
+	Admin struct {
+		Username string `yaml:"username"`
+		Password string `yaml:"password"`
+	} `yaml:"admin"`
 }
 
 // Defaults returns the built-in configuration.
@@ -95,6 +103,7 @@ func Defaults() Config {
 	c.Proxy.MaxCCErrorRate = 0.05
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
+	c.Auth.SessionTTL = Duration{7 * 24 * time.Hour}
 	return c
 }
 
@@ -180,6 +189,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_LOG_LEVEL", &c.Log.Level)
 	str("MMP_LOG_FORMAT", &c.Log.Format)
 	str("MMP_DB_DSN", &c.DB.DSN)
+	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
+	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
 	for _, e := range []error{
 		int32v("MMP_DB_MAX_CONNS", &c.DB.MaxConns),
 		dur("MMP_HTTP_READ_HEADER_TIMEOUT", &c.HTTP.ReadHeaderTimeout),
@@ -192,6 +203,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_PROXY_COOLDOWN_MAX", &c.Proxy.CooldownMax),
 		dur("MMP_REFRESH_INTERVAL", &c.Refresh.Interval),
 		dur("MMP_REFRESH_EPG_INTERVAL", &c.Refresh.EPGInterval),
+		dur("MMP_AUTH_SESSION_TTL", &c.Auth.SessionTTL),
 		intv("MMP_PROXY_BUFFER_SIZE_MB", &c.Proxy.BufferSizeMB),
 		intv("MMP_PROXY_LOW_BITRATE_KBPS", &c.Proxy.LowBitrateKbps),
 		floatv("MMP_PROXY_MAX_CC_ERROR_RATE", &c.Proxy.MaxCCErrorRate),
@@ -217,6 +229,9 @@ func (c *Config) Validate() error {
 	}
 	if c.DB.DSN == "" {
 		return errors.New("config: db.dsn is empty")
+	}
+	if c.Auth.SessionTTL.Duration <= 0 {
+		return errors.New("config: auth.session_ttl must be > 0")
 	}
 	if c.DB.MaxConns < 1 {
 		return errors.New("config: db.max_conns must be >= 1")
