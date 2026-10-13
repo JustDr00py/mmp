@@ -142,3 +142,90 @@ func TestProviderQueriesSmoke(t *testing.T) {
 		t.Errorf("after delete ListProviders = %v, %v", list, err)
 	}
 }
+
+// TestListGuideProgrammes covers the guide query: case-insensitive tvg-id
+// match, one source per channel (best provider priority with data in the
+// window, provider sources ahead of manual ones), the time window, and
+// disabled sources.
+func TestListGuideProgrammes(t *testing.T) {
+	dsn := testDSN(t)
+	recreate(t, dsn)
+	ctx := context.Background()
+	if err := Migrate(ctx, dsn); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pool, err := Open(ctx, PoolConfig{DSN: dsn})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer pool.Close()
+	q := New(pool)
+
+	source := func(name string, prio int32, withProvider bool) int64 {
+		t.Helper()
+		var pid *int64
+		if withProvider {
+			p, err := q.CreateProvider(ctx, CreateProviderParams{Name: name, Type: "m3u", Url: "http://" + name + "/",
+				MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: prio, Enabled: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pid = &p.ID
+		}
+		var id int64
+		if err := pool.QueryRow(ctx, `INSERT INTO epg_sources (name, url, provider_id) VALUES ($1, $2, $3) RETURNING id`,
+			name, "http://"+name+"/xmltv", pid).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	sBest, sWorse, sManual, sOff := source("best", 0, true), source("worse", 5, true), source("manual", 0, false), source("off", 0, true)
+	if _, err := pool.Exec(ctx, `UPDATE epg_sources SET enabled = false WHERE id = $1`, sOff); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	h := func(n int) time.Time { return now.Add(time.Duration(n) * time.Hour) }
+	var rows []InsertEpgProgrammesParams
+	add := func(src int64, tvg, title string, start, stop time.Time) {
+		rows = append(rows, InsertEpgProgrammesParams{EpgSourceID: src, ChannelTvgID: tvg, Title: title, StartTime: start, StopTime: stop})
+	}
+	add(sBest, "News.US", "best-news-2", h(1), h(2))
+	add(sBest, "News.US", "best-news-1", h(0), h(1))
+	add(sBest, "News.US", "best-news-old", h(-30), h(-29))     // before the window
+	add(sBest, "News.US", "best-news-running", h(-25), h(-23)) // overlaps the window start
+	add(sWorse, "news.us", "worse-news", h(0), h(3))
+	add(sWorse, "sports", "worse-sports", h(0), h(1))
+	add(sManual, "sports", "manual-sports", h(0), h(1))
+	add(sBest, "movies", "best-movies-far", h(200), h(201)) // after the window
+	add(sWorse, "movies", "worse-movies", h(0), h(2))
+	add(sOff, "kids", "off-kids", h(0), h(1))
+	if _, err := q.InsertEpgProgrammes(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := q.ListGuideProgrammes(ctx, ListGuideProgrammesParams{
+		TvgKeys: []string{"news.us", "sports", "movies", "kids", "missing"},
+		Since:   h(-24), Until: h(7 * 24),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, r := range got {
+		titles = append(titles, r.TvgKey+":"+r.Title)
+	}
+	want := []string{
+		"movies:worse-movies",
+		"news.us:best-news-running", "news.us:best-news-1", "news.us:best-news-2",
+		"sports:worse-sports",
+	}
+	if len(titles) != len(want) {
+		t.Fatalf("guide = %v, want %v", titles, want)
+	}
+	for i := range want {
+		if titles[i] != want[i] {
+			t.Errorf("guide[%d] = %s, want %s (all: %v)", i, titles[i], want[i], titles)
+		}
+	}
+}

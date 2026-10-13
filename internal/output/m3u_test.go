@@ -41,6 +41,17 @@ func (f fakeUsers) GetUserByStreamToken(_ context.Context, tok string) (db.User,
 type fakeStore struct {
 	byUser map[int64][]db.ListUserChannelsRow
 	all    []db.ListEnabledChannelsRow
+	guide  map[string][]db.ListGuideProgrammesRow // by lower-cased tvg-id
+	fetchs []db.ListGuideProgrammesParams
+}
+
+func (f *fakeStore) ListGuideProgrammes(_ context.Context, arg db.ListGuideProgrammesParams) ([]db.ListGuideProgrammesRow, error) {
+	f.fetchs = append(f.fetchs, arg)
+	var out []db.ListGuideProgrammesRow
+	for _, k := range arg.TvgKeys {
+		out = append(out, f.guide[k]...)
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListUserChannels(_ context.Context, id int64) ([]db.ListUserChannelsRow, error) {

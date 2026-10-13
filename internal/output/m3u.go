@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,6 +23,7 @@ import (
 type Store interface {
 	ListUserChannels(ctx context.Context, userID int64) ([]db.ListUserChannelsRow, error)
 	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
+	ListGuideProgrammes(ctx context.Context, arg db.ListGuideProgrammesParams) ([]db.ListGuideProgrammesRow, error)
 }
 
 // Handlers serves the customer-facing endpoints. Every URL they emit is
@@ -31,12 +33,15 @@ type Handlers struct {
 	Store   Store
 	BaseURL string // no trailing slash
 	Log     *slog.Logger
+	Now     func() time.Time // guide window clock; nil = time.Now
 }
 
 // Mount registers the customer routes on the root router.
 func (h *Handlers) Mount(r chi.Router) {
 	r.Get("/get.php", h.getPHP)
 	r.Get("/playlist/{token}.m3u", h.tokenPlaylist)
+	r.Get("/xmltv.php", h.xmltvPHP)
+	r.Get("/epg/{token}.xml", h.tokenGuide)
 }
 
 // Channel is one playable channel as customers see it.

@@ -1,0 +1,27 @@
+<!-- The elements MMP emits, with their content models and attributes as
+     declared in the XMLTV project's xmltv.dtd. Children MMP never writes
+     are omitted from the content models. -->
+<!ELEMENT tv (channel*, programme*)>
+<!ATTLIST tv date CDATA #IMPLIED
+             source-info-url CDATA #IMPLIED
+             source-info-name CDATA #IMPLIED
+             source-data-url CDATA #IMPLIED
+             generator-info-name CDATA #IMPLIED
+             generator-info-url CDATA #IMPLIED>
+<!ELEMENT channel (display-name+, icon*, url*)>
+<!ATTLIST channel id CDATA #REQUIRED>
+<!ELEMENT display-name (#PCDATA)>
+<!ATTLIST display-name lang CDATA #IMPLIED>
+<!ELEMENT icon EMPTY>
+<!ATTLIST icon src CDATA #REQUIRED width CDATA #IMPLIED height CDATA #IMPLIED>
+<!ELEMENT url (#PCDATA)>
+<!ELEMENT programme (title+, sub-title*, desc*)>
+<!ATTLIST programme start CDATA #REQUIRED
+                    stop CDATA #IMPLIED
+                    channel CDATA #REQUIRED>
+<!ELEMENT title (#PCDATA)>
+<!ATTLIST title lang CDATA #IMPLIED>
+<!ELEMENT sub-title (#PCDATA)>
+<!ATTLIST sub-title lang CDATA #IMPLIED>
+<!ELEMENT desc (#PCDATA)>
+<!ATTLIST desc lang CDATA #IMPLIED>

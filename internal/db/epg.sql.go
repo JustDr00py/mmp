@@ -62,6 +62,71 @@ type InsertEpgProgrammesParams struct {
 	StopTime     time.Time `json:"stop_time"`
 }
 
+const listGuideProgrammes = `-- name: ListGuideProgrammes :many
+WITH best AS (
+    SELECT DISTINCT ON (lower(p.channel_tvg_id))
+           lower(p.channel_tvg_id) AS tvg_key, p.epg_source_id
+    FROM epg_programmes p
+    JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+    LEFT JOIN providers pr ON pr.id = s.provider_id
+    WHERE lower(p.channel_tvg_id) = ANY($3::text[])
+      AND p.stop_time > $1 AND p.start_time < $2
+    ORDER BY lower(p.channel_tvg_id), COALESCE(pr.priority, 2147483647), s.id
+)
+SELECT b.tvg_key::text AS tvg_key, p.title, p.sub_title, p.description, p.start_time, p.stop_time
+FROM best b
+JOIN epg_programmes p
+  ON p.epg_source_id = b.epg_source_id AND lower(p.channel_tvg_id) = b.tvg_key
+WHERE p.stop_time > $1 AND p.start_time < $2
+ORDER BY b.tvg_key, p.start_time
+`
+
+type ListGuideProgrammesParams struct {
+	Since   time.Time `json:"since"`
+	Until   time.Time `json:"until"`
+	TvgKeys []string  `json:"tvg_keys"`
+}
+
+type ListGuideProgrammesRow struct {
+	TvgKey      string    `json:"tvg_key"`
+	Title       string    `json:"title"`
+	SubTitle    string    `json:"sub_title"`
+	Description string    `json:"description"`
+	StartTime   time.Time `json:"start_time"`
+	StopTime    time.Time `json:"stop_time"`
+}
+
+// Programmes overlapping [since, until) for the given lower-cased tvg-ids.
+// Each tvg-id takes its whole schedule from one source: the one with the
+// best provider priority that has programmes in the window, so overlapping
+// guides from different providers never interleave.
+func (q *Queries) ListGuideProgrammes(ctx context.Context, arg ListGuideProgrammesParams) ([]ListGuideProgrammesRow, error) {
+	rows, err := q.db.Query(ctx, listGuideProgrammes, arg.Since, arg.Until, arg.TvgKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGuideProgrammesRow
+	for rows.Next() {
+		var i ListGuideProgrammesRow
+		if err := rows.Scan(
+			&i.TvgKey,
+			&i.Title,
+			&i.SubTitle,
+			&i.Description,
+			&i.StartTime,
+			&i.StopTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEpgSourceRefreshed = `-- name: MarkEpgSourceRefreshed :exec
 UPDATE epg_sources SET last_refreshed_at = now() WHERE id = $1
 `
