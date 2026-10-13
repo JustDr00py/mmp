@@ -58,6 +58,7 @@ func tagOf(p []byte) byte {
 type fakeProvider struct {
 	*httptest.Server
 	hits atomic.Int32
+	open atomic.Int32 // requests currently being served
 }
 
 func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
@@ -65,6 +66,8 @@ func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
 	fp := &fakeProvider{}
 	fp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fp.hits.Add(1)
+		fp.open.Add(1)
+		defer fp.open.Add(-1)
 		if mode == "503" {
 			http.Error(w, "busy", http.StatusServiceUnavailable)
 			return
