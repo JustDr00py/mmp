@@ -22,6 +22,27 @@ func TestURL(t *testing.T) {
 			in:   "http://panel.example.tv/player_api.php?USERNAME=alice&Password=s3cret&action=get_live_streams",
 			want: "http://panel.example.tv/player_api.php?USERNAME=" + Mask + "&Password=" + Mask + "&action=get_live_streams",
 		},
+		// MMP stream-token paths (relative, as the request logger sees them).
+		{
+			name: "token playlist",
+			in:   "/playlist/AbC-123_xyz.m3u",
+			want: "/playlist/" + Mask + ".m3u",
+		},
+		{
+			name: "token epg",
+			in:   "/epg/AbC-123_xyz.xml",
+			want: "/epg/" + Mask + ".xml",
+		},
+		{
+			name: "token stream",
+			in:   "/t/AbC-123_xyz/42.ts",
+			want: "/t/" + Mask + "/42.ts",
+		},
+		{
+			name: "non-token path untouched",
+			in:   "/api/v1/channels/42/stream",
+			want: "/api/v1/channels/42/stream",
+		},
 		// Xtream path credentials.
 		{
 			name: "xtream live path",
@@ -96,11 +117,15 @@ func TestNoSecretsSurvive(t *testing.T) {
 		"http://h/get.php?username=a&password=" + secret,
 		"http://h/live/a/" + secret + "/1.ts",
 		"http://a:" + secret + "@h/",
+		"/playlist/" + secret + ".m3u",
+		"/epg/" + secret + ".xml",
+		"/t/" + secret + "/7.ts",
+		"/live/a/" + secret + "/1.ts",
 		"http://a@" + secret + ".example.com/", // host contains it but is not a credential — acceptable
 	}
 	for i, in := range inputs {
 		out := URL(in)
-		if i < 3 && strings.Contains(out, secret) {
+		if i < len(inputs)-1 && strings.Contains(out, secret) {
 			t.Errorf("input %d: secret survived: %q", i, out)
 		}
 	}

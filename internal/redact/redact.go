@@ -119,12 +119,20 @@ func redactQuery(rawQuery string) string {
 	return strings.Join(parts, "&")
 }
 
-// redactPath masks the two credential segments in Xtream-style media paths.
+// tokenPath matches MMP's own stream-token URLs: /playlist/<tok>.m3u,
+// /epg/<tok>.xml and /t/<tok>/<id>.ts. The token is a bearer credential.
+var tokenPath = regexp.MustCompile(`(?i)/(playlist|epg|t)/[^/?.]+`)
+
+// redactPath masks credential segments in Xtream-style media paths and
+// stream-token paths.
 func redactPath(path string) string {
-	if !xtreamPath.MatchString(path) {
-		return path
+	if xtreamPath.MatchString(path) {
+		path = xtreamPath.ReplaceAllString(path, "/$1/"+Mask+"/"+Mask+"/")
 	}
-	return xtreamPath.ReplaceAllString(path, "/$1/"+Mask+"/"+Mask+"/")
+	if tokenPath.MatchString(path) {
+		path = tokenPath.ReplaceAllString(path, "/$1/"+Mask)
+	}
+	return path
 }
 
 // scrub is the last-resort scrubber for unparseable strings.

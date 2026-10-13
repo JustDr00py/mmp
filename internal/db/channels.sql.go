@@ -204,6 +204,110 @@ func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]C
 	return items, nil
 }
 
+const listEnabledChannels = `-- name: ListEnabledChannels :many
+SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
+       COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
+       COALESCE(g.sort_order, 0) AS group_sort
+FROM channels c
+LEFT JOIN channel_groups g ON g.id = c.group_id
+WHERE c.enabled
+ORDER BY c.number NULLS LAST, c.name, c.id
+`
+
+type ListEnabledChannelsRow struct {
+	ID        int64  `json:"id"`
+	Number    *int32 `json:"number"`
+	Name      string `json:"name"`
+	TvgID     string `json:"tvg_id"`
+	LogoUrl   string `json:"logo_url"`
+	GroupID   int64  `json:"group_id"`
+	GroupName string `json:"group_name"`
+	GroupSort int32  `json:"group_sort"`
+}
+
+// Every enabled channel (admin playlists).
+func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannelsRow, error) {
+	rows, err := q.db.Query(ctx, listEnabledChannels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledChannelsRow
+	for rows.Next() {
+		var i ListEnabledChannelsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Name,
+			&i.TvgID,
+			&i.LogoUrl,
+			&i.GroupID,
+			&i.GroupName,
+			&i.GroupSort,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserChannels = `-- name: ListUserChannels :many
+SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
+       COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
+       COALESCE(g.sort_order, 0) AS group_sort
+FROM user_bouquets ub
+JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
+JOIN channels c ON c.id = bc.channel_id
+LEFT JOIN channel_groups g ON g.id = c.group_id
+WHERE ub.user_id = $1 AND c.enabled
+ORDER BY c.number NULLS LAST, c.name, c.id
+`
+
+type ListUserChannelsRow struct {
+	ID        int64  `json:"id"`
+	Number    *int32 `json:"number"`
+	Name      string `json:"name"`
+	TvgID     string `json:"tvg_id"`
+	LogoUrl   string `json:"logo_url"`
+	GroupID   int64  `json:"group_id"`
+	GroupName string `json:"group_name"`
+	GroupSort int32  `json:"group_sort"`
+}
+
+// Enabled channels in any of the user's bouquets (customer playlists).
+func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUserChannelsRow, error) {
+	rows, err := q.db.Query(ctx, listUserChannels, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserChannelsRow
+	for rows.Next() {
+		var i ListUserChannelsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Name,
+			&i.TvgID,
+			&i.LogoUrl,
+			&i.GroupID,
+			&i.GroupName,
+			&i.GroupSort,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextChannelNumber = `-- name: NextChannelNumber :one
 SELECT COALESCE(max(number), 100) + 1 FROM channels
 `

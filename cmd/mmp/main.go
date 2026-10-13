@@ -20,6 +20,7 @@ import (
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/output"
 	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/server"
 	"github.com/sysadmin/mmp/internal/source"
@@ -132,6 +133,11 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		}}
 	srv := server.New(cfg, log, pool)
 	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
+
+	// Customer outputs: playlists, EPG, Xtream API and live streams.
+	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
+	outputs := &output.Handlers{Access: access, Store: queries, BaseURL: cfg.BaseURL, Log: log}
+	outputs.Mount(srv.Mux())
 
 	// Background workers.
 	go func() {

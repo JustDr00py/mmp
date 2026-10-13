@@ -42,3 +42,25 @@ SELECT COALESCE(max(number), 100) + 1 FROM channels;
 
 -- name: GetChannelByTvgID :one
 SELECT * FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1;
+
+-- name: ListUserChannels :many
+-- Enabled channels in any of the user's bouquets (customer playlists).
+SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
+       COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
+       COALESCE(g.sort_order, 0) AS group_sort
+FROM user_bouquets ub
+JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
+JOIN channels c ON c.id = bc.channel_id
+LEFT JOIN channel_groups g ON g.id = c.group_id
+WHERE ub.user_id = $1 AND c.enabled
+ORDER BY c.number NULLS LAST, c.name, c.id;
+
+-- name: ListEnabledChannels :many
+-- Every enabled channel (admin playlists).
+SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
+       COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
+       COALESCE(g.sort_order, 0) AS group_sort
+FROM channels c
+LEFT JOIN channel_groups g ON g.id = c.group_id
+WHERE c.enabled
+ORDER BY c.number NULLS LAST, c.name, c.id;
