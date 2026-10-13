@@ -49,8 +49,6 @@ type providerInput struct {
 	Enabled             *bool  `json:"enabled"`
 }
 
-var errBadInput = errors.New("bad input")
-
 func (in *providerInput) validate() error {
 	if strings.TrimSpace(in.Name) == "" {
 		return errors.New("name is required")
