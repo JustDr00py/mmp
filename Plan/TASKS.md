@@ -15,8 +15,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [x] 2.1 `source/m3u` streaming parser (EXTINF attrs, group-title, CRLF, BOM, missing attrs). AC: fixture tests pass, and a 100k-entry file parses with bounded memory. — done: `internal/source/m3u` callback-based scanner parser (BOM/CRLF, quoted+unquoted attrs, EXTGRP fallback, stray-token tolerance); fixtures + 100k streaming test (~0.4s) pass
 - [x] 2.2 `source/xtream` client: auth, `get_live_categories`, `get_live_streams`, stream URL building. AC: tests against an httptest fake panel. — done: `internal/source/xtream` (Login w/ 401+auth:0 detection, categories/streams decoding, path-escaped stream URLs, xmltv URL); fake-panel tests pass
 - [x] 2.3 `source/epg` XMLTV streaming parser + storage of programmes. AC: fixture test, with timezone offsets handled. — done: `internal/source/epg` (streaming decoder, per-programme ±offsets + no-space layout, latin-1 charset, junk skipping, first-lang title/desc); copyfrom queries `InsertEpgProgrammes`; fixture tests pass
-- [ ] 2.4 `refresher`: scheduled + on-demand refresh, upserted by `(provider_id, external_id)`, with stale rows soft-disabled. AC: integration test refreshes twice and the counts stay correct.
-- [ ] 2.5 Admin API: providers CRUD, "refresh now", list/search provider streams. AC: API tests.
+- [x] 2.4 `refresher`: scheduled + on-demand refresh, upserted by `(provider_id, external_id)`, with stale rows soft-disabled. AC: integration test refreshes twice and the counts stay correct. — done: refresher w/ per-provider tx upsert + soft-disable + EPG replace via COPY, scheduler; migration 00002; integration tests pass (m3u refresh ×3, xtream movie-skip, epg replace)
+- [x] 2.5 Admin API: providers CRUD, "refresh now", list/search provider streams. AC: API tests. — done: `internal/api` `/api/v1/providers` CRUD + `POST /{id}/refresh` + `/streams?q=` (passwords never serialized; empty password on update keeps old); fake-store unit tests + live E2E verified
 
 ## M3 — Channels & matching
 - [ ] 3.1 Channels, groups, and bouquets CRUD API. AC: API tests.
