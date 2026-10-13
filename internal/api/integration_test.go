@@ -372,6 +372,11 @@ func ptr[T any](v T) *T { return &v }
 // fakeTSUpstream serves an endless paced TS (a PAT then 9 payload packets,
 // repeated) and counts requests and open connections.
 func fakeTSUpstream(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int32) {
+	return fakeTSUpstreamN(t, 0)
+}
+
+// fakeTSUpstreamN ends the response after groups packet groups (0 = never).
+func fakeTSUpstreamN(t *testing.T, groups int) (*httptest.Server, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	var hits, open atomic.Int32
 	pkt := func(pid uint16, pusi bool, cc byte) []byte {
@@ -388,7 +393,7 @@ func fakeTSUpstream(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int3
 		defer open.Add(-1)
 		w.Header().Set("Content-Type", "video/mp2t")
 		var cc byte
-		for {
+		for sent := 0; groups == 0 || sent < groups; sent++ {
 			var group []byte
 			group = append(group, pkt(0, true, cc)...)
 			for range 9 {
@@ -504,5 +509,90 @@ func TestChannelStreamEndToEnd(t *testing.T) {
 			t.Fatalf("not torn down: slots=%d open=%d channels=%v", capacity.InUse(p.ID), open.Load(), mgr.Channels())
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestFailoverEventPersisted is the 4.8 AC: a provider switch writes a
+// failover row to the events table.
+func TestFailoverEventPersisted(t *testing.T) {
+	env := newAPITestEnv(t)
+	ctx := context.Background()
+	q := env.Store.(*db.Queries)
+	upA, _, _ := fakeTSUpstreamN(t, 50) // ends after 500 packets
+	upB, _, _ := fakeTSUpstream(t)
+
+	rec := proxy.NewEventRecorder(q, nil, 64)
+	recCtx, stopRec := context.WithCancel(ctx)
+	recDone := make(chan struct{})
+	go func() { rec.Run(recCtx); close(recDone) }()
+	mgr := proxy.NewManager(ctx, proxy.ManagerConfig{
+		Source: proxy.DBSource(q), Opener: proxy.NewHTTPOpener(2 * time.Second),
+		Capacity: proxy.NewCapacity(), Cooldowns: proxy.NewCooldowns(time.Minute, time.Hour),
+		RingSize: 4 << 20, IdleGrace: time.Second, MaxRetryWindow: 5 * time.Second,
+		Thresholds: proxy.Thresholds{StallTimeout: 2 * time.Second, Window: 5 * time.Second},
+		OnEvent:    rec.Record,
+	})
+
+	var sids []int64
+	for i, u := range []string{upA.URL, upB.URL} {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "P" + strconv.Itoa(i), Type: "m3u",
+			Url: "http://p/", MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sid, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: p.ID,
+			ExternalID: "1", Name: "News", StreamUrl: u})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sids = append(sids, sid)
+	}
+	ch, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "News"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, sid := range sids {
+		if err := q.AddStreamToChannel(ctx, db.AddStreamToChannelParams{ChannelID: ch.ID, ProviderStreamID: sid, Priority: int32(i + 1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v, err := mgr.Attach(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Watch until the session reports B playing, reading so the ring moves.
+	readCtx, cancelRead := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRead()
+	buf := make([]byte, 64*1024)
+	for {
+		if _, err := v.Read(readCtx, buf); err != nil {
+			t.Fatalf("viewer: %v", err)
+		}
+		if st := mgr.Channels(); len(st) == 1 && st[0].StreamID == sids[1] && st[0].State == "streaming" {
+			break
+		}
+	}
+	v.Close()
+	mgr.Shutdown()
+	stopRec()
+	<-recDone
+
+	evs, err := q.ListRecentEvents(ctx, db.ListRecentEventsParams{ChannelID: &ch.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range evs {
+		if e.Type == proxy.EventFailover {
+			found = true
+			if e.FromStreamID == nil || *e.FromStreamID != sids[0] || e.ToStreamID == nil || *e.ToStreamID != sids[1] ||
+				e.ChannelID == nil || *e.ChannelID != ch.ID {
+				t.Errorf("failover row = %+v", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no failover event row; events = %+v", evs)
 	}
 }

@@ -72,6 +72,11 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Proxy: sessions live under the signal ctx, so SIGTERM ends every
 	// stream (viewers get EOF) and graceful HTTP shutdown is not held open.
+	events := proxy.NewEventRecorder(db.New(pool), log, 1024)
+	eventsDone := make(chan struct{})
+	go func() { events.Run(ctx); close(eventsDone) }()
+	defer func() { <-eventsDone }() // after streams.Shutdown (defers run LIFO): last events are flushed
+
 	pc := cfg.Proxy
 	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
 		Source:    proxy.DBSource(db.New(pool)),
@@ -90,6 +95,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		},
 		MaxRetryWindow: pc.MaxRetryWindow.Duration,
 		Log:            log,
+		OnEvent:        events.Record,
 	})
 	defer streams.Shutdown()
 
