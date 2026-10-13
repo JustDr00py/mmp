@@ -12,9 +12,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [x] 1.7 URL/credential redaction helper. AC: test shows Xtream and M3U URLs with creds are masked. — done: `internal/redact` (userinfo, query params, Xtream `/live|movie|series|radio/<u>/<p>/` paths, DSNs, unparseable-input fallback), table tests pass
 
 ## M2 — Ingest
-- [ ] 2.1 `source/m3u` streaming parser (EXTINF attrs, group-title, CRLF, BOM, missing attrs). AC: fixture tests pass, and a 100k-entry file parses with bounded memory.
-- [ ] 2.2 `source/xtream` client: auth, `get_live_categories`, `get_live_streams`, stream URL building. AC: tests against an httptest fake panel.
-- [ ] 2.3 `source/epg` XMLTV streaming parser + storage of programmes. AC: fixture test, with timezone offsets handled.
+- [x] 2.1 `source/m3u` streaming parser (EXTINF attrs, group-title, CRLF, BOM, missing attrs). AC: fixture tests pass, and a 100k-entry file parses with bounded memory. — done: `internal/source/m3u` callback-based scanner parser (BOM/CRLF, quoted+unquoted attrs, EXTGRP fallback, stray-token tolerance); fixtures + 100k streaming test (~0.4s) pass
+- [x] 2.2 `source/xtream` client: auth, `get_live_categories`, `get_live_streams`, stream URL building. AC: tests against an httptest fake panel. — done: `internal/source/xtream` (Login w/ 401+auth:0 detection, categories/streams decoding, path-escaped stream URLs, xmltv URL); fake-panel tests pass
+- [x] 2.3 `source/epg` XMLTV streaming parser + storage of programmes. AC: fixture test, with timezone offsets handled. — done: `internal/source/epg` (streaming decoder, per-programme ±offsets + no-space layout, latin-1 charset, junk skipping, first-lang title/desc); copyfrom queries `InsertEpgProgrammes`; fixture tests pass
 - [ ] 2.4 `refresher`: scheduled + on-demand refresh, upserted by `(provider_id, external_id)`, with stale rows soft-disabled. AC: integration test refreshes twice and the counts stay correct.
 - [ ] 2.5 Admin API: providers CRUD, "refresh now", list/search provider streams. AC: API tests.
 

@@ -20,9 +20,10 @@ dev:
 test:
 	$(GO) test -race ./...
 
-# Needs a running Postgres (see `make up`).
+# Needs a running Postgres (see `make up`). Packages run serially because
+# integration tests recreate their databases.
 test-integration:
-	$(GO) test -race -tags=integration ./...
+	$(GO) test -race -p 1 -tags=integration ./...
 
 lint: vet staticcheck
 

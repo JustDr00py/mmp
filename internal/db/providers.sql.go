@@ -16,7 +16,7 @@ INSERT INTO providers (
     max_connections, user_agent, refresh_interval_secs, priority, enabled
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at
 `
 
 type CreateProviderParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastRefreshedAt,
 	)
 	return i, err
 }
@@ -78,7 +79,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -99,12 +100,13 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastRefreshedAt,
 	)
 	return i, err
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -131,6 +133,7 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LastRefreshedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -154,4 +157,64 @@ type SetProviderEnabledParams struct {
 func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabledParams) error {
 	_, err := q.db.Exec(ctx, setProviderEnabled, arg.ID, arg.Enabled)
 	return err
+}
+
+const updateProvider = `-- name: UpdateProvider :one
+UPDATE providers SET
+    name = $2, type = $3, url = $4, username = $5, password = $6, epg_url = $7,
+    max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
+    priority = $11, enabled = $12, updated_at = now()
+WHERE id = $1
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at
+`
+
+type UpdateProviderParams struct {
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	Url                 string `json:"url"`
+	Username            string `json:"username"`
+	Password            string `json:"password"`
+	EpgUrl              string `json:"epg_url"`
+	MaxConnections      int32  `json:"max_connections"`
+	UserAgent           string `json:"user_agent"`
+	RefreshIntervalSecs int32  `json:"refresh_interval_secs"`
+	Priority            int32  `json:"priority"`
+	Enabled             bool   `json:"enabled"`
+}
+
+func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) (Provider, error) {
+	row := q.db.QueryRow(ctx, updateProvider,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.Url,
+		arg.Username,
+		arg.Password,
+		arg.EpgUrl,
+		arg.MaxConnections,
+		arg.UserAgent,
+		arg.RefreshIntervalSecs,
+		arg.Priority,
+		arg.Enabled,
+	)
+	var i Provider
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.Url,
+		&i.Username,
+		&i.Password,
+		&i.EpgUrl,
+		&i.MaxConnections,
+		&i.UserAgent,
+		&i.RefreshIntervalSecs,
+		&i.Priority,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastRefreshedAt,
+	)
+	return i, err
 }

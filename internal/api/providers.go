@@ -1,0 +1,304 @@
+package api
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/sysadmin/mmp/internal/db"
+)
+
+// providerJSON is the wire form of a provider. The password is never
+// serialized: an absent password on update means "keep the current one".
+type providerJSON struct {
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	URL                 string `json:"url"`
+	Username            string `json:"username,omitempty"`
+	EPGURL              string `json:"epg_url,omitempty"`
+	MaxConnections      int32  `json:"max_connections"`
+	UserAgent           string `json:"user_agent,omitempty"`
+	RefreshIntervalSecs int32  `json:"refresh_interval_secs"`
+	Priority            int32  `json:"priority"`
+	Enabled             bool   `json:"enabled"`
+}
+
+func toJSON(p db.Provider) providerJSON {
+	return providerJSON{
+		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username,
+		EPGURL: p.EpgUrl, MaxConnections: p.MaxConnections, UserAgent: p.UserAgent,
+		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
+	}
+}
+
+// providerInput is the accepted create/update body.
+type providerInput struct {
+	Name                string `json:"name"`
+	Type                string `json:"type"`
+	URL                 string `json:"url"`
+	Username            string `json:"username"`
+	Password            string `json:"password"`
+	EPGURL              string `json:"epg_url"`
+	MaxConnections      *int32 `json:"max_connections"`
+	UserAgent           string `json:"user_agent"`
+	RefreshIntervalSecs *int32 `json:"refresh_interval_secs"`
+	Priority            *int32 `json:"priority"`
+	Enabled             *bool  `json:"enabled"`
+}
+
+var errBadInput = errors.New("bad input")
+
+func (in *providerInput) validate() error {
+	if strings.TrimSpace(in.Name) == "" {
+		return errors.New("name is required")
+	}
+	if in.Type != "m3u" && in.Type != "xtream" {
+		return errors.New(`type must be "m3u" or "xtream"`)
+	}
+	u, err := url.Parse(in.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New("url must be an absolute http(s) URL")
+	}
+	if in.EPGURL != "" {
+		u, err := url.Parse(in.EPGURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("epg_url must be an absolute http(s) URL")
+		}
+	}
+	if in.MaxConnections != nil && *in.MaxConnections < 0 {
+		return errors.New("max_connections must be >= 0")
+	}
+	if in.RefreshIntervalSecs != nil && *in.RefreshIntervalSecs <= 0 {
+		return errors.New("refresh_interval_secs must be > 0")
+	}
+	return nil
+}
+
+func defInt32(p *int32, def int32) int32 {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+
+func defBool(p *bool, def bool) bool {
+	if p != nil {
+		return *p
+	}
+	return def
+}
+
+func (env *Env) listProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := env.Store.ListProviders(r.Context())
+	if err != nil {
+		env.Log.Error("api: list providers", "err", err)
+		writeErr(w, http.StatusInternalServerError, "list providers failed")
+		return
+	}
+	out := make([]providerJSON, 0, len(providers))
+	for _, p := range providers {
+		out = append(out, toJSON(p))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
+	var in providerInput
+	if err := readJSON(w, r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := in.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := env.Store.CreateProvider(r.Context(), db.CreateProviderParams{
+		Name: in.Name, Type: in.Type, Url: in.URL,
+		Username: in.Username, Password: in.Password, EpgUrl: in.EPGURL,
+		MaxConnections:      defInt32(in.MaxConnections, 1),
+		UserAgent:           in.UserAgent,
+		RefreshIntervalSecs: defInt32(in.RefreshIntervalSecs, 21600),
+		Priority:            defInt32(in.Priority, 0),
+		Enabled:             defBool(in.Enabled, true),
+	})
+	if err != nil {
+		env.Log.Error("api: create provider", "err", err)
+		writeErr(w, http.StatusInternalServerError, "create provider failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, toJSON(p))
+}
+
+func (env *Env) getProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := env.Store.GetProvider(r.Context(), id)
+	if isNotFound(err) {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: get provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "get provider failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, toJSON(p))
+}
+
+func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var in providerInput
+	if err := readJSON(w, r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := in.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	current, err := env.Store.GetProvider(r.Context(), id)
+	if isNotFound(err) {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: get provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "update provider failed")
+		return
+	}
+	// Empty password keeps the stored one.
+	password := in.Password
+	if password == "" {
+		password = current.Password
+	}
+	p, err := env.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
+		ID:   id,
+		Name: in.Name, Type: in.Type, Url: in.URL,
+		Username: in.Username, Password: password, EpgUrl: in.EPGURL,
+		MaxConnections:      defInt32(in.MaxConnections, current.MaxConnections),
+		UserAgent:           in.UserAgent,
+		RefreshIntervalSecs: defInt32(in.RefreshIntervalSecs, current.RefreshIntervalSecs),
+		Priority:            defInt32(in.Priority, current.Priority),
+		Enabled:             defBool(in.Enabled, current.Enabled),
+	})
+	if err != nil {
+		env.Log.Error("api: update provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "update provider failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, toJSON(p))
+}
+
+func (env *Env) deleteProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := env.Store.DeleteProvider(r.Context(), id); err != nil {
+		env.Log.Error("api: delete provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "delete provider failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (env *Env) refreshProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := env.Store.GetProvider(r.Context(), id)
+	if isNotFound(err) {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: get provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "refresh failed")
+		return
+	}
+	res, err := env.Refresh.RefreshProvider(r.Context(), p)
+	if err != nil {
+		env.Log.Error("api: refresh provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusBadGateway, "refresh failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (env *Env) listProviderStreams(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit := clampInt(r.URL.Query().Get("limit"), 50, 1, 500)
+	offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<30)
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	var streams []db.ProviderStream
+	if q != "" {
+		streams, err = env.Store.SearchProviderStreams(r.Context(), db.SearchProviderStreamsParams{
+			ProviderID: id, Name: "%" + q + "%", Limit: int32(limit), Offset: int32(offset),
+		})
+	} else {
+		streams, err = env.Store.ListProviderStreams(r.Context(), db.ListProviderStreamsParams{
+			ProviderID: id, Limit: int32(limit), Offset: int32(offset),
+		})
+	}
+	if err != nil {
+		env.Log.Error("api: list provider streams", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "list streams failed")
+		return
+	}
+	// stream URLs are provider-side secrets for customers, but the admin may
+	// see them; passwords inside Xtream URLs stay, this is the admin API.
+	type streamJSON struct {
+		ID         int64  `json:"id"`
+		ExternalID string `json:"external_id"`
+		Name       string `json:"name"`
+		TvgID      string `json:"tvg_id"`
+		LogoURL    string `json:"logo_url"`
+		Group      string `json:"group_title"`
+		StreamURL  string `json:"stream_url"`
+		Disabled   bool   `json:"disabled"`
+	}
+	out := make([]streamJSON, 0, len(streams))
+	for _, s := range streams {
+		out = append(out, streamJSON{
+			ID: s.ID, ExternalID: s.ExternalID, Name: s.Name, TvgID: s.TvgID,
+			LogoURL: s.LogoUrl, Group: s.GroupTitle, StreamURL: s.StreamUrl, Disabled: s.Disabled,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// clampInt parses v as int, defaulting to def and clamping to [min, max].
+func clampInt(v string, def, min, max int) int {
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
+}

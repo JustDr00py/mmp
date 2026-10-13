@@ -10,10 +10,15 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/sysadmin/mmp/internal/api"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/server"
+	"github.com/sysadmin/mmp/internal/source"
 )
 
 var version = "dev"
@@ -60,10 +65,21 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	defer pool.Close()
 
+	refresher := source.NewRefresher(log, pool)
+	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher}
 	srv := server.New(cfg, log, pool)
+	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Background workers.
+	go func() {
+		if err := refresher.Start(ctx, time.Minute, cfg.Refresh.EPGInterval.Duration); err != nil {
+			log.Error("refresher stopped", "err", err)
+		}
+	}()
+
 	if err := srv.Run(ctx); err != nil {
 		return err
 	}

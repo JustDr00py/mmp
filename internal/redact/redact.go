@@ -22,17 +22,17 @@ const userMask = "redacted"
 // sensitiveParams are query-string parameter names whose values must be
 // masked (compared case-insensitively).
 var sensitiveParams = map[string]bool{
-	"username":    true,
-	"password":    true,
-	"pass":        true,
-	"pwd":         true,
-	"token":       true,
-	"api_key":     true,
-	"apikey":      true,
-	"key":         true,
-	"auth":        true,
+	"username":     true,
+	"password":     true,
+	"pass":         true,
+	"pwd":          true,
+	"token":        true,
+	"api_key":      true,
+	"apikey":       true,
+	"key":          true,
+	"auth":         true,
 	"access_token": true,
-	"secret":      true,
+	"secret":       true,
 }
 
 // xtreamPath matches the credential segments of Xtream-style paths such as

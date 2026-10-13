@@ -1,0 +1,7 @@
+﻿#EXTM3U
+#EXTINF:-1 tvg-id="us.abc.east" tvg-name="ABC US" tvg-logo="https://logo.tv/abc.png" group-title="US Entertainment",ABC (US) HD
+http://provider-a.tv/stream/abc.ts
+#EXTINF:-1 tvg-id="us.nbc.east" tvg-logo="https://logo.tv/nbc.png" group-title="US Entertainment",NBC East
+http://provider-a.tv/stream/nbc.ts
+#EXTINF:0,Plain Channel With No Attributes
+http://provider-a.tv/stream/plain.ts

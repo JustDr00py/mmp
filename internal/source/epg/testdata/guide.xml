@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv SYSTEM "xmltv.dtd">
+<tv generator-info-name="TestGuide">
+  <channel id="us.abc.east">
+    <display-name>ABC East</display-name>
+  </channel>
+  <channel id="de.das.erste">
+    <display-name>Das Erste</display-name>
+  </channel>
+
+  <!-- Positive UTC offset -->
+  <programme start="20261013180000 +0300" stop="20261013190000 +0300" channel="us.abc.east">
+    <title lang="en">Evening News</title>
+    <sub-title lang="en">Special Report</sub-title>
+    <desc lang="en">The day&apos;s headlines with &amp; analysis.</desc>
+    <category lang="en">News</category>
+  </programme>
+
+  <!-- Negative UTC offset, two-language titles: first wins -->
+  <programme start="20261013200000 -0500" stop="20261013213000 -0500" channel="us.abc.east">
+    <title lang="de">Abend Nachrichten</title>
+    <title lang="en">Evening News DE</title>
+    <desc lang="de">Nachrichten</desc>
+    <desc lang="en">News in German</desc>
+  </programme>
+
+  <!-- No space before offset -->
+  <programme start="20261013200000+0200" stop="20261013220000+0200" channel="de.das.erste">
+    <title>Tagesschau</title>
+  </programme>
+
+  <!-- Junk: missing channel / missing stop / stop<=start are skipped -->
+  <programme start="20261013180000 +0000" stop="20261013190000 +0000">
+    <title>No Channel</title>
+  </programme>
+  <programme start="20261013180000 +0000" channel="us.abc.east">
+    <title>No Stop</title>
+  </programme>
+  <programme start="20261013180000 +0000" stop="20261013180000 +0000" channel="us.abc.east">
+    <title>Zero Length</title>
+  </programme>
+  <programme start="garbage" stop="20261013190000 +0000" channel="us.abc.east">
+    <title>Bad Start</title>
+  </programme>
+</tv>

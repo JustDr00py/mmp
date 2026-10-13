@@ -1,0 +1,16 @@
+#EXTM3U x-tvg-url="http://epg.example.com/guide.xml"
+#EXTINF:-1 tvg-id="sp.tve" group-title="España;Entretenimiento",TVE 1 con, coma
+#EXTVLCOPT:http-user-agent=AwesomePlayer/1.0
+http://provider-b.tv:8080/tve
+#EXTINF:-1 tvg-name="News 24"
+#EXTGRP:News
+#KODIPROP:inputstream=inputstream.ffmpeg
+http://provider-b.tv:8080/news24
+#EXTINF:-1,Channel With "Quotes" and, Commas group-title="Not A Group"
+http://provider-b.tv:8080/quoted
+#EXTINF:-1,Dangling Entry Without URL
+#EXTINF:-1 tvg-id="uk.bbc1" group-title="UK",BBC One
+http://provider-b.tv:8080/bbc1
+http://provider-b.tv:8080/bare-url-skipped.ts
+#EXTINF:-1 unquoted=attr tvg-id=de.das erste group-title=Germany,Das Erste
+http://provider-b.tv:8080/dasErste

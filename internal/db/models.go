@@ -6,8 +6,6 @@ package db
 
 import (
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Bouquet struct {
@@ -60,13 +58,13 @@ type EpgProgramme struct {
 }
 
 type EpgSource struct {
-	ID              int64              `json:"id"`
-	Name            string             `json:"name"`
-	Url             string             `json:"url"`
-	ProviderID      *int64             `json:"provider_id"`
-	Enabled         bool               `json:"enabled"`
-	LastRefreshedAt pgtype.Timestamptz `json:"last_refreshed_at"`
-	CreatedAt       time.Time          `json:"created_at"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Url             string     `json:"url"`
+	ProviderID      *int64     `json:"provider_id"`
+	Enabled         bool       `json:"enabled"`
+	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 type Event struct {
@@ -81,37 +79,38 @@ type Event struct {
 }
 
 type Provider struct {
-	ID                  int64     `json:"id"`
-	Name                string    `json:"name"`
-	Type                string    `json:"type"`
-	Url                 string    `json:"url"`
-	Username            string    `json:"username"`
-	Password            string    `json:"password"`
-	EpgUrl              string    `json:"epg_url"`
-	MaxConnections      int32     `json:"max_connections"`
-	UserAgent           string    `json:"user_agent"`
-	RefreshIntervalSecs int32     `json:"refresh_interval_secs"`
-	Priority            int32     `json:"priority"`
-	Enabled             bool      `json:"enabled"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID                  int64      `json:"id"`
+	Name                string     `json:"name"`
+	Type                string     `json:"type"`
+	Url                 string     `json:"url"`
+	Username            string     `json:"username"`
+	Password            string     `json:"password"`
+	EpgUrl              string     `json:"epg_url"`
+	MaxConnections      int32      `json:"max_connections"`
+	UserAgent           string     `json:"user_agent"`
+	RefreshIntervalSecs int32      `json:"refresh_interval_secs"`
+	Priority            int32      `json:"priority"`
+	Enabled             bool       `json:"enabled"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	LastRefreshedAt     *time.Time `json:"last_refreshed_at"`
 }
 
 type ProviderStream struct {
-	ID            int64              `json:"id"`
-	ProviderID    int64              `json:"provider_id"`
-	ExternalID    string             `json:"external_id"`
-	Name          string             `json:"name"`
-	TvgID         string             `json:"tvg_id"`
-	LogoUrl       string             `json:"logo_url"`
-	GroupTitle    string             `json:"group_title"`
-	StreamUrl     string             `json:"stream_url"`
-	HealthScore   float32            `json:"health_score"`
-	LastError     string             `json:"last_error"`
-	CooldownUntil pgtype.Timestamptz `json:"cooldown_until"`
-	LastSeen      time.Time          `json:"last_seen"`
-	Disabled      bool               `json:"disabled"`
-	CreatedAt     time.Time          `json:"created_at"`
+	ID            int64      `json:"id"`
+	ProviderID    int64      `json:"provider_id"`
+	ExternalID    string     `json:"external_id"`
+	Name          string     `json:"name"`
+	TvgID         string     `json:"tvg_id"`
+	LogoUrl       string     `json:"logo_url"`
+	GroupTitle    string     `json:"group_title"`
+	StreamUrl     string     `json:"stream_url"`
+	HealthScore   float32    `json:"health_score"`
+	LastError     string     `json:"last_error"`
+	CooldownUntil *time.Time `json:"cooldown_until"`
+	LastSeen      time.Time  `json:"last_seen"`
+	Disabled      bool       `json:"disabled"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type StreamProfile struct {
@@ -123,16 +122,16 @@ type StreamProfile struct {
 }
 
 type User struct {
-	ID             int64              `json:"id"`
-	Username       string             `json:"username"`
-	PasswordHash   string             `json:"password_hash"`
-	Role           string             `json:"role"`
-	MaxConnections int32              `json:"max_connections"`
-	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
-	Enabled        bool               `json:"enabled"`
-	StreamToken    string             `json:"stream_token"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
+	ID             int64      `json:"id"`
+	Username       string     `json:"username"`
+	PasswordHash   string     `json:"password_hash"`
+	Role           string     `json:"role"`
+	MaxConnections int32      `json:"max_connections"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	Enabled        bool       `json:"enabled"`
+	StreamToken    string     `json:"stream_token"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type UserBouquet struct {

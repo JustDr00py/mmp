@@ -57,15 +57,15 @@ type Config struct {
 		ShutdownTimeout   Duration `yaml:"shutdown_timeout"`
 	} `yaml:"http"`
 	Proxy struct {
-		StallTimeout    Duration `yaml:"stall_timeout"`     // no upstream bytes before failover
-		ConnectTimeout  Duration `yaml:"connect_timeout"`   // upstream dial+headers budget
-		IdleGrace       Duration `yaml:"idle_grace"`        // keep session after last viewer
-		MaxRetryWindow  Duration `yaml:"max_retry_window"`  // give up when all candidates fail
-		CooldownBase    Duration `yaml:"cooldown_base"`     // exponential cooldown floor
-		CooldownMax     Duration `yaml:"cooldown_max"`      // exponential cooldown ceiling
-		BufferSizeMB    int      `yaml:"buffer_size_mb"`    // ring buffer per session
-		LowBitrateKbps  int      `yaml:"low_bitrate_kbps"`  // 0 disables the low-bitrate check
-		MaxCCErrorRate  float64  `yaml:"max_cc_error_rate"` // TS continuity-error fraction per window
+		StallTimeout   Duration `yaml:"stall_timeout"`     // no upstream bytes before failover
+		ConnectTimeout Duration `yaml:"connect_timeout"`   // upstream dial+headers budget
+		IdleGrace      Duration `yaml:"idle_grace"`        // keep session after last viewer
+		MaxRetryWindow Duration `yaml:"max_retry_window"`  // give up when all candidates fail
+		CooldownBase   Duration `yaml:"cooldown_base"`     // exponential cooldown floor
+		CooldownMax    Duration `yaml:"cooldown_max"`      // exponential cooldown ceiling
+		BufferSizeMB   int      `yaml:"buffer_size_mb"`    // ring buffer per session
+		LowBitrateKbps int      `yaml:"low_bitrate_kbps"`  // 0 disables the low-bitrate check
+		MaxCCErrorRate float64  `yaml:"max_cc_error_rate"` // TS continuity-error fraction per window
 	} `yaml:"proxy"`
 	Refresh struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
