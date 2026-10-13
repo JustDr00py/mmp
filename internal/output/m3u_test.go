@@ -39,10 +39,29 @@ func (f fakeUsers) GetUserByStreamToken(_ context.Context, tok string) (db.User,
 }
 
 type fakeStore struct {
-	byUser map[int64][]db.ListUserChannelsRow
-	all    []db.ListEnabledChannelsRow
-	guide  map[string][]db.ListGuideProgrammesRow // by lower-cased tvg-id
-	fetchs []db.ListGuideProgrammesParams
+	byUser   map[int64][]db.ListUserChannelsRow
+	all      []db.ListEnabledChannelsRow
+	guide    map[string][]db.ListGuideProgrammesRow // by lower-cased tvg-id
+	nostream map[int64]bool                         // channels without streams
+	fetchs   []db.ListGuideProgrammesParams
+}
+
+func (f *fakeStore) GetChannelAccess(_ context.Context, arg db.GetChannelAccessParams) (db.GetChannelAccessRow, error) {
+	var allowed bool
+	if arg.IsAdmin {
+		for _, c := range f.all {
+			allowed = allowed || c.ID == arg.ChannelID
+		}
+	} else {
+		for _, c := range f.byUser[arg.UserID] {
+			allowed = allowed || c.ID == arg.ChannelID
+		}
+	}
+	row := db.GetChannelAccessRow{Allowed: allowed, Streams: 1}
+	if f.nostream[arg.ChannelID] {
+		row.Streams = 0
+	}
+	return row, nil
 }
 
 func (f *fakeStore) ListGuideProgrammes(_ context.Context, arg db.ListGuideProgrammesParams) ([]db.ListGuideProgrammesRow, error) {

@@ -109,6 +109,38 @@ func (q *Queries) GetChannel(ctx context.Context, id int64) (Channel, error) {
 	return i, err
 }
 
+const getChannelAccess = `-- name: GetChannelAccess :one
+SELECT EXISTS (
+           SELECT 1 FROM channels c
+           WHERE c.id = $1 AND c.enabled
+             AND ($2::bool OR EXISTS (
+                 SELECT 1 FROM user_bouquets ub
+                 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
+                 WHERE ub.user_id = $3 AND bc.channel_id = c.id))
+       ) AS allowed,
+       (SELECT count(*) FROM channel_streams cs WHERE cs.channel_id = $1)::int AS streams
+`
+
+type GetChannelAccessParams struct {
+	ChannelID int64 `json:"channel_id"`
+	IsAdmin   bool  `json:"is_admin"`
+	UserID    int64 `json:"user_id"`
+}
+
+type GetChannelAccessRow struct {
+	Allowed bool  `json:"allowed"`
+	Streams int32 `json:"streams"`
+}
+
+// Whether a user may play a channel (enabled, and in one of their bouquets
+// unless they are an admin) and how many streams back it.
+func (q *Queries) GetChannelAccess(ctx context.Context, arg GetChannelAccessParams) (GetChannelAccessRow, error) {
+	row := q.db.QueryRow(ctx, getChannelAccess, arg.ChannelID, arg.IsAdmin, arg.UserID)
+	var i GetChannelAccessRow
+	err := row.Scan(&i.Allowed, &i.Streams)
+	return i, err
+}
+
 const getChannelByTvgID = `-- name: GetChannelByTvgID :one
 SELECT id, number, name, tvg_id, logo_url, group_id, stream_profile_id, enabled, created_at, updated_at FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1
 `

@@ -140,7 +140,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
-	outputs := &output.Handlers{Access: access, Store: queries, BaseURL: cfg.BaseURL, Log: log}
+	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log}
 	outputs.Mount(srv.Mux())
 
 	// Background workers.

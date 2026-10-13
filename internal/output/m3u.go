@@ -24,6 +24,7 @@ type Store interface {
 	ListUserChannels(ctx context.Context, userID int64) ([]db.ListUserChannelsRow, error)
 	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
 	ListGuideProgrammes(ctx context.Context, arg db.ListGuideProgrammesParams) ([]db.ListGuideProgrammesRow, error)
+	GetChannelAccess(ctx context.Context, arg db.GetChannelAccessParams) (db.GetChannelAccessRow, error)
 }
 
 // Handlers serves the customer-facing endpoints. Every URL they emit is
@@ -31,6 +32,7 @@ type Store interface {
 type Handlers struct {
 	Access  *Access
 	Store   Store
+	Streams StreamAttacher
 	BaseURL string // no trailing slash
 	Log     *slog.Logger
 	Now     func() time.Time // guide window clock; nil = time.Now
@@ -44,6 +46,8 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Get("/epg/{token}.xml", h.tokenGuide)
 	r.Get("/player_api.php", h.playerAPI)
 	r.Post("/player_api.php", h.playerAPI)
+	r.Get("/live/{user}/{pass}/{id}", h.liveXtream)
+	r.Get("/t/{token}/{id}", h.liveToken)
 }
 
 // Channel is one playable channel as customers see it.

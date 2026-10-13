@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/sysadmin/mmp/internal/proxy"
 )
@@ -13,11 +12,6 @@ import (
 type StreamAttacher interface {
 	Attach(channelID int64) (*proxy.Viewer, error)
 }
-
-// streamWriteTimeout bounds one write to the client: a player that stops
-// reading entirely is dropped instead of pinning this handler forever. A
-// merely slow one just skips ahead in the ring.
-const streamWriteTimeout = 30 * time.Second
 
 // streamChannel plays a channel through the proxy as MPEG-TS. It is the
 // admin's playback test; customers get their own endpoints in M5.
@@ -59,24 +53,5 @@ func (env *Env) streamChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	defer v.Close()
 
-	w.Header().Set("Content-Type", "video/mp2t")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	rc := http.NewResponseController(w)
-	_ = rc.Flush()
-
-	buf := make([]byte, 64*1024)
-	for {
-		n, err := v.Read(r.Context(), buf)
-		if n > 0 {
-			_ = rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return // client gone
-			}
-			_ = rc.Flush()
-		}
-		if err != nil {
-			return // client left (ctx) or the session ended (EOF)
-		}
-	}
+	proxy.ServeViewer(w, r, v)
 }

@@ -64,3 +64,16 @@ FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled
 ORDER BY c.number NULLS LAST, c.name, c.id;
+
+-- name: GetChannelAccess :one
+-- Whether a user may play a channel (enabled, and in one of their bouquets
+-- unless they are an admin) and how many streams back it.
+SELECT EXISTS (
+           SELECT 1 FROM channels c
+           WHERE c.id = sqlc.arg('channel_id') AND c.enabled
+             AND (sqlc.arg('is_admin')::bool OR EXISTS (
+                 SELECT 1 FROM user_bouquets ub
+                 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
+                 WHERE ub.user_id = sqlc.arg('user_id') AND bc.channel_id = c.id))
+       ) AS allowed,
+       (SELECT count(*) FROM channel_streams cs WHERE cs.channel_id = sqlc.arg('channel_id'))::int AS streams;
