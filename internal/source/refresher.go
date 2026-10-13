@@ -32,6 +32,11 @@ type Refresher struct {
 	log  *slog.Logger
 	pool *pgxpool.Pool
 	hc   *http.Client
+
+	// AfterRefresh, if set, runs after each successful provider refresh
+	// (scheduled or on demand), e.g. to auto-match new streams. Set it
+	// before Start.
+	AfterRefresh func(ctx context.Context, p db.Provider)
 }
 
 // NewRefresher builds a Refresher. The http client carries no global timeout:
@@ -69,13 +74,13 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider) (Result,
 	seenIDs := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if _, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{
-			ProviderID:  p.ID,
-			ExternalID:  e.externalID,
-			Name:        e.name,
-			TvgID:       e.tvgID,
-			LogoUrl:     e.logoURL,
-			GroupTitle:  e.groupTitle,
-			StreamUrl:   e.streamURL,
+			ProviderID: p.ID,
+			ExternalID: e.externalID,
+			Name:       e.name,
+			TvgID:      e.tvgID,
+			LogoUrl:    e.logoURL,
+			GroupTitle: e.groupTitle,
+			StreamUrl:  e.streamURL,
 		}); err != nil {
 			return res, fmt.Errorf("refresh provider %d: upsert %s: %w", p.ID, e.externalID, err)
 		}
@@ -98,6 +103,9 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider) (Result,
 
 	r.log.Info("provider refreshed",
 		"provider_id", p.ID, "seen", res.Seen, "upserted", res.Upserted, "disabled", res.Disabled)
+	if r.AfterRefresh != nil {
+		r.AfterRefresh(ctx, p)
+	}
 	return res, nil
 }
 

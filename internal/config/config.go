@@ -71,6 +71,10 @@ type Config struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
 		EPGInterval Duration `yaml:"epg_interval"` // EPG refresh cadence
 	} `yaml:"refresh"`
+	Match struct {
+		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
+		MinProviders int  `yaml:"min_providers"` // auto-create channels only for groups at >= N providers
+	} `yaml:"match"`
 	Auth struct {
 		SessionTTL Duration `yaml:"session_ttl"` // admin browser session lifetime
 	} `yaml:"auth"`
@@ -103,6 +107,7 @@ func Defaults() Config {
 	c.Proxy.MaxCCErrorRate = 0.05
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
+	c.Match.MinProviders = 2
 	c.Auth.SessionTTL = Duration{7 * 24 * time.Hour}
 	return c
 }
@@ -171,6 +176,18 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		*dst = n
 		return nil
 	}
+	boolv := func(key string, dst *bool) error {
+		v, ok := getenv(key)
+		if !ok {
+			return nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("%s=%q: %w", key, v, err)
+		}
+		*dst = b
+		return nil
+	}
 	floatv := func(key string, dst *float64) error {
 		v, ok := getenv(key)
 		if !ok {
@@ -207,6 +224,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_BUFFER_SIZE_MB", &c.Proxy.BufferSizeMB),
 		intv("MMP_PROXY_LOW_BITRATE_KBPS", &c.Proxy.LowBitrateKbps),
 		floatv("MMP_PROXY_MAX_CC_ERROR_RATE", &c.Proxy.MaxCCErrorRate),
+		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		intv("MMP_MATCH_MIN_PROVIDERS", &c.Match.MinProviders),
 	} {
 		if e != nil {
 			return e
@@ -257,6 +276,9 @@ func (c *Config) Validate() error {
 	}
 	if p.MaxCCErrorRate < 0 || p.MaxCCErrorRate > 1 {
 		return errors.New("config: proxy.max_cc_error_rate must be within [0,1]")
+	}
+	if c.Match.MinProviders < 1 {
+		return errors.New("config: match.min_providers must be >= 1")
 	}
 	return nil
 }

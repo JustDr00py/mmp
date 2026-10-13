@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,6 +21,9 @@ func CompileRule(pattern string) (*regexp.Regexp, error) {
 type Service struct {
 	log  *slog.Logger
 	pool *pgxpool.Pool
+	// applyMu serialises Apply: an auto-match after a scheduled refresh and
+	// an admin apply must not both create the same channel.
+	applyMu sync.Mutex
 }
 
 // NewService builds a Service.
@@ -76,6 +80,9 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 type ApplyOptions struct {
 	Keys         []string // only these proposal keys; empty = all
 	MinProviders int      // skip groups seen at fewer distinct providers
+	// AttachAlways exempts proposals for existing channels from
+	// MinProviders, so a new provider's streams join channels that exist.
+	AttachAlways bool
 }
 
 // ApplyResult summarises an Apply.
@@ -88,6 +95,8 @@ type ApplyResult struct {
 // transaction: new channels are created and every grouped stream is
 // appended to its channel's failover list.
 func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, error) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	var res ApplyResult
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -109,7 +118,7 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		if len(want) > 0 && !want[p.Key] {
 			continue
 		}
-		if p.Providers < opts.MinProviders {
+		if p.Providers < opts.MinProviders && !(opts.AttachAlways && p.ChannelID != 0) {
 			continue
 		}
 		chID := p.ChannelID
@@ -145,4 +154,19 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	}
 	s.log.Info("match applied", "created", res.Created, "attached", res.Attached)
 	return res, nil
+}
+
+// AutoMatchHook returns a source.Refresher AfterRefresh hook: after a
+// provider refresh it attaches new streams to matching existing channels
+// and creates channels for groups seen at >= minProviders providers.
+// Failures are logged; the refresh itself already succeeded.
+func (s *Service) AutoMatchHook(minProviders int) func(context.Context, db.Provider) {
+	return func(ctx context.Context, p db.Provider) {
+		res, err := s.Apply(ctx, ApplyOptions{MinProviders: minProviders, AttachAlways: true})
+		if err != nil {
+			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
+			return
+		}
+		s.log.Info("auto-match", "provider_id", p.ID, "created", res.Created, "attached", res.Attached)
+	}
 }

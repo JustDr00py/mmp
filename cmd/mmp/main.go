@@ -126,8 +126,12 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}()
 
 	refresher := source.NewRefresher(log, pool)
+	matcher := channel.NewService(log, pool)
+	if cfg.Match.Auto {
+		refresher.AfterRefresh = matcher.AutoMatchHook(cfg.Match.MinProviders)
+	}
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: channel.NewService(log, pool), Streams: streams, Auth: authn,
+		Match: matcher, Streams: streams, Auth: authn,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}
