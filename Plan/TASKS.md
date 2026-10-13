@@ -36,7 +36,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [x] 4.8 Failover events written to `events` + slog. AC: event row created on switch. — done: `internal/proxy/events.go` `EventRecorder` (slog line per event + buffered async insert; never blocks a session, drops+counts on overflow; inserts outlive shutdown cancel, 2s drain) + `events.sql` (`InsertEvent`, `ListRecentEvents`), wired as manager `OnEvent`; Postgres test: provider A ends → `failover` row A→B. Fixed: event dequeued at shutdown was inserted with a cancelled ctx and lost
 
 ## M5 — Users & customer outputs
-- [ ] 5.1 Users model: bcrypt, roles, expiry, max_connections, bouquets, stream_token. AC: unit tests.
+- [x] 5.1 Users model: bcrypt, roles, expiry, max_connections, bouquets, stream_token. AC: unit tests. — done: `internal/auth/users.go` (bcrypt cost 11, unknown-user timing equaliser, Xtream-URL-safe username/password rules, 256-bit stream tokens, `Usable` → disabled/expired) + `users.sql`; admin API `/api/v1/users` CRUD + `rotate-token` (hash never serialized, empty password keeps old, 409 dup, last-enabled-admin guard, user+bouquet writes in one tx via `Env.InTx`); unit + Postgres tests
 - [ ] 5.2 Admin login (session cookie) + API tokens; middleware. AC: unauthorized → 401.
 - [ ] 5.3 Customer auth (Xtream user/pass + token) with per-user connection accounting. AC: the (max+1)th connection is rejected.
 - [ ] 5.4 M3U output: `/get.php` (m3u / m3u_plus) and `/playlist/{token}.m3u`. AC: VLC loads the playlist, and URLs point to MMP.

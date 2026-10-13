@@ -24,6 +24,17 @@ type Env struct {
 	Refresh Refresher
 	Match   Matcher
 	Streams StreamAttacher
+	// InTx runs fn against a transactional Store. Nil runs fn directly on
+	// Store (unit tests with in-memory fakes).
+	InTx func(ctx context.Context, fn func(Store) error) error
+}
+
+// inTx runs fn atomically when the env supports transactions.
+func (env *Env) inTx(ctx context.Context, fn func(Store) error) error {
+	if env.InTx == nil {
+		return fn(env.Store)
+	}
+	return env.InTx(ctx, fn)
 }
 
 // Store is the persistence surface the API needs (satisfied by *db.Queries).
@@ -66,6 +77,17 @@ type Store interface {
 	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
 	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
 	DeleteMatchRule(ctx context.Context, id int64) error
+
+	CreateUser(ctx context.Context, arg db.CreateUserParams) (db.User, error)
+	GetUser(ctx context.Context, id int64) (db.User, error)
+	ListUsers(ctx context.Context) ([]db.User, error)
+	UpdateUser(ctx context.Context, arg db.UpdateUserParams) (db.User, error)
+	SetUserStreamToken(ctx context.Context, arg db.SetUserStreamTokenParams) (db.User, error)
+	DeleteUser(ctx context.Context, id int64) error
+	ClearUserBouquets(ctx context.Context, userID int64) error
+	AddUserBouquets(ctx context.Context, arg db.AddUserBouquetsParams) error
+	ListUserBouquetIDs(ctx context.Context, userID int64) ([]int64, error)
+	CountAdmins(ctx context.Context) (int64, error)
 }
 
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
@@ -85,6 +107,7 @@ func Mount(r chi.Router, env *Env) {
 	MountProviders(r, env)
 	MountChannels(r, env)
 	MountMatch(r, env)
+	MountUsers(r, env)
 }
 
 // writeJSON writes v as JSON with status.

@@ -19,7 +19,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 
+	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/proxy"
@@ -57,8 +59,12 @@ func newAPITestEnv(t *testing.T) *Env {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	auth.BcryptCost = bcrypt.MinCost // fast hashing under -race
 	log := slog.New(slog.NewTextHandler(nilDiscard{}, nil))
-	return &Env{Log: log, Store: db.New(pool), Match: channel.NewService(log, pool)}
+	return &Env{Log: log, Store: db.New(pool), Match: channel.NewService(log, pool),
+		InTx: func(ctx context.Context, fn func(Store) error) error {
+			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
+		}}
 }
 
 type nilDiscard struct{}
@@ -594,5 +600,141 @@ func TestFailoverEventPersisted(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no failover event row; events = %+v", evs)
+	}
+}
+
+// TestUsersAPI covers 5.1 through the API: CRUD, hash never exposed,
+// password kept on empty update, validation, duplicates, bouquets, token
+// rotation, and the last-admin guard.
+func TestUsersAPI(t *testing.T) {
+	env := newAPITestEnv(t)
+	h := apiServer(env)
+	ctx := context.Background()
+	q := env.Store.(*db.Queries)
+	b1, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Basic"})
+	b2, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Sports"})
+
+	// Validation.
+	for name, body := range map[string]map[string]any{
+		"bad username": {"username": "a/b", "password": "secret1"},
+		"short pw":     {"username": "bob", "password": "x"},
+		"slash pw":     {"username": "bob", "password": "sec/ret1"},
+		"bad role":     {"username": "bob", "password": "secret1", "role": "root"},
+		"neg conns":    {"username": "bob", "password": "secret1", "max_connections": -1},
+	} {
+		if code, _, _ := call(t, h, http.MethodPost, "/api/v1/users", body); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", name, code)
+		}
+	}
+
+	// Create: defaults, bouquets, no hash in the response.
+	exp := time.Now().Add(30 * 24 * time.Hour).UTC().Truncate(time.Second)
+	code, u, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{
+		"username": "alice", "password": "alice-pw1", "max_connections": 2,
+		"expires_at": exp, "bouquet_ids": []int64{b1.ID, b2.ID},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create = %d %v", code, u)
+	}
+	if _, leaked := u["password_hash"]; leaked {
+		t.Fatal("password_hash serialized")
+	}
+	if u["role"] != "customer" || u["enabled"] != true || u["max_connections"] != float64(2) ||
+		len(u["stream_token"].(string)) != 43 || len(u["bouquet_ids"].([]any)) != 2 {
+		t.Errorf("created user = %v", u)
+	}
+	uid := int64(u["id"].(float64))
+	path := "/api/v1/users/" + strconv.FormatInt(uid, 10)
+	stored, _ := q.GetUser(ctx, uid)
+	if !auth.CheckPassword(stored.PasswordHash, "alice-pw1") {
+		t.Error("stored hash does not verify")
+	}
+
+	if code, _, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{"username": "alice", "password": "other-pw1"}); code != http.StatusConflict {
+		t.Errorf("duplicate username = %d, want 409", code)
+	}
+	if code, _, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "password": "carol-pw1", "bouquet_ids": []int64{99999}}); code != http.StatusBadRequest {
+		t.Errorf("unknown bouquet = %d, want 400", code)
+	}
+	if _, err := q.GetUserByUsername(ctx, "carol"); !isNotFound(err) {
+		t.Error("failed create left a half-created user (not atomic)")
+	}
+
+	// Update without password keeps it; bouquets replaced; expiry cleared.
+	code, u, _ = call(t, h, http.MethodPut, path, map[string]any{"max_connections": 3, "bouquet_ids": []int64{b2.ID}, "clear_expiry": true})
+	if code != 200 || u["max_connections"] != float64(3) || len(u["bouquet_ids"].([]any)) != 1 || u["expires_at"] != nil {
+		t.Fatalf("update = %d %v", code, u)
+	}
+	stored, _ = q.GetUser(ctx, uid)
+	if !auth.CheckPassword(stored.PasswordHash, "alice-pw1") {
+		t.Error("empty password on update changed the hash")
+	}
+	if code, _, _ = call(t, h, http.MethodPut, path, map[string]any{"password": "alice-pw2"}); code != 200 {
+		t.Fatalf("password change = %d", code)
+	}
+	stored, _ = q.GetUser(ctx, uid)
+	if !auth.CheckPassword(stored.PasswordHash, "alice-pw2") || auth.CheckPassword(stored.PasswordHash, "alice-pw1") {
+		t.Error("password not changed")
+	}
+
+	// A failing bouquet update rolls back the field change too.
+	if code, _, _ = call(t, h, http.MethodPut, path, map[string]any{"max_connections": 9, "bouquet_ids": []int64{99999}}); code != http.StatusBadRequest {
+		t.Errorf("bad bouquet update = %d, want 400", code)
+	}
+	if cur, _ := q.GetUser(ctx, uid); cur.MaxConnections != 3 {
+		t.Errorf("partial update applied: max_connections = %d", cur.MaxConnections)
+	}
+	if ids, _ := q.ListUserBouquetIDs(ctx, uid); len(ids) != 1 || ids[0] != b2.ID {
+		t.Errorf("bouquets after failed update = %v", ids)
+	}
+
+	// Token rotation.
+	oldTok := stored.StreamToken
+	code, u, _ = call(t, h, http.MethodPost, path+"/rotate-token", nil)
+	if code != 200 || u["stream_token"] == oldTok {
+		t.Errorf("rotate = %d, token unchanged=%v", code, u["stream_token"] == oldTok)
+	}
+	if _, err := q.GetUserByStreamToken(ctx, oldTok); !isNotFound(err) {
+		t.Error("old token still resolves")
+	}
+
+	// Last-admin guard.
+	code, adm, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{"username": "root", "password": "root-pw1", "role": "admin"})
+	if code != http.StatusCreated {
+		t.Fatalf("create admin = %d", code)
+	}
+	admPath := "/api/v1/users/" + strconv.FormatInt(int64(adm["id"].(float64)), 10)
+	for name, req := range map[string][2]any{
+		"delete":  {http.MethodDelete, nil},
+		"disable": {http.MethodPut, map[string]any{"enabled": false}},
+		"demote":  {http.MethodPut, map[string]any{"role": "customer"}},
+	} {
+		if code, _, _ := call(t, h, req[0].(string), admPath, req[1]); code != http.StatusConflict {
+			t.Errorf("%s last admin = %d, want 409", name, code)
+		}
+	}
+	// With a second admin, the first can be demoted.
+	if code, _, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{"username": "root2", "password": "root-pw2", "role": "admin"}); code != http.StatusCreated {
+		t.Fatal("second admin")
+	}
+	if code, _, _ := call(t, h, http.MethodPut, admPath, map[string]any{"role": "customer"}); code != 200 {
+		t.Errorf("demote with another admin = %d", code)
+	}
+
+	// List and delete.
+	code, _, list := call(t, h, http.MethodGet, "/api/v1/users", nil)
+	if code != 200 || len(list) != 3 {
+		t.Errorf("list = %d %d users", code, len(list))
+	}
+	for _, it := range list {
+		if _, leaked := it.(map[string]any)["password_hash"]; leaked {
+			t.Error("password_hash in list")
+		}
+	}
+	if code, _, _ := call(t, h, http.MethodDelete, path, nil); code != http.StatusNoContent {
+		t.Errorf("delete = %d", code)
+	}
+	if code, _, _ := call(t, h, http.MethodGet, path, nil); code != http.StatusNotFound {
+		t.Errorf("get deleted = %d", code)
 	}
 }

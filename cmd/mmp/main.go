@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sysadmin/mmp/internal/api"
 	"github.com/sysadmin/mmp/internal/channel"
@@ -101,7 +102,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	refresher := source.NewRefresher(log, pool)
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: channel.NewService(log, pool), Streams: streams}
+		Match: channel.NewService(log, pool), Streams: streams,
+		InTx: func(ctx context.Context, fn func(api.Store) error) error {
+			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
+		}}
 	srv := server.New(cfg, log, pool)
 	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
 
