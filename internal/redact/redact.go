@@ -53,8 +53,20 @@ func URL(s string) string {
 		return s
 	}
 	u, err := url.Parse(s)
-	if err != nil || !u.IsAbs() || u.Host == "" {
+	if err != nil {
 		return scrub(s)
+	}
+	if !u.IsAbs() || u.Host == "" {
+		// Relative reference (e.g. an HTTP request URI): no userinfo is
+		// possible, but path and query credentials still get masked.
+		if userinfoRe.MatchString(s) {
+			return scrub(s) // embedded absolute URL somewhere in the text
+		}
+		path := redactPath(u.EscapedPath())
+		if u.RawQuery != "" {
+			return path + "?" + redactQuery(u.RawQuery)
+		}
+		return path
 	}
 	var b strings.Builder
 	b.WriteString(u.Scheme)

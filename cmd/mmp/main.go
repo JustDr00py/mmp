@@ -3,20 +3,87 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/sysadmin/mmp/internal/config"
+	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/server"
 )
 
 var version = "dev"
 
 func main() {
-	if err := run(context.Background()); err != nil {
+	configPath := flag.String("config", "", "path to YAML config file (optional; env vars override)")
+	migrateOnly := flag.Bool("migrate", false, "run migrations and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("mmp", version)
+		return
+	}
+
+	if err := run(context.Background(), *configPath, *migrateOnly); err != nil {
 		fmt.Fprintf(os.Stderr, "mmp: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context) error {
-	fmt.Fprintf(os.Stderr, "mmp %s starting (scaffold)\n", version)
+func run(ctx context.Context, configPath string, migrateOnly bool) error {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	log := newLogger(cfg)
+	log.Info("mmp starting", "version", version, "listen", cfg.Listen)
+
+	if err := db.Migrate(ctx, cfg.DB.DSN); err != nil {
+		return err
+	}
+	log.Info("migrations applied")
+	if migrateOnly {
+		return nil
+	}
+
+	pool, err := db.Open(ctx, db.PoolConfig{DSN: cfg.DB.DSN, MaxConns: cfg.DB.MaxConns})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	srv := server.New(cfg, log, pool)
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := srv.Run(ctx); err != nil {
+		return err
+	}
+	log.Info("mmp stopped")
 	return nil
+}
+
+func newLogger(cfg config.Config) *slog.Logger {
+	level := slog.LevelInfo
+	switch cfg.Log.Level {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(cfg.Log.Format, "json") {
+		return slog.New(slog.NewJSONHandler(os.Stdout, opts))
+	}
+	return slog.New(slog.NewTextHandler(os.Stdout, opts))
 }

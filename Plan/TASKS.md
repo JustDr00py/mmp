@@ -6,10 +6,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 - [x] 1.1 `go mod init`, directory layout, Makefile, `.gitignore`, `git init`. AC: `go build ./...` succeeds. — done: module `github.com/sysadmin/mmp`, dirs per PLAN.md layout, Makefile with dev/test/lint/generate/migrate, commit c88d3d2
 - [x] 1.2 `internal/config`: env + optional YAML (listen addr, DB DSN, base URL, timeouts). AC: unit test loads defaults and overrides. — done: `internal/config` (defaults < YAML < MMP_* env, Duration YAML type, Validate), tests pass
 - [x] 1.3 `docker-compose.yml` with Postgres 17 + mmp service. AC: `docker compose up postgres` is healthy. — done: compose file w/ healthcheck + mmp service; verified healthy via `podman compose up postgres` (no docker on this host)
-- [ ] 1.4 `internal/db`: pgxpool, embedded goose migrations run at startup, sqlc config. AC: the app starts and migrates an empty DB.
-- [ ] 1.5 Initial schema migration (all tables from PLAN.md data model). AC: migration up/down round-trips.
-- [ ] 1.6 HTTP server (chi), slog middleware, `/healthz`, graceful shutdown. AC: `curl /healthz` → 200 and SIGTERM drains cleanly.
-- [ ] 1.7 URL/credential redaction helper. AC: test shows Xtream and M3U URLs with creds are masked.
+- [x] 1.4 `internal/db`: pgxpool, embedded goose migrations run at startup, sqlc config. AC: the app starts and migrates an empty DB. — done: `internal/db/pool.go` (Open w/ ping, Migrate/MigrateDownTo via goose provider over `fs.Sub` embed), `sqlc.yaml` (pgx/v5), seed provider queries; app boots+auto-migrates (verified live)
+- [x] 1.5 Initial schema migration (all tables from PLAN.md data model). AC: migration up/down round-trips. — done: `migrations/00001_init.sql` (13 tables + indexes + default passthrough profile); up→down→up round-trip verified against Postgres 17 (`-tags=integration`, TestMigrateRoundTrip)
+- [x] 1.6 HTTP server (chi), slog middleware, `/healthz`, graceful shutdown. AC: `curl /healthz` → 200 and SIGTERM drains cleanly. — done: `internal/server` (chi mux, RequestID + slog middleware w/ redacted URLs, DB-aware healthz, graceful Run); fixed a bug where Run never served; verified live: healthz 200, X-Request-ID, SIGTERM drains (exit 0)
+- [x] 1.7 URL/credential redaction helper. AC: test shows Xtream and M3U URLs with creds are masked. — done: `internal/redact` (userinfo, query params, Xtream `/live|movie|series|radio/<u>/<p>/` paths, DSNs, unparseable-input fallback), table tests pass
 
 ## M2 — Ingest
 - [ ] 2.1 `source/m3u` streaming parser (EXTINF attrs, group-title, CRLF, BOM, missing attrs). AC: fixture tests pass, and a 100k-entry file parses with bounded memory.

@@ -64,6 +64,16 @@ func TestURL(t *testing.T) {
 		// Odd inputs.
 		{name: "empty", in: "", want: ""},
 		{
+			name: "request uri (relative)",
+			in:   "/get.php?username=alice&password=s3cret&type=m3u_plus",
+			want: "/get.php?username=" + Mask + "&password=" + Mask + "&type=m3u_plus",
+		},
+		{
+			name: "relative xtream path",
+			in:   "/live/alice/s3cret/42.ts?token=abc",
+			want: "/live/" + Mask + "/" + Mask + "/42.ts?token=" + Mask,
+		},
+		{
 			name: "garbage with embedded userinfo still scrubbed",
 			in:   "not a url http://alice:s3cret@host/x trailing",
 			want: "not a url http://" + userMask + "@host/x trailing",
