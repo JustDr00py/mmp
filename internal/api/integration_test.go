@@ -5,12 +5,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/proxy"
 )
 
 func newAPITestEnv(t *testing.T) *Env {
@@ -364,3 +368,141 @@ func TestMatcherThreeProviders(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// fakeTSUpstream serves an endless paced TS (a PAT then 9 payload packets,
+// repeated) and counts requests and open connections.
+func fakeTSUpstream(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int32) {
+	t.Helper()
+	var hits, open atomic.Int32
+	pkt := func(pid uint16, pusi bool, cc byte) []byte {
+		b := make([]byte, 188)
+		b[0], b[1], b[2], b[3] = 0x47, byte(pid>>8)&0x1F, byte(pid), 0x10|cc&0x0F
+		if pusi {
+			b[1] |= 0x40
+		}
+		return b
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		open.Add(1)
+		defer open.Add(-1)
+		w.Header().Set("Content-Type", "video/mp2t")
+		var cc byte
+		for {
+			var group []byte
+			group = append(group, pkt(0, true, cc)...)
+			for range 9 {
+				group = append(group, pkt(0x100, false, cc)...)
+			}
+			cc++
+			if _, err := w.Write(group); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(2 * time.Millisecond):
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits, &open
+}
+
+// TestChannelStreamEndToEnd is the 4.7 path through the real stack:
+// channel row -> DBSource -> proxy manager -> /channels/{id}/stream. Two
+// clients share one upstream request; it is released after idle grace.
+func TestChannelStreamEndToEnd(t *testing.T) {
+	env := newAPITestEnv(t)
+	ctx := context.Background()
+	q := env.Store.(*db.Queries)
+	up, hits, open := fakeTSUpstream(t)
+
+	capacity := proxy.NewCapacity()
+	mgr := proxy.NewManager(ctx, proxy.ManagerConfig{
+		Source: proxy.DBSource(q), Opener: proxy.NewHTTPOpener(2 * time.Second),
+		Capacity: capacity, Cooldowns: proxy.NewCooldowns(time.Second, 10*time.Second),
+		RingSize: 4 << 20, IdleGrace: 200 * time.Millisecond, MaxRetryWindow: 5 * time.Second,
+		Thresholds: proxy.Thresholds{StallTimeout: 2 * time.Second, Window: 5 * time.Second},
+	})
+	t.Cleanup(mgr.Shutdown)
+	env.Streams = mgr
+	srv := httptest.NewServer(apiServer(env))
+	t.Cleanup(srv.Close)
+
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "P", Type: "m3u", Url: "http://p/",
+		MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true, UserAgent: "TestUA/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: p.ID, ExternalID: "1",
+		Name: "News", StreamUrl: up.URL + "/live/user/secret/1.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "News"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "Empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.AddStreamToChannel(ctx, db.AddStreamToChannelParams{ChannelID: ch.ID, ProviderStreamID: sid, Priority: 1}); err != nil {
+		t.Fatal(err)
+	}
+	streamURL := func(id int64) string { return srv.URL + "/api/v1/channels/" + strconv.FormatInt(id, 10) + "/stream" }
+
+	for id, want := range map[int64]int{999999: http.StatusNotFound, empty.ID: http.StatusConflict} {
+		resp, err := http.Get(streamURL(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("channel %d: status %d, want %d", id, resp.StatusCode, want)
+		}
+	}
+
+	// Two clients at once: both get aligned TS, one upstream request.
+	var wg sync.WaitGroup
+	for i := range 2 {
+		wg.Go(func() {
+			resp, err := http.Get(streamURL(ch.ID))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "video/mp2t" {
+				t.Errorf("client %d: %d %s", i, resp.StatusCode, resp.Header.Get("Content-Type"))
+				return
+			}
+			buf := make([]byte, 188*500)
+			if _, err := io.ReadFull(resp.Body, buf); err != nil {
+				t.Errorf("client %d read: %v", i, err)
+				return
+			}
+			for off := 0; off < len(buf); off += 188 {
+				if buf[off] != 0x47 {
+					t.Errorf("client %d: unaligned at %d", i, off)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if h := hits.Load(); h != 1 {
+		t.Errorf("upstream requests = %d, want 1", h)
+	}
+
+	// Clients gone: after idle grace the slot and upstream are released.
+	deadline := time.Now().Add(5 * time.Second)
+	for capacity.InUse(p.ID) != 0 || open.Load() != 0 || len(mgr.Channels()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("not torn down: slots=%d open=%d channels=%v", capacity.InUse(p.ID), open.Load(), mgr.Channels())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

@@ -159,6 +159,53 @@ func (q *Queries) ListBouquets(ctx context.Context) ([]Bouquet, error) {
 	return items, nil
 }
 
+const listChannelCandidates = `-- name: ListChannelCandidates :many
+SELECT ps.id AS stream_id, ps.stream_url,
+       pr.id AS provider_id, pr.max_connections, pr.user_agent
+FROM channel_streams cs
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE cs.channel_id = $1
+  AND pr.enabled
+  AND NOT ps.disabled
+ORDER BY cs.priority, pr.priority, ps.id
+`
+
+type ListChannelCandidatesRow struct {
+	StreamID       int64  `json:"stream_id"`
+	StreamUrl      string `json:"stream_url"`
+	ProviderID     int64  `json:"provider_id"`
+	MaxConnections int32  `json:"max_connections"`
+	UserAgent      string `json:"user_agent"`
+}
+
+// The proxy's failover list: live streams of enabled providers, preferred first.
+func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([]ListChannelCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listChannelCandidates, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelCandidatesRow
+	for rows.Next() {
+		var i ListChannelCandidatesRow
+		if err := rows.Scan(
+			&i.StreamID,
+			&i.StreamUrl,
+			&i.ProviderID,
+			&i.MaxConnections,
+			&i.UserAgent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChannelStreams = `-- name: ListChannelStreams :many
 SELECT
     cs.channel_id, cs.priority, cs.added_at,

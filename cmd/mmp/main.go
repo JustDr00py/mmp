@@ -18,6 +18,7 @@ import (
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/server"
 	"github.com/sysadmin/mmp/internal/source"
 )
@@ -66,13 +67,37 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	defer pool.Close()
 
-	refresher := source.NewRefresher(log, pool)
-	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher, Match: channel.NewService(log, pool)}
-	srv := server.New(cfg, log, pool)
-	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
-
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Proxy: sessions live under the signal ctx, so SIGTERM ends every
+	// stream (viewers get EOF) and graceful HTTP shutdown is not held open.
+	pc := cfg.Proxy
+	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
+		Source:    proxy.DBSource(db.New(pool)),
+		Opener:    proxy.NewHTTPOpener(pc.ConnectTimeout.Duration),
+		Capacity:  proxy.NewCapacity(),
+		Cooldowns: proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration),
+		RingSize:  pc.BufferSizeMB << 20,
+		// ~1 MiB of buffered stream lets a joining player find a keyframe fast.
+		JoinBacklog: 1 << 20,
+		IdleGrace:   pc.IdleGrace.Duration,
+		Thresholds: proxy.Thresholds{
+			StallTimeout:   pc.StallTimeout.Duration,
+			LowBitrateKbps: pc.LowBitrateKbps,
+			MaxCCErrorRate: pc.MaxCCErrorRate,
+			Window:         5 * time.Second,
+		},
+		MaxRetryWindow: pc.MaxRetryWindow.Duration,
+		Log:            log,
+	})
+	defer streams.Shutdown()
+
+	refresher := source.NewRefresher(log, pool)
+	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
+		Match: channel.NewService(log, pool), Streams: streams}
+	srv := server.New(cfg, log, pool)
+	srv.Mux().Route("/api/v1", func(r chi.Router) { api.Mount(r, apiEnv) })
 
 	// Background workers.
 	go func() {

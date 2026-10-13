@@ -56,3 +56,15 @@ SELECT c.* FROM bouquet_channels bc
 JOIN channels c ON c.id = bc.channel_id
 WHERE bc.bouquet_id = $1
 ORDER BY c.number NULLS LAST, c.name;
+
+-- name: ListChannelCandidates :many
+-- The proxy's failover list: live streams of enabled providers, preferred first.
+SELECT ps.id AS stream_id, ps.stream_url,
+       pr.id AS provider_id, pr.max_connections, pr.user_agent
+FROM channel_streams cs
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE cs.channel_id = $1
+  AND pr.enabled
+  AND NOT ps.disabled
+ORDER BY cs.priority, pr.priority, ps.id;

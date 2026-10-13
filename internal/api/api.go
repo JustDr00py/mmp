@@ -23,6 +23,7 @@ type Env struct {
 	Store   Store
 	Refresh Refresher
 	Match   Matcher
+	Streams StreamAttacher
 }
 
 // Store is the persistence surface the API needs (satisfied by *db.Queries).

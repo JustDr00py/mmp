@@ -89,6 +89,7 @@ func MountChannels(r chi.Router, env *Env) {
 			r.Get("/", env.getChannel)
 			r.Put("/", env.updateChannel)
 			r.Delete("/", env.deleteChannel)
+			r.Get("/stream", env.streamChannel)
 			r.Get("/streams", env.listChannelStreams)
 			r.Post("/streams", env.addChannelStream)
 			r.Put("/streams/order", env.reorderChannelStreams)
