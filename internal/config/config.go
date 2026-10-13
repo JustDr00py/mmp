@@ -69,6 +69,8 @@ type Config struct {
 		// HLS master playlists: the best variant within these caps (0 = no cap).
 		HLSMaxBandwidthKbps int `yaml:"hls_max_bandwidth_kbps"`
 		HLSMaxHeight        int `yaml:"hls_max_height"`
+		// FFmpegPath runs stream profiles in ffmpeg mode ("" = ffmpeg from PATH).
+		FFmpegPath string `yaml:"ffmpeg_path"`
 	} `yaml:"proxy"`
 	Refresh struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
@@ -207,6 +209,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_LISTEN", &c.Listen)
 	str("MMP_BASE_URL", &c.BaseURL)
 	str("MMP_LOG_LEVEL", &c.Log.Level)
+	str("MMP_PROXY_FFMPEG_PATH", &c.Proxy.FFmpegPath)
 	str("MMP_LOG_FORMAT", &c.Log.Format)
 	str("MMP_DB_DSN", &c.DB.DSN)
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)

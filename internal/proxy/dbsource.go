@@ -21,12 +21,18 @@ func DBSource(q CandidateQuerier) ChannelSource {
 		}
 		out := make([]Candidate, len(rows))
 		for i, r := range rows {
+			ua := r.UserAgent
+			if r.ProfileUserAgent != "" { // the channel's profile is more specific
+				ua = r.ProfileUserAgent
+			}
 			out[i] = Candidate{
 				StreamID:       r.StreamID,
 				ProviderID:     r.ProviderID,
 				MaxConnections: int(r.MaxConnections),
 				URL:            r.StreamUrl,
-				UserAgent:      r.UserAgent,
+				UserAgent:      ua,
+				FFmpeg:         r.ProfileMode == "ffmpeg",
+				FFmpegArgs:     r.ProfileFfmpegArgs,
 			}
 		}
 		return out, nil

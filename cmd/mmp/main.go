@@ -83,10 +83,11 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	pc := cfg.Proxy
 	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
 		Source: proxy.DBSource(db.New(pool)),
-		Opener: proxy.NewProtocolOpener(pc.ConnectTimeout.Duration, proxy.VariantLimit{ // HTTP-TS, or HLS
+		// HTTP-TS or HLS, through ffmpeg for channels with an ffmpeg profile.
+		Opener: proxy.NewProfileOpener(proxy.NewProtocolOpener(pc.ConnectTimeout.Duration, proxy.VariantLimit{
 			MaxBandwidth: int64(pc.HLSMaxBandwidthKbps) * 1000,
 			MaxHeight:    pc.HLSMaxHeight,
-		}),
+		}), pc.FFmpegPath),
 		Capacity:  proxy.NewCapacity(),
 		Cooldowns: proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration),
 		RingSize:  pc.BufferSizeMB << 20,

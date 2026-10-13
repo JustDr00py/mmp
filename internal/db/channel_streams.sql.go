@@ -161,10 +161,15 @@ func (q *Queries) ListBouquets(ctx context.Context) ([]Bouquet, error) {
 
 const listChannelCandidates = `-- name: ListChannelCandidates :many
 SELECT ps.id AS stream_id, ps.stream_url,
-       pr.id AS provider_id, pr.max_connections, pr.user_agent
+       pr.id AS provider_id, pr.max_connections, pr.user_agent,
+       COALESCE(sp.mode, 'passthrough')::text AS profile_mode,
+       COALESCE(sp.ffmpeg_args, '')::text AS profile_ffmpeg_args,
+       COALESCE(sp.user_agent, '')::text AS profile_user_agent
 FROM channel_streams cs
 JOIN provider_streams ps ON ps.id = cs.provider_stream_id
 JOIN providers pr ON pr.id = ps.provider_id
+JOIN channels c ON c.id = cs.channel_id
+LEFT JOIN stream_profiles sp ON sp.id = c.stream_profile_id
 WHERE cs.channel_id = $1
   AND pr.enabled
   AND NOT ps.disabled
@@ -172,14 +177,18 @@ ORDER BY cs.priority, pr.priority, ps.id
 `
 
 type ListChannelCandidatesRow struct {
-	StreamID       int64  `json:"stream_id"`
-	StreamUrl      string `json:"stream_url"`
-	ProviderID     int64  `json:"provider_id"`
-	MaxConnections int32  `json:"max_connections"`
-	UserAgent      string `json:"user_agent"`
+	StreamID          int64  `json:"stream_id"`
+	StreamUrl         string `json:"stream_url"`
+	ProviderID        int64  `json:"provider_id"`
+	MaxConnections    int32  `json:"max_connections"`
+	UserAgent         string `json:"user_agent"`
+	ProfileMode       string `json:"profile_mode"`
+	ProfileFfmpegArgs string `json:"profile_ffmpeg_args"`
+	ProfileUserAgent  string `json:"profile_user_agent"`
 }
 
 // The proxy's failover list: live streams of enabled providers, preferred first.
+// The channel's stream profile (if any) rides along on every row.
 func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([]ListChannelCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listChannelCandidates, channelID)
 	if err != nil {
@@ -195,6 +204,9 @@ func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([
 			&i.ProviderID,
 			&i.MaxConnections,
 			&i.UserAgent,
+			&i.ProfileMode,
+			&i.ProfileFfmpegArgs,
+			&i.ProfileUserAgent,
 		); err != nil {
 			return nil, err
 		}

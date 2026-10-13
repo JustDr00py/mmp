@@ -96,6 +96,7 @@ func TestEnvOverridesYAML(t *testing.T) {
 	t.Setenv("MMP_MATCH_AUTO", "true")
 	t.Setenv("MMP_MATCH_MIN_PROVIDERS", "3")
 	t.Setenv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", "4000")
+	t.Setenv("MMP_PROXY_FFMPEG_PATH", "/opt/ffmpeg/bin/ffmpeg")
 
 	c, err := Load(p)
 	if err != nil {
@@ -115,6 +116,9 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 	if c.Proxy.HLSMaxHeight != 720 || c.Proxy.HLSMaxBandwidthKbps != 4000 {
 		t.Errorf("hls caps = %d / %d kbps", c.Proxy.HLSMaxHeight, c.Proxy.HLSMaxBandwidthKbps)
+	}
+	if c.Proxy.FFmpegPath != "/opt/ffmpeg/bin/ffmpeg" {
+		t.Errorf("ffmpeg_path = %q", c.Proxy.FFmpegPath)
 	}
 }
 

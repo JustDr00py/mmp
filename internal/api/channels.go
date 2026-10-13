@@ -298,6 +298,10 @@ func (env *Env) createChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c, err := store.CreateChannel(r.Context(), params)
+	if pgCode(err) == pgForeignKeyViolation {
+		writeErr(w, http.StatusBadRequest, "unknown group_id or stream_profile_id")
+		return
+	}
 	if err != nil {
 		env.Log.Error("api: create channel", "err", err)
 		writeErr(w, http.StatusInternalServerError, "create channel failed")
@@ -348,6 +352,10 @@ func (env *Env) updateChannel(w http.ResponseWriter, r *http.Request) {
 	})
 	if isNotFound(err) {
 		writeErr(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	if pgCode(err) == pgForeignKeyViolation {
+		writeErr(w, http.StatusBadRequest, "unknown group_id or stream_profile_id")
 		return
 	}
 	if err != nil {

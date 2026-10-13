@@ -95,6 +95,12 @@ type Store interface {
 	CreateAPIToken(ctx context.Context, arg db.CreateAPITokenParams) (db.CreateAPITokenRow, error)
 	ListAPITokens(ctx context.Context) ([]db.ListAPITokensRow, error)
 	DeleteAPIToken(ctx context.Context, id int64) (int64, error)
+
+	CreateStreamProfile(ctx context.Context, arg db.CreateStreamProfileParams) (db.StreamProfile, error)
+	GetStreamProfile(ctx context.Context, id int64) (db.StreamProfile, error)
+	ListStreamProfiles(ctx context.Context) ([]db.StreamProfile, error)
+	UpdateStreamProfile(ctx context.Context, arg db.UpdateStreamProfileParams) (db.StreamProfile, error)
+	DeleteStreamProfile(ctx context.Context, id int64) (int64, error)
 }
 
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
@@ -122,6 +128,7 @@ func Mount(r chi.Router, env *Env) {
 		MountChannels(r, env)
 		MountMatch(r, env)
 		MountUsers(r, env)
+		MountProfiles(r, env)
 	})
 }
 

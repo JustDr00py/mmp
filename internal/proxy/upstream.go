@@ -14,11 +14,15 @@ type Candidate struct {
 	URL            string // may embed credentials: always redact before logging
 	UserAgent      string
 	Headers        http.Header // extra request headers, optional
+	// FFmpeg routes the stream through ffmpeg with FFmpegArgs (the
+	// channel's stream profile in ffmpeg mode).
+	FFmpeg     bool
+	FFmpegArgs string
 }
 
 // Opener opens an upstream byte stream for a candidate. The returned stream
-// ends when ctx is cancelled or it is closed. Implementations: HTTP-TS
-// (here), HLS and ffmpeg later.
+// ends when ctx is cancelled or it is closed. Implementations: HTTP-TS,
+// HLS, and the ffmpeg stage of stream profiles.
 type Opener interface {
 	Open(ctx context.Context, c Candidate) (io.ReadCloser, error)
 }
