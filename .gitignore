@@ -1,0 +1,16 @@
+# binaries
+/mmp
+/bin/
+
+# local env / config with secrets
+.env
+*.local.yaml
+
+# test & coverage
+*.out
+*.test
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
