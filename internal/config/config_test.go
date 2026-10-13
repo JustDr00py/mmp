@@ -97,6 +97,8 @@ func TestEnvOverridesYAML(t *testing.T) {
 	t.Setenv("MMP_MATCH_MIN_PROVIDERS", "3")
 	t.Setenv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", "4000")
 	t.Setenv("MMP_PROXY_FFMPEG_PATH", "/opt/ffmpeg/bin/ffmpeg")
+	t.Setenv("MMP_PROBE_ENABLED", "true")
+	t.Setenv("MMP_PROBE_RECHECK", "15s")
 
 	c, err := Load(p)
 	if err != nil {
@@ -119,6 +121,9 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 	if c.Proxy.FFmpegPath != "/opt/ffmpeg/bin/ffmpeg" {
 		t.Errorf("ffmpeg_path = %q", c.Proxy.FFmpegPath)
+	}
+	if !c.Probe.Enabled || c.Probe.Recheck.Duration != 15*time.Second || c.Probe.Interval.Duration != 30*time.Minute {
+		t.Errorf("probe = %+v", c.Probe)
 	}
 }
 
@@ -154,6 +159,7 @@ func TestValidate(t *testing.T) {
 		{"cooldown inversion", func(c *Config) { c.Proxy.CooldownMax.Duration = time.Second }, "cooldown"},
 		{"zero buffer", func(c *Config) { c.Proxy.BufferSizeMB = 0 }, "buffer_size_mb"},
 		{"cc rate too big", func(c *Config) { c.Proxy.MaxCCErrorRate = 2 }, "cc_error_rate"},
+		{"zero probe concurrency", func(c *Config) { c.Probe.Concurrency = 0 }, "probe"},
 		{"negative hls cap", func(c *Config) { c.Proxy.HLSMaxHeight = -1 }, "hls_max_height"},
 		{"zero match providers", func(c *Config) { c.Match.MinProviders = 0 }, "min_providers"},
 	}

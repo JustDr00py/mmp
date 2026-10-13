@@ -136,6 +136,7 @@ type ProviderStream struct {
 	LastSeen      time.Time  `json:"last_seen"`
 	Disabled      bool       `json:"disabled"`
 	CreatedAt     time.Time  `json:"created_at"`
+	LastProbedAt  *time.Time `json:"last_probed_at"`
 }
 
 type StreamProfile struct {

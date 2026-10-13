@@ -65,7 +65,7 @@ func (q *Queries) ListDueProviders(ctx context.Context) ([]Provider, error) {
 }
 
 const listProviderStreams = `-- name: ListProviderStreams :many
-SELECT id, provider_id, external_id, name, tvg_id, logo_url, group_title, stream_url, health_score, last_error, cooldown_until, last_seen, disabled, created_at FROM provider_streams WHERE provider_id = $1 ORDER BY name LIMIT $2 OFFSET $3
+SELECT id, provider_id, external_id, name, tvg_id, logo_url, group_title, stream_url, health_score, last_error, cooldown_until, last_seen, disabled, created_at, last_probed_at FROM provider_streams WHERE provider_id = $1 ORDER BY name LIMIT $2 OFFSET $3
 `
 
 type ListProviderStreamsParams struct {
@@ -98,6 +98,7 @@ func (q *Queries) ListProviderStreams(ctx context.Context, arg ListProviderStrea
 			&i.LastSeen,
 			&i.Disabled,
 			&i.CreatedAt,
+			&i.LastProbedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -165,7 +166,7 @@ func (q *Queries) MarkProviderRefreshed(ctx context.Context, id int64) error {
 }
 
 const searchProviderStreams = `-- name: SearchProviderStreams :many
-SELECT id, provider_id, external_id, name, tvg_id, logo_url, group_title, stream_url, health_score, last_error, cooldown_until, last_seen, disabled, created_at FROM provider_streams
+SELECT id, provider_id, external_id, name, tvg_id, logo_url, group_title, stream_url, health_score, last_error, cooldown_until, last_seen, disabled, created_at, last_probed_at FROM provider_streams
 WHERE provider_id = $1 AND name ILIKE $2
 ORDER BY name LIMIT $3 OFFSET $4
 `
@@ -206,6 +207,7 @@ func (q *Queries) SearchProviderStreams(ctx context.Context, arg SearchProviderS
 			&i.LastSeen,
 			&i.Disabled,
 			&i.CreatedAt,
+			&i.LastProbedAt,
 		); err != nil {
 			return nil, err
 		}

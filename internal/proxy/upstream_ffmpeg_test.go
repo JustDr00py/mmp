@@ -313,8 +313,11 @@ func TestFFmpegSessionTeardown(t *testing.T) {
 		t.Fatalf("ffmpeg started %d times, want once for both viewers", len(started))
 	}
 	checkReaped(t, started[0])
-	if n := src.openCount(); n != 0 {
-		t.Errorf("%d upstreams open after teardown", n)
+	// The upstream is closed just after ffmpeg is reaped.
+	for deadline := time.Now().Add(2 * time.Second); src.openCount() != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d upstreams open after teardown", src.openCount())
+		}
 	}
 }
 

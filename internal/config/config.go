@@ -80,6 +80,17 @@ type Config struct {
 		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
 		MinProviders int  `yaml:"min_providers"` // auto-create channels only for groups at >= N providers
 	} `yaml:"match"`
+	// Probe is the background stream prober. Off by default: each probe
+	// costs a provider connection slot, and some providers dislike them.
+	Probe struct {
+		Enabled     bool     `yaml:"enabled"`
+		Interval    Duration `yaml:"interval"`     // probe every channel stream this often
+		Recheck     Duration `yaml:"recheck"`      // re-probe streams in cooldown this often
+		Sample      Duration `yaml:"sample"`       // how long one probe reads
+		Concurrency int      `yaml:"concurrency"`  // probes at once
+		FFprobe     bool     `yaml:"ffprobe"`      // also require ffprobe to find audio/video
+		FFprobePath string   `yaml:"ffprobe_path"` // "" = ffprobe from PATH
+	} `yaml:"probe"`
 	Auth struct {
 		SessionTTL Duration `yaml:"session_ttl"` // admin browser session lifetime
 	} `yaml:"auth"`
@@ -113,6 +124,10 @@ func Defaults() Config {
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Match.MinProviders = 2
+	c.Probe.Interval = Duration{30 * time.Minute}
+	c.Probe.Recheck = Duration{time.Minute}
+	c.Probe.Sample = Duration{3 * time.Second}
+	c.Probe.Concurrency = 2
 	c.Auth.SessionTTL = Duration{7 * 24 * time.Hour}
 	return c
 }
@@ -210,6 +225,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_BASE_URL", &c.BaseURL)
 	str("MMP_LOG_LEVEL", &c.Log.Level)
 	str("MMP_PROXY_FFMPEG_PATH", &c.Proxy.FFmpegPath)
+	str("MMP_PROBE_FFPROBE_PATH", &c.Probe.FFprobePath)
 	str("MMP_LOG_FORMAT", &c.Log.Format)
 	str("MMP_DB_DSN", &c.DB.DSN)
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
@@ -233,6 +249,12 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", &c.Proxy.HLSMaxBandwidthKbps),
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		boolv("MMP_PROBE_ENABLED", &c.Probe.Enabled),
+		dur("MMP_PROBE_INTERVAL", &c.Probe.Interval),
+		dur("MMP_PROBE_RECHECK", &c.Probe.Recheck),
+		dur("MMP_PROBE_SAMPLE", &c.Probe.Sample),
+		intv("MMP_PROBE_CONCURRENCY", &c.Probe.Concurrency),
+		boolv("MMP_PROBE_FFPROBE", &c.Probe.FFprobe),
 		intv("MMP_MATCH_MIN_PROVIDERS", &c.Match.MinProviders),
 	} {
 		if e != nil {
@@ -287,6 +309,9 @@ func (c *Config) Validate() error {
 	}
 	if p.HLSMaxBandwidthKbps < 0 || p.HLSMaxHeight < 0 {
 		return errors.New("config: proxy.hls_max_bandwidth_kbps and hls_max_height must be >= 0")
+	}
+	if pr := c.Probe; pr.Interval.Duration <= 0 || pr.Recheck.Duration <= 0 || pr.Sample.Duration <= 0 || pr.Concurrency < 1 {
+		return errors.New("config: probe interval/recheck/sample must be > 0 and concurrency >= 1")
 	}
 	if c.Match.MinProviders < 1 {
 		return errors.New("config: match.min_providers must be >= 1")

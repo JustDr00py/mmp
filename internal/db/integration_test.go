@@ -229,3 +229,65 @@ func TestListGuideProgrammes(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeQueries(t *testing.T) {
+	dsn := testDSN(t)
+	recreate(t, dsn)
+	ctx := context.Background()
+	if err := Migrate(ctx, dsn); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pool, err := Open(ctx, PoolConfig{DSN: dsn})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer pool.Close()
+	q := New(pool)
+
+	on, _ := q.CreateProvider(ctx, CreateProviderParams{Name: "On", Type: "m3u", Url: "http://a/", MaxConnections: 2, RefreshIntervalSecs: 3600, Enabled: true, UserAgent: "ProvUA"})
+	off, _ := q.CreateProvider(ctx, CreateProviderParams{Name: "Off", Type: "m3u", Url: "http://b/", RefreshIntervalSecs: 3600, Enabled: false})
+	stream := func(p int64, ext string) int64 {
+		id, err := q.UpsertProviderStream(ctx, UpsertProviderStreamParams{ProviderID: p, ExternalID: ext, Name: ext, StreamUrl: "http://x/" + ext})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	sA, sB, sC, sD := stream(on.ID, "a"), stream(on.ID, "b"), stream(off.ID, "c"), stream(on.ID, "d")
+	stream(on.ID, "unused") // on no channel
+	prof, _ := q.CreateStreamProfile(ctx, CreateStreamProfileParams{Name: "ua", Mode: "passthrough", UserAgent: "ProfUA"})
+	chOn, _ := q.CreateChannel(ctx, CreateChannelParams{Name: "On"})
+	chProf, _ := q.CreateChannel(ctx, CreateChannelParams{Name: "Prof", StreamProfileID: &prof.ID})
+	chOff, _ := q.CreateChannel(ctx, CreateChannelParams{Name: "Off"})
+	if _, err := pool.Exec(ctx, `UPDATE channels SET enabled = false WHERE id = $1`, chOff.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct{ ch, s int64 }{{chOn.ID, sA}, {chProf.ID, sA}, {chOn.ID, sB}, {chOn.ID, sC}, {chOff.ID, sD}} {
+		if err := q.AddStreamToChannel(ctx, AddStreamToChannelParams{ChannelID: l.ch, ProviderStreamID: l.s, Priority: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := q.ListProbeTargets(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a (twice linked, listed once, profile UA), b; not c (provider off),
+	// d (channel off) or unused (no channel).
+	if len(rows) != 2 || rows[0].StreamID != sA || rows[1].StreamID != sB {
+		t.Fatalf("targets = %+v", rows)
+	}
+	if rows[0].UserAgent != "ProfUA" || rows[1].UserAgent != "ProvUA" || rows[0].MaxConnections != 2 || rows[0].LastProbedAt != nil {
+		t.Errorf("targets = %+v", rows)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	until := now.Add(time.Minute)
+	if err := q.RecordProbe(ctx, RecordProbeParams{ID: sA, HealthScore: 0.5, LastError: "upstream status 503", CooldownUntil: &until, LastProbedAt: &now}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = q.ListProbeTargets(ctx)
+	if r := rows[0]; r.HealthScore != 0.5 || r.CooldownUntil == nil || !r.CooldownUntil.Equal(until) || r.LastProbedAt == nil || !r.LastProbedAt.Equal(now) {
+		t.Errorf("after record: %+v", r)
+	}
+}

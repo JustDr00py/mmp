@@ -200,6 +200,17 @@ func (m *Manager) Channels() []ChannelStatus {
 	return out
 }
 
+// BusyStreams returns the streams sessions are playing right now.
+func (m *Manager) BusyStreams() map[int64]bool {
+	out := map[int64]bool{}
+	for _, c := range m.Channels() {
+		if c.State == "streaming" && c.StreamID != 0 {
+			out[c.StreamID] = true
+		}
+	}
+	return out
+}
+
 // Shutdown stops every session and waits until their upstreams are closed
 // and slots released. Viewers receive EOF; Attach fails afterwards.
 func (m *Manager) Shutdown() {

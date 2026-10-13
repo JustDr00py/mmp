@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/health"
 	"github.com/sysadmin/mmp/internal/output"
 	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/server"
@@ -81,15 +83,18 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	defer func() { <-eventsDone }() // after streams.Shutdown (defers run LIFO): last events are flushed
 
 	pc := cfg.Proxy
+	// HTTP-TS or HLS; sessions add ffmpeg for channels with an ffmpeg profile.
+	direct := proxy.NewProtocolOpener(pc.ConnectTimeout.Duration, proxy.VariantLimit{
+		MaxBandwidth: int64(pc.HLSMaxBandwidthKbps) * 1000,
+		MaxHeight:    pc.HLSMaxHeight,
+	})
+	capacity := proxy.NewCapacity()
+	cooldowns := proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration)
 	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
-		Source: proxy.DBSource(db.New(pool)),
-		// HTTP-TS or HLS, through ffmpeg for channels with an ffmpeg profile.
-		Opener: proxy.NewProfileOpener(proxy.NewProtocolOpener(pc.ConnectTimeout.Duration, proxy.VariantLimit{
-			MaxBandwidth: int64(pc.HLSMaxBandwidthKbps) * 1000,
-			MaxHeight:    pc.HLSMaxHeight,
-		}), pc.FFmpegPath),
-		Capacity:  proxy.NewCapacity(),
-		Cooldowns: proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration),
+		Source:    proxy.DBSource(db.New(pool)),
+		Opener:    proxy.NewProfileOpener(direct, pc.FFmpegPath),
+		Capacity:  capacity,
+		Cooldowns: cooldowns,
 		RingSize:  pc.BufferSizeMB << 20,
 		// ~1 MiB of buffered stream lets a joining player find a keyframe fast.
 		JoinBacklog: 1 << 20,
@@ -105,6 +110,18 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		OnEvent:        events.Record,
 	})
 	defer streams.Shutdown()
+
+	if pr := cfg.Probe; pr.Enabled {
+		ffprobe := ""
+		if pr.FFprobe {
+			ffprobe = cmp.Or(pr.FFprobePath, "ffprobe")
+		}
+		prober := &health.Prober{Log: log, Store: db.New(pool), Opener: direct,
+			Capacity: capacity, Cooldowns: cooldowns, Busy: streams.BusyStreams,
+			Cfg: health.Config{Interval: pr.Interval.Duration, Recheck: pr.Recheck.Duration,
+				Sample: pr.Sample.Duration, Concurrency: pr.Concurrency, FFprobePath: ffprobe}}
+		go prober.Run(ctx)
+	}
 
 	queries := db.New(pool)
 	if err := auth.EnsureAdmin(ctx, queries, log, cfg.Admin.Username, cfg.Admin.Password); err != nil {
