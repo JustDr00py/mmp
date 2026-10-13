@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/sysadmin/mmp/internal/redact"
@@ -26,6 +27,34 @@ type StatusError struct {
 
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("upstream status %d %s", e.Code, http.StatusText(e.Code))
+}
+
+// PlaylistError means the upstream answered with an HLS playlist rather
+// than a TS stream. It holds the final URL privately; Error() never shows it.
+type PlaylistError struct {
+	url string
+}
+
+func (e *PlaylistError) Error() string { return "upstream answered with an HLS playlist" }
+
+// hlsContentTypes are the playlist media types seen in the wild (RFC 8216
+// names the first; the rest are legacy aliases).
+var hlsContentTypes = []string{
+	"application/vnd.apple.mpegurl",
+	"application/x-mpegurl",
+	"audio/mpegurl",
+	"audio/x-mpegurl",
+}
+
+func isHLSContentType(ct string) bool {
+	mt, _, _ := strings.Cut(ct, ";")
+	mt = strings.ToLower(strings.TrimSpace(mt))
+	for _, t := range hlsContentTypes {
+		if mt == t {
+			return true
+		}
+	}
+	return false
 }
 
 // HTTPOpener opens MPEG-TS streams over plain HTTP(S).
@@ -88,6 +117,12 @@ func (o *HTTPOpener) Open(ctx context.Context, c Candidate) (io.ReadCloser, erro
 		resp.Body.Close()
 		cancel(nil)
 		return nil, fmt.Errorf("open %s: %w", safe, &StatusError{Code: resp.StatusCode})
+	}
+	if isHLSContentType(resp.Header.Get("Content-Type")) {
+		final := resp.Request.URL.String()
+		resp.Body.Close()
+		cancel(nil)
+		return nil, fmt.Errorf("open %s: %w", safe, &PlaylistError{url: final})
 	}
 	// Headers arrived: the connect timer is stopped by the deferred Stop.
 	// If it fired in the gap, reads fail promptly and the session fails over.

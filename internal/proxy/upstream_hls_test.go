@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -34,6 +37,7 @@ type fakeHLS struct {
 	missing  int64 // segment answering 404
 	failFrom int64 // playlist answers 500 once this segment is newest (0 = never)
 	ended    int64 // if > 0, a finished playlist of this many segments
+	aes      bool  // AES-128 segments, a new key every 4; odd keys carry an IV
 	hits     map[string]int
 	srv      *httptest.Server
 }
@@ -47,8 +51,16 @@ func newFakeHLS(t *testing.T, tune func(*fakeHLS)) *fakeHLS {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/master.m3u8", func(w http.ResponseWriter, r *http.Request) {
 		f.hit(r)
-		fmt.Fprint(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100000\nlow/live.m3u8\n"+
-			"#EXT-X-STREAM-INF:BANDWIDTH=900000,CODECS=\"avc1,mp4a\"\nhi/live.m3u8\n")
+		fmt.Fprint(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100000,RESOLUTION=640x360\nlow/live.m3u8\n"+
+			"#EXT-X-STREAM-INF:BANDWIDTH=900000,CODECS=\"avc1,mp4a\",RESOLUTION=1920x1080\nhi/live.m3u8\n")
+	})
+	// Extensionless: the playlist is only recognisable by Content-Type.
+	mux.HandleFunc("/play/42", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/live/user/secretpw/chan", http.StatusFound)
+	})
+	mux.HandleFunc("/live/user/secretpw/chan", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+		f.playlist(w, r)
 	})
 	mux.HandleFunc("/redirect.m3u8", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/hi/live.m3u8", http.StatusFound)
@@ -56,6 +68,7 @@ func newFakeHLS(t *testing.T, tune func(*fakeHLS)) *fakeHLS {
 	for _, dir := range []string{"/", "/hi/", "/low/", "/live/user/secretpw/"} {
 		mux.HandleFunc(dir+"live.m3u8", f.playlist)
 		mux.HandleFunc(dir+"seg/", f.segment)
+		mux.HandleFunc(dir+"key/", f.key)
 	}
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -100,6 +113,13 @@ func (f *fakeHLS) playlist(w http.ResponseWriter, r *http.Request) {
 		if k == f.discAt {
 			b.WriteString("#EXT-X-DISCONTINUITY\n")
 		}
+		if f.aes && (k == first || k%4 == 0) {
+			fmt.Fprintf(&b, "#EXT-X-KEY:METHOD=AES-128,URI=\"key/%d\"", k/4)
+			if iv := fakeIV(k); (k/4)%2 == 1 {
+				fmt.Fprintf(&b, ",IV=0x%x", iv)
+			}
+			b.WriteString("\n")
+		}
 		fmt.Fprintf(&b, "#EXTINF:%.3f,\nseg/%d.ts\n", hlsTestDur.Seconds(), k)
 	}
 	if f.ended > 0 {
@@ -115,7 +135,46 @@ func (f *fakeHLS) segment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Write(fakeSegment(k, f.discAt))
+	data := fakeSegment(k, f.discAt)
+	if f.aes {
+		data = encryptAES128(data, fakeKey(k/4), fakeIV(k))
+	}
+	w.Write(data)
+}
+
+func (f *fakeHLS) key(w http.ResponseWriter, r *http.Request) {
+	f.hit(r)
+	n, err := strconv.ParseInt(r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Write(fakeKey(n))
+}
+
+func fakeKey(n int64) []byte { return bytes.Repeat([]byte{byte(n*7 + 1)}, aes.BlockSize) }
+
+// fakeIV is segment k's IV: for odd keys an explicit one, shared by every
+// segment under that key tag; else the media sequence number, as RFC 8216
+// prescribes when IV is absent.
+func fakeIV(k int64) []byte {
+	iv := make([]byte, aes.BlockSize)
+	if (k/4)%2 == 1 {
+		for i := range iv {
+			iv[i] = byte(k/4 + int64(i))
+		}
+		return iv
+	}
+	binary.BigEndian.PutUint64(iv[8:], uint64(k))
+	return iv
+}
+
+func encryptAES128(data, key, iv []byte) []byte {
+	pad := aes.BlockSize - len(data)%aes.BlockSize
+	out := append(bytes.Clone(data), bytes.Repeat([]byte{byte(pad)}, pad)...)
+	block, _ := aes.NewCipher(key)
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, out)
+	return out
 }
 
 // fakeSegment builds segment k. Counters restart at discAt, as an encoder
@@ -195,7 +254,7 @@ func checkCC(t *testing.T, pkts []hlsPacket) {
 
 func openHLS(t *testing.T, rawURL string) io.ReadCloser {
 	t.Helper()
-	rc, err := NewHLSOpener(time.Second).Open(context.Background(), Candidate{URL: rawURL})
+	rc, err := NewHLSOpener(time.Second, VariantLimit{}).Open(context.Background(), Candidate{URL: rawURL})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -266,6 +325,105 @@ func TestHLSMasterAndRedirect(t *testing.T) {
 	}
 }
 
+func TestHLSVariantLimit(t *testing.T) {
+	f := newFakeHLS(t, nil)
+	rc, err := NewHLSOpener(time.Second, VariantLimit{MaxHeight: 720}).Open(context.Background(), Candidate{URL: f.srv.URL + "/master.m3u8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	if _, err := readHLS(t, rc, hlsTestPkts); err != nil {
+		t.Fatal(err)
+	}
+	if f.hitCount("/hi/") != 0 || f.hitCount("/low/seg/") == 0 {
+		t.Errorf("hits = %v: want the 360p variant under a 720p cap", f.hits)
+	}
+}
+
+func TestHLSDecryptsAES128(t *testing.T) {
+	f := newFakeHLS(t, func(f *fakeHLS) { f.aes = true })
+	rc := openHLS(t, f.srv.URL+"/live.m3u8")
+	// 12 segments span at least 3 keys, both with and without an IV.
+	pkts, err := readHLS(t, rc, 12*(hlsTestPkts-1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCC(t, pkts)
+	for _, p := range pkts {
+		if p.disc {
+			t.Fatalf("segment %d flagged: a segment failed to decrypt", p.seg)
+		}
+	}
+	rc.Close()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := 0
+	for p, n := range f.hits {
+		if strings.HasPrefix(p, "/key/") {
+			keys++
+			if n != 1 {
+				t.Errorf("%s fetched %d times, want once", p, n)
+			}
+		}
+	}
+	if keys < 3 {
+		t.Errorf("%d keys fetched, want >= 3 (rotation)", keys)
+	}
+}
+
+func TestHLSBadKeySkipsSegments(t *testing.T) {
+	f := newFakeHLS(t, func(f *fakeHLS) { f.aes = true })
+	// A key server answering with the wrong length: every segment fails to
+	// decrypt, so the stream ends after hlsMaxErrors rather than emitting garbage.
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/key/") {
+			io.WriteString(w, "short")
+			return
+		}
+		f.srv.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer bad.Close()
+	rc, err := NewHLSOpener(time.Second, VariantLimit{}).Open(context.Background(), Candidate{URL: bad.URL + "/live/user/secretpw/live.m3u8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	n, err := io.Copy(io.Discard, rc)
+	if n != 0 || err == nil || !strings.Contains(err.Error(), "key") {
+		t.Errorf("copied %d bytes, err = %v; want no output and a key error", n, err)
+	}
+	if err != nil && strings.Contains(err.Error(), "secretpw") {
+		t.Errorf("error leaks credentials: %v", err)
+	}
+}
+
+func TestProtocolOpenerDetectsPlaylistByContentType(t *testing.T) {
+	f := newFakeHLS(t, nil)
+	po := NewProtocolOpener(time.Second, VariantLimit{})
+	rc, err := po.Open(context.Background(), Candidate{URL: f.srv.URL + "/play/42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	pkts, err := readHLS(t, rc, 3*(hlsTestPkts-1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCC(t, pkts)
+	if n := f.hitCount("/live/user/secretpw/seg/"); n == 0 {
+		t.Errorf("hits = %v: segments not resolved against the redirected playlist", f.hits)
+	}
+
+	// The TS opener alone reports the playlist without leaking its URL.
+	_, err = NewHTTPOpener(time.Second).Open(context.Background(), Candidate{URL: f.srv.URL + "/live/user/secretpw/chan"})
+	if _, ok := errors.AsType[*PlaylistError](err); !ok {
+		t.Fatalf("err = %v, want PlaylistError", err)
+	}
+	if strings.Contains(err.Error(), "secretpw") {
+		t.Errorf("error leaks credentials: %v", err)
+	}
+}
+
 func TestHLSEndlistEndsStream(t *testing.T) {
 	f := newFakeHLS(t, func(f *fakeHLS) { f.ended = 3 })
 	rc := openHLS(t, f.srv.URL+"/live.m3u8")
@@ -297,11 +455,11 @@ func TestHLSPlaylistFailureEndsStream(t *testing.T) {
 func TestHLSOpenErrors(t *testing.T) {
 	f := newFakeHLS(t, nil)
 	enc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\"\n#EXTINF:1,\na.ts\n")
+		io.WriteString(w, "#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"k\"\n#EXTINF:1,\na.ts\n")
 	}))
 	defer enc.Close()
 
-	_, err := NewHLSOpener(time.Second).Open(context.Background(), Candidate{URL: f.srv.URL + "/live/user/secretpw/nope.m3u8"})
+	_, err := NewHLSOpener(time.Second, VariantLimit{}).Open(context.Background(), Candidate{URL: f.srv.URL + "/live/user/secretpw/nope.m3u8"})
 	se, ok := errors.AsType[*StatusError](err)
 	if !ok || se.Code != http.StatusNotFound {
 		t.Errorf("err = %v, want StatusError 404", err)
@@ -309,12 +467,12 @@ func TestHLSOpenErrors(t *testing.T) {
 	if err != nil && strings.Contains(err.Error(), "secretpw") {
 		t.Errorf("error leaks credentials: %v", err)
 	}
-	if _, err := NewHLSOpener(time.Second).Open(context.Background(), Candidate{URL: enc.URL + "/x.m3u8"}); !errors.Is(err, ErrHLSUnsupported) {
+	if _, err := NewHLSOpener(time.Second, VariantLimit{}).Open(context.Background(), Candidate{URL: enc.URL + "/x.m3u8"}); !errors.Is(err, ErrHLSUnsupported) {
 		t.Errorf("encrypted: err = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewHLSOpener(time.Second).Open(ctx, Candidate{URL: f.srv.URL + "/live.m3u8"}); err == nil {
+	if _, err := NewHLSOpener(time.Second, VariantLimit{}).Open(ctx, Candidate{URL: f.srv.URL + "/live.m3u8"}); err == nil {
 		t.Error("cancelled ctx: opened")
 	}
 }
@@ -356,7 +514,7 @@ func TestHLSThroughManager(t *testing.T) {
 	}, func(cfg *ManagerConfig) {
 		cfg.Opener = openerFunc(func(ctx context.Context, c Candidate) (io.ReadCloser, error) {
 			opens.Add(1)
-			return NewProtocolOpener(time.Second).Open(ctx, c)
+			return NewProtocolOpener(time.Second, VariantLimit{}).Open(ctx, c)
 		})
 	})
 	v, err := m.Attach(1)

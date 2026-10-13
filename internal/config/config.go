@@ -66,6 +66,9 @@ type Config struct {
 		BufferSizeMB   int      `yaml:"buffer_size_mb"`    // ring buffer per session
 		LowBitrateKbps int      `yaml:"low_bitrate_kbps"`  // 0 disables the low-bitrate check
 		MaxCCErrorRate float64  `yaml:"max_cc_error_rate"` // TS continuity-error fraction per window
+		// HLS master playlists: the best variant within these caps (0 = no cap).
+		HLSMaxBandwidthKbps int `yaml:"hls_max_bandwidth_kbps"`
+		HLSMaxHeight        int `yaml:"hls_max_height"`
 	} `yaml:"proxy"`
 	Refresh struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
@@ -224,6 +227,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_BUFFER_SIZE_MB", &c.Proxy.BufferSizeMB),
 		intv("MMP_PROXY_LOW_BITRATE_KBPS", &c.Proxy.LowBitrateKbps),
 		floatv("MMP_PROXY_MAX_CC_ERROR_RATE", &c.Proxy.MaxCCErrorRate),
+		intv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", &c.Proxy.HLSMaxBandwidthKbps),
+		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
 		intv("MMP_MATCH_MIN_PROVIDERS", &c.Match.MinProviders),
 	} {
@@ -276,6 +281,9 @@ func (c *Config) Validate() error {
 	}
 	if p.MaxCCErrorRate < 0 || p.MaxCCErrorRate > 1 {
 		return errors.New("config: proxy.max_cc_error_rate must be within [0,1]")
+	}
+	if p.HLSMaxBandwidthKbps < 0 || p.HLSMaxHeight < 0 {
+		return errors.New("config: proxy.hls_max_bandwidth_kbps and hls_max_height must be >= 0")
 	}
 	if c.Match.MinProviders < 1 {
 		return errors.New("config: match.min_providers must be >= 1")

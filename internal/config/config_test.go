@@ -89,12 +89,13 @@ proxy:
 }
 
 func TestEnvOverridesYAML(t *testing.T) {
-	p := writeTemp(t, "listen: \":9999\"\nproxy: {stall_timeout: 12s}\n")
+	p := writeTemp(t, "listen: \":9999\"\nproxy: {stall_timeout: 12s, hls_max_height: 720}\n")
 	t.Setenv("MMP_LISTEN", ":7777")
 	t.Setenv("MMP_PROXY_STALL_TIMEOUT", "3s")
 	t.Setenv("MMP_DB_MAX_CONNS", "5")
 	t.Setenv("MMP_MATCH_AUTO", "true")
 	t.Setenv("MMP_MATCH_MIN_PROVIDERS", "3")
+	t.Setenv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", "4000")
 
 	c, err := Load(p)
 	if err != nil {
@@ -111,6 +112,9 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 	if !c.Match.Auto || c.Match.MinProviders != 3 {
 		t.Errorf("match = %+v, want auto with min 3", c.Match)
+	}
+	if c.Proxy.HLSMaxHeight != 720 || c.Proxy.HLSMaxBandwidthKbps != 4000 {
+		t.Errorf("hls caps = %d / %d kbps", c.Proxy.HLSMaxHeight, c.Proxy.HLSMaxBandwidthKbps)
 	}
 }
 
@@ -146,6 +150,7 @@ func TestValidate(t *testing.T) {
 		{"cooldown inversion", func(c *Config) { c.Proxy.CooldownMax.Duration = time.Second }, "cooldown"},
 		{"zero buffer", func(c *Config) { c.Proxy.BufferSizeMB = 0 }, "buffer_size_mb"},
 		{"cc rate too big", func(c *Config) { c.Proxy.MaxCCErrorRate = 2 }, "cc_error_rate"},
+		{"negative hls cap", func(c *Config) { c.Proxy.HLSMaxHeight = -1 }, "hls_max_height"},
 		{"zero match providers", func(c *Config) { c.Match.MinProviders = 0 }, "min_providers"},
 	}
 	for _, tt := range tests {

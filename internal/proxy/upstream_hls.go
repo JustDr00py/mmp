@@ -2,6 +2,9 @@ package proxy
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +30,9 @@ const (
 	hlsMaxSegment  = 64 << 20
 	// hlsPaceChunk is the write unit when pacing a segment out.
 	hlsPaceChunk = 64 * TSPacketSize
+	// hlsKeyCache bounds remembered AES keys; rotating keys would otherwise
+	// accumulate for the life of the stream.
+	hlsKeyCache = 16
 )
 
 // HLSOpener turns a live HLS (.m3u8) upstream into one continuous MPEG-TS
@@ -38,15 +44,17 @@ type HLSOpener struct {
 	// ConnectTimeout bounds each playlist fetch, and is the floor for a
 	// segment fetch (which also gets two target durations). 0 = 10s.
 	ConnectTimeout time.Duration
+	// Variants caps the variant chosen from a master playlist.
+	Variants VariantLimit
 }
 
 // NewHLSOpener builds an HLS opener.
-func NewHLSOpener(connectTimeout time.Duration) *HLSOpener {
-	return &HLSOpener{Client: &http.Client{}, ConnectTimeout: connectTimeout}
+func NewHLSOpener(connectTimeout time.Duration, lim VariantLimit) *HLSOpener {
+	return &HLSOpener{Client: &http.Client{}, ConnectTimeout: connectTimeout, Variants: lim}
 }
 
 // Open fetches the playlist (resolving a master playlist to its
-// highest-bandwidth variant) before returning, so an unreachable or broken
+// highest-bandwidth variant within o.Variants) before returning, so an unreachable or broken
 // upstream fails here and the session moves on. Errors carry redacted URLs.
 func (o *HLSOpener) Open(ctx context.Context, c Candidate) (io.ReadCloser, error) {
 	safe := redact.URL(c.URL)
@@ -97,7 +105,7 @@ func (o *HLSOpener) playlist(ctx context.Context, c Candidate, rawURL string) (*
 		return nil, "", err
 	}
 	if media == nil {
-		return nil, bestVariant(variants).URI, nil
+		return nil, bestVariant(variants, o.Variants).URI, nil
 	}
 	return media, "", nil
 }
@@ -171,8 +179,9 @@ type hlsFetcher struct {
 	safe  string
 	queue chan<- hlsSegmentData
 
-	next     int64 // next media sequence to fetch; -1 before the first pass
-	markNext bool  // the next queued segment follows a discontinuity
+	next     int64             // next media sequence to fetch; -1 before the first pass
+	markNext bool              // the next queued segment follows a discontinuity
+	keys     map[string][]byte // AES-128 keys by URI
 }
 
 // run returns nil when an ENDLIST playlist is exhausted or ctx ends, and an
@@ -252,6 +261,9 @@ func (f *hlsFetcher) fetchNew(ctx context.Context, media *hlsMedia, segErrs *int
 		}
 		timeout := max(f.o.connectTimeout(), 2*media.TargetDuration)
 		data, _, err := f.o.get(ctx, f.c, seg.URI, timeout, hlsMaxSegment)
+		if err == nil && seg.Key != nil {
+			data, err = f.decrypt(ctx, seg, data)
+		}
 		if ctx.Err() != nil {
 			return got, nil
 		}
@@ -275,6 +287,52 @@ func (f *hlsFetcher) fetchNew(ctx context.Context, media *hlsMedia, segErrs *int
 }
 
 func lastSeq(m *hlsMedia) int64 { return m.Segments[len(m.Segments)-1].Seq }
+
+// decrypt undoes AES-128 (CBC, PKCS#7) on a segment, fetching its key once.
+// Errors never carry key material or URLs.
+func (f *hlsFetcher) decrypt(ctx context.Context, seg hlsSegment, data []byte) ([]byte, error) {
+	key, ok := f.keys[seg.Key.URI]
+	if !ok {
+		k, _, err := f.o.get(ctx, f.c, seg.Key.URI, f.o.connectTimeout(), aes.BlockSize)
+		if err != nil {
+			return nil, fmt.Errorf("key: %w", err)
+		}
+		if len(k) != aes.BlockSize {
+			return nil, fmt.Errorf("key: %d bytes, want %d", len(k), aes.BlockSize)
+		}
+		if f.keys == nil || len(f.keys) >= hlsKeyCache {
+			f.keys = map[string][]byte{}
+		}
+		f.keys[seg.Key.URI], key = k, k
+	}
+	iv := seg.Key.IV
+	if iv == nil { // RFC 8216 5.2: the media sequence number, big-endian
+		iv = make([]byte, aes.BlockSize)
+		binary.BigEndian.PutUint64(iv[8:], uint64(seg.Seq))
+	}
+	return decryptAES128(data, key, iv)
+}
+
+func decryptAES128(data, key, iv []byte) ([]byte, error) {
+	if len(data) == 0 || len(data)%aes.BlockSize != 0 {
+		return nil, errors.New("decrypt: segment is not whole AES blocks")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, errors.New("decrypt: bad key")
+	}
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(data, data)
+	pad := int(data[len(data)-1])
+	if pad == 0 || pad > aes.BlockSize {
+		return nil, errors.New("decrypt: bad padding")
+	}
+	for _, b := range data[len(data)-pad:] {
+		if int(b) != pad {
+			return nil, errors.New("decrypt: bad padding")
+		}
+	}
+	return data[:len(data)-pad], nil
+}
 
 // pace writes queued segments to w, each spread over its duration. The
 // first segment goes out at once for a fast start, and a backlog of more
@@ -348,22 +406,28 @@ func (s *hlsStream) Close() error {
 }
 
 // ProtocolOpener picks the opener by URL: HLS for .m3u8 playlists,
-// otherwise plain HTTP-TS.
+// otherwise plain HTTP-TS. A TS open that turns out to be a playlist (by
+// Content-Type, behind an extensionless URL) is retried as HLS.
 type ProtocolOpener struct {
 	TS  Opener
 	HLS Opener
 }
 
 // NewProtocolOpener builds the default HTTP-TS + HLS opener.
-func NewProtocolOpener(connectTimeout time.Duration) *ProtocolOpener {
-	return &ProtocolOpener{TS: NewHTTPOpener(connectTimeout), HLS: NewHLSOpener(connectTimeout)}
+func NewProtocolOpener(connectTimeout time.Duration, lim VariantLimit) *ProtocolOpener {
+	return &ProtocolOpener{TS: NewHTTPOpener(connectTimeout), HLS: NewHLSOpener(connectTimeout, lim)}
 }
 
 func (p *ProtocolOpener) Open(ctx context.Context, c Candidate) (io.ReadCloser, error) {
 	if IsHLSURL(c.URL) {
 		return p.HLS.Open(ctx, c)
 	}
-	return p.TS.Open(ctx, c)
+	rc, err := p.TS.Open(ctx, c)
+	if pe, ok := errors.AsType[*PlaylistError](err); ok {
+		c.URL = pe.url // after redirects, so a one-shot redirector is not re-asked
+		return p.HLS.Open(ctx, c)
+	}
+	return rc, err
 }
 
 // IsHLSURL reports whether raw names an HLS playlist (.m3u8 path).
