@@ -27,7 +27,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Work top to bottom; each 
 
 ## M4 — Proxy core (critical path)
 - [x] 4.1 `ringbuf`: single writer, many readers with independent cursors, live-edge join, and overrun handling (a slow reader skips ahead). AC: race tests with slow/fast readers. — done: `internal/proxy/ringbuf.go` (absolute uint64 cursors, RWMutex copy + close-and-replace notify chan; writer never blocks; join at edge w/ optional packet-aligned backlog; lapped reader rejoins ¼ ring behind edge, `Skipped()` counts loss; Close drains → EOF); race tests w/ 8 mixed-speed readers, torn-packet detection, -cpu 1,2,8
-- [ ] 4.2 `tswatch`: 188-byte alignment/resync, CC error counting, bitrate window, stall timer. AC: synthetic broken TS tests.
+- [x] 4.2 `tswatch`: 188-byte alignment/resync, CC error counting, bitrate window, stall timer. AC: synthetic broken TS tests. — done: `internal/proxy/tswatch.go` `Watcher` (3-sync lock, resync after junk, truncated-vs-whole-then-junk disambiguation via 1-packet lookahead, per-PID CC w/ duplicate/discontinuity/adaptation-only/null-PID rules, TEI count, 1s-bucket bitrate window, `Check` → stalled/low_bitrate/cc_burst w/ startup grace, injectable clock); synthetic broken-TS tests at chunk sizes 1..4096, race-tested
 - [ ] 4.3 `capacity`: per-provider slot acquire/release with the max_connections limit. AC: concurrent acquire test never exceeds the limit.
 - [ ] 4.4 `upstream_http`: open a TS over HTTP with UA/headers and context cancel. AC: httptest test.
 - [ ] 4.5 `session`: candidate selection, read loop, failover state machine, cooldown/backoff, and discontinuity/PAT-PMT splice. AC: failover tests (stall, 503, slot-full) keep the client stream continuous.
