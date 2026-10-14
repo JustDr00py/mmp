@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -32,6 +33,16 @@ type Env struct {
 	// InTx runs fn against a transactional Store. Nil runs fn directly on
 	// Store (unit tests with in-memory fakes).
 	InTx func(ctx context.Context, fn func(Store) error) error
+	// DefaultRefresh is a new provider's refresh interval when the request
+	// sets none (refresh.interval); 0 means 6h.
+	DefaultRefresh time.Duration
+}
+
+func (env *Env) defaultRefreshSecs() int32 {
+	if env.DefaultRefresh <= 0 {
+		return 6 * 60 * 60
+	}
+	return int32(env.DefaultRefresh / time.Second)
 }
 
 // inTx runs fn atomically when the env supports transactions.

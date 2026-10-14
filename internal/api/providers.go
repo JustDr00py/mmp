@@ -122,7 +122,7 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		Username: in.Username, Password: in.Password, EpgUrl: in.EPGURL,
 		MaxConnections:       defInt32(in.MaxConnections, 1),
 		UserAgent:            in.UserAgent,
-		RefreshIntervalSecs:  defInt32(in.RefreshIntervalSecs, 21600),
+		RefreshIntervalSecs:  defInt32(in.RefreshIntervalSecs, env.defaultRefreshSecs()),
 		Priority:             defInt32(in.Priority, 0),
 		Enabled:              defBool(in.Enabled, true),
 		RefreshMaxDisablePct: in.RefreshMaxDisablePct,

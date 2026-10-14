@@ -159,7 +159,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		refresher.AfterRefresh = matcher.AutoMatchHook(cfg.Match.MinProviders)
 	}
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit,
+		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}
@@ -177,7 +177,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	outputs.Mount(srv.Mux())
 	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
-		LoginLimit: loginLimit,
+		DefaultRefresh: cfg.Refresh.Interval.Duration,
+		LoginLimit:     loginLimit,
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}})

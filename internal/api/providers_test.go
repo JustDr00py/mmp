@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -307,5 +308,30 @@ func TestListStreams(t *testing.T) {
 	matched, ok := body.([]any)
 	if rec.Code != http.StatusOK || !ok || len(matched) != 1 {
 		t.Errorf("search = %d %v", rec.Code, body)
+	}
+}
+
+// TestCreateProviderDefaultRefresh: refresh.interval is the default for a
+// provider created without refresh_interval_secs; an explicit value wins.
+func TestCreateProviderDefaultRefresh(t *testing.T) {
+	store := newFakeStore()
+	env := &Env{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Store: store, Refresh: &fakeRefresher{}, DefaultRefresh: 2 * time.Hour}
+	r := chi.NewRouter()
+	r.Route("/api/v1", func(r chi.Router) { Mount(r, env) })
+	for body, want := range map[string]float64{
+		`{"name":"A","type":"m3u","url":"http://a/"}`:                             7200,
+		`{"name":"B","type":"m3u","url":"http://b/","refresh_interval_secs":900}`: 900,
+	} {
+		var in map[string]any
+		_ = json.Unmarshal([]byte(body), &in)
+		rec, raw := doJSON(t, r, http.MethodPost, "/api/v1/providers", in)
+		got := asMap(t, raw)
+		if rec.Code != http.StatusCreated || got["refresh_interval_secs"] != want {
+			t.Errorf("%s = %d %v, want refresh %v", body, rec.Code, got["refresh_interval_secs"], want)
+		}
+	}
+	// Unset Env.DefaultRefresh keeps the 6h fallback.
+	if (&Env{}).defaultRefreshSecs() != 21600 {
+		t.Error("fallback is not 6h")
 	}
 }

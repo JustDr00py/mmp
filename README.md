@@ -207,7 +207,7 @@ admin:                        # only used to create the first admin
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
-| `refresh.interval` | `MMP_REFRESH_INTERVAL` | `6h` | not used yet: each provider has its own refresh interval (provider form, default 6h) |
+| `refresh.interval` | `MMP_REFRESH_INTERVAL` | `6h` | refresh interval new providers start with; each provider then keeps its own (provider form) |
 | `refresh.epg_interval` | `MMP_REFRESH_EPG_INTERVAL` | `12h` | guide download interval |
 | `refresh.max_disable_pct` | `MMP_REFRESH_MAX_DISABLE_PCT` | `80` | a refresh that would remove more than this % of a provider's streams is refused (probably a truncated answer); `100` turns the guard off; each provider can override it |
 | `match.auto` | `MMP_MATCH_AUTO` | `false` | apply match suggestions automatically after every refresh |

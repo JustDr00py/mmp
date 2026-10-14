@@ -172,6 +172,7 @@ func TestValidate(t *testing.T) {
 		{"cooldown inversion", func(c *Config) { c.Proxy.CooldownMax.Duration = time.Second }, "cooldown"},
 		{"zero buffer", func(c *Config) { c.Proxy.BufferSizeMB = 0 }, "buffer_size_mb"},
 		{"cc rate too big", func(c *Config) { c.Proxy.MaxCCErrorRate = 2 }, "cc_error_rate"},
+		{"refresh interval too short", func(c *Config) { c.Refresh.Interval = Duration{10 * time.Second} }, "refresh.interval"},
 		{"disable pct too big", func(c *Config) { c.Refresh.MaxDisablePct = 101 }, "max_disable_pct"},
 		{"tiny hls window", func(c *Config) { c.HLS.Window = 1 }, "hls"},
 		{"zero probe concurrency", func(c *Config) { c.Probe.Concurrency = 0 }, "probe"},

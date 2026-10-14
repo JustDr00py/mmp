@@ -76,7 +76,7 @@ type Config struct {
 		FFmpegPath string `yaml:"ffmpeg_path"`
 	} `yaml:"proxy"`
 	Refresh struct {
-		Interval    Duration `yaml:"interval"`     // default source refresh cadence
+		Interval    Duration `yaml:"interval"`     // refresh interval new providers start with
 		EPGInterval Duration `yaml:"epg_interval"` // EPG refresh cadence
 		// MaxDisablePct caps the share of a provider's active streams one
 		// refresh may soft-disable; a bigger drop (a truncated provider
@@ -363,6 +363,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Match.MinProviders < 1 {
 		return errors.New("config: match.min_providers must be >= 1")
+	}
+	if c.Refresh.Interval.Duration < time.Minute || c.Refresh.EPGInterval.Duration < time.Minute {
+		return errors.New("config: refresh.interval and refresh.epg_interval must be at least 1m")
 	}
 	if c.Refresh.MaxDisablePct < 0 || c.Refresh.MaxDisablePct > 100 {
 		return errors.New("config: refresh.max_disable_pct must be within [0,100]")

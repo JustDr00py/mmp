@@ -121,6 +121,14 @@ func formFromProvider(p db.Provider) providerForm {
 	return f
 }
 
+// defaultRefreshMinutes is refresh.interval in whole minutes (at least 1).
+func (ui *UI) defaultRefreshMinutes() int {
+	if ui.DefaultRefresh <= 0 {
+		return 360
+	}
+	return max(int(ui.DefaultRefresh/time.Minute), 1)
+}
+
 // parsed is a validated form.
 type parsedProvider struct {
 	name, typ, url, username, password, epgURL, userAgent string
@@ -129,7 +137,7 @@ type parsedProvider struct {
 	enabled                                               bool
 }
 
-func parseProviderForm(w http.ResponseWriter, r *http.Request) (providerForm, parsedProvider, error) {
+func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes int) (providerForm, parsedProvider, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		return providerForm{}, parsedProvider{}, errors.New("could not read the form")
@@ -158,7 +166,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request) (providerForm, pa
 	if p.maxConns, err = num(form.MaxConnections, "Max connections", 1); err != nil {
 		return form, p, err
 	}
-	mins, err := num(form.RefreshMinutes, "Refresh interval", 360)
+	mins, err := num(form.RefreshMinutes, "Refresh interval", defaultMinutes)
 	if err != nil {
 		return form, p, err
 	}
@@ -193,11 +201,11 @@ func humanize(msg string) string {
 
 func (ui *UI) providerNew(w http.ResponseWriter, r *http.Request) {
 	ui.render(w, r, http.StatusOK, "provider_form", "Add provider",
-		providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: "360", Priority: "0", Enabled: true})
+		providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: strconv.Itoa(ui.defaultRefreshMinutes()), Priority: "0", Enabled: true})
 }
 
 func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
-	form, p, err := parseProviderForm(w, r)
+	form, p, err := parseProviderForm(w, r, ui.defaultRefreshMinutes())
 	if err != nil {
 		form.Error = err.Error()
 		ui.render(w, r, http.StatusUnprocessableEntity, "provider_form", "Add provider", form)
@@ -248,7 +256,7 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	form, p, err := parseProviderForm(w, r)
+	form, p, err := parseProviderForm(w, r, ui.defaultRefreshMinutes())
 	form.ID, form.HasPassword = cur.ID, cur.Password != ""
 	if err != nil {
 		form.Error = err.Error()

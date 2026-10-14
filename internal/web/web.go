@@ -135,6 +135,9 @@ type Deps struct {
 	InTx func(ctx context.Context, fn func(Store) error) error
 	// BaseURL is the public URL customers' players use; no trailing slash.
 	BaseURL string
+	// DefaultRefresh pre-fills a new provider's refresh interval
+	// (refresh.interval); 0 means 6h.
+	DefaultRefresh time.Duration
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger

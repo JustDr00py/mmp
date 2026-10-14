@@ -395,3 +395,22 @@ func TestProviderPagesRequireAdmin(t *testing.T) {
 		t.Errorf("POST signed out = %d", resp.StatusCode)
 	}
 }
+
+// TestProviderFormDefaultRefresh: the form is pre-filled with
+// refresh.interval and a blank interval falls back to it.
+func TestProviderFormDefaultRefresh(t *testing.T) {
+	b, ui := signedIn(t)
+	ui.DefaultRefresh = 90 * time.Minute
+	if _, body := b.get("/admin/providers/new"); !strings.Contains(body, `name="refresh_minutes" type="number" min="1" value="90"`) {
+		t.Errorf("new form not pre-filled with 90 minutes:\n%s", body)
+	}
+	f := url.Values{}
+	for k, v := range goodForm {
+		f[k] = v
+	}
+	f.Set("refresh_minutes", "")
+	b.post("/admin/providers/new", f, b.base)
+	if p := ui.Store.(*fakeStore).providers[1]; p.RefreshIntervalSecs != 5400 {
+		t.Errorf("blank interval stored %ds, want 5400", p.RefreshIntervalSecs)
+	}
+}
