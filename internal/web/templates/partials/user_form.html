@@ -1,0 +1,36 @@
+{{define "user-form"}}
+<form class="card form" method="post" action="{{if .ID}}/admin/users/{{.ID}}{{else}}/admin/users/new{{end}}">
+  {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid2">
+    <label>Username<input name="username" value="{{.Username}}" required maxlength="64" pattern="[A-Za-z0-9._\-]+" autocomplete="off"
+      title="letters, digits, '.', '_' and '-'"></label>
+    <label>Role
+      <select name="role">
+        <option value="customer"{{if eq .Role "customer"}} selected{{end}}>Customer (plays channels)</option>
+        <option value="admin"{{if eq .Role "admin"}} selected{{end}}>Admin (manages MMP, plays everything)</option>
+      </select>
+    </label>
+  </div>
+  {{if not .ID}}
+  <label>Password<input name="password" type="text" autocomplete="off" minlength="6" maxlength="72" placeholder="leave blank to generate one">
+    <span class="hint">Shown once after saving. 6–72 characters; no spaces, '/', '?', '#' or '%'.</span></label>
+  {{end}}
+  <div class="grid2">
+    <label>Max connections<input name="max_connections" type="number" min="0" max="10000" value="{{.MaxConnections}}">
+      <span class="hint">streams at once; 0 = unlimited</span></label>
+    <label>Expires<input name="expires" type="date" value="{{.Expires}}">
+      <span class="hint">end of that day (UTC); blank = never</span></label>
+  </div>
+  <fieldset>
+    <legend>Bouquets <span class="hint">— the channels this user sees (admins see all)</span></legend>
+    {{if .Bouquets}}
+    <div class="checks">{{range .Bouquets}}<label class="check"><input type="checkbox" name="bouquet" value="{{.ID}}"{{if index $.BouquetIDs .ID}} checked{{end}}> {{.Name}}</label>{{end}}</div>
+    {{else}}<p class="muted small">No bouquets exist yet, so customers see no channels.</p>{{end}}
+  </fieldset>
+  <label class="check"><input type="checkbox" name="enabled"{{if .Enabled}} checked{{end}}> Enabled</label>
+  <div class="row">
+    <button type="submit">{{if .ID}}Save{{else}}Create user{{end}}</button>
+    <a href="/admin/users">Cancel</a>
+  </div>
+</form>
+{{end}}

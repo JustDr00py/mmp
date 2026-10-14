@@ -1,0 +1,53 @@
+{{define "content"}}
+{{$d := .Data}}{{$c := $d.Creds}}
+<p class="crumbs"><a href="/admin/users">Users</a> /</p>
+<div class="head"><h1>{{.Title}}</h1><span class="muted">{{$d.Active}} open stream{{if ne $d.Active 1}}s{{end}}</span></div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<div class="split">
+  <section>
+    <h2>Player setup</h2>
+    {{if $d.ShowSecret}}<p class="error" role="alert">This password is shown only now. Copy it before leaving the page.</p>{{end}}
+    <div class="card creds">
+      <h3>Xtream Codes login <span class="hint">IPTV Smarters, TiviMate, XCIPTV…</span></h3>
+      {{template "copy-field" (field "cred-server" "Server URL" $c.Server)}}
+      {{template "copy-field" (field "cred-user" "Username" $c.Username)}}
+      {{if $d.ShowSecret}}{{template "copy-field" (field "cred-pass" "Password" $c.Password)}}
+      {{else}}<div class="copy"><span class="label">Password</span><span class="muted">set — use “Reset password” to issue a new one</span></div>{{end}}
+    </div>
+    <div class="card creds">
+      <h3>M3U playlist + guide <span class="hint">VLC, Kodi, Plex, Jellyfin…</span></h3>
+      {{template "copy-field" (field "cred-m3u-token" "Playlist URL" $c.TokenPlaylist)}}
+      {{template "copy-field" (field "cred-epg-token" "Guide (XMLTV) URL" $c.TokenGuide)}}
+      <p class="hint">These links carry a private token instead of the password. Anyone with them can watch as this user: rotate the token if they leak.</p>
+      {{if $d.ShowSecret}}
+      <details><summary class="small">Password-based links (get.php / xmltv.php)</summary>
+        {{template "copy-field" (field "cred-m3u" "get.php" $c.M3U)}}
+        {{template "copy-field" (field "cred-xmltv" "xmltv.php" $c.XMLTV)}}
+      </details>
+      {{end}}
+    </div>
+    <div class="row actions-row">
+      <form method="post" action="/admin/users/{{$d.Form.ID}}/password" data-confirm="Set a new random password for {{$d.Form.Username}}? Players using the current one stop working.">
+        <button type="submit" class="secondary">Reset password</button></form>
+      <form method="post" action="/admin/users/{{$d.Form.ID}}/token" data-confirm="Rotate the stream token? The current playlist and guide links stop working.">
+        <button type="submit" class="secondary">Rotate token</button></form>
+    </div>
+  </section>
+  <section>
+    <h2>Account</h2>
+    {{template "user-form" $d.Form}}
+    <form class="danger" method="post" action="/admin/users/{{$d.Form.ID}}/delete"
+      data-confirm="Delete {{$d.Form.Username}}?{{if $d.ConfirmSelf}} This is your own account: you will be signed out.{{end}}">
+      <button type="submit" class="danger">Delete user</button>
+    </form>
+  </section>
+</div>
+{{end}}
+
+{{define "copy-field"}}
+<div class="copy">
+  <label class="label" for="{{.ID}}">{{.Label}}</label>
+  <input id="{{.ID}}" class="mono" value="{{.Value}}" readonly>
+  <button type="button" class="small secondary" data-copy="#{{.ID}}">Copy</button>
+</div>
+{{end}}

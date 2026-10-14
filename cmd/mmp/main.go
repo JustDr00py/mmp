@@ -170,7 +170,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	outputs.Mount(srv.Mux())
 	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
-		Slots: capacity.Snapshot, Log: log, Version: version})
+		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version,
+		InTx: func(ctx context.Context, fn func(web.Store) error) error {
+			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
+		}})
 	if err != nil {
 		return fmt.Errorf("admin ui: %w", err)
 	}

@@ -112,3 +112,15 @@ ol.compact { margin: 0; padding-left: 1.2rem; }
 label.inline { display: flex; align-items: center; gap: .5rem; flex-direction: row; }
 .search.row { display: flex; gap: .5rem; }
 form.rule { margin-top: 1rem; }
+h3 { font-size: .95rem; margin: 0 0 .5rem; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem .75rem; margin: 0; }
+legend { font-size: .9rem; color: var(--muted); padding: 0 .3rem; }
+.checks { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+.creds { display: grid; gap: .5rem; margin-bottom: 1rem; }
+.copy { display: grid; grid-template-columns: 9rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+.copy .label { color: var(--muted); font-size: .85rem; }
+.copy input { width: 100%; }
+.actions-row { flex-wrap: wrap; }
+.actions-row form { margin: 0; }
+details summary { cursor: pointer; color: var(--muted); margin: .25rem 0; }
+@media (max-width: 600px) { .copy { grid-template-columns: 1fr auto; } .copy .label { grid-column: 1 / -1; } }

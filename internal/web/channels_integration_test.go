@@ -62,7 +62,10 @@ func pgUI(t *testing.T) (*browser, *db.Queries) {
 	}
 	log := slog.New(slog.DiscardHandler)
 	ui, err := New(Deps{Auth: auth.NewAuthenticator(q, log, time.Hour, false), Store: q, Refresh: &fakeRefresher{},
-		Match: channel.NewService(log, pool), Log: log, Version: "test"})
+		Match: channel.NewService(log, pool), Log: log, Version: "test", BaseURL: "http://mmp.example:8080",
+		InTx: func(ctx context.Context, fn func(Store) error) error {
+			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}

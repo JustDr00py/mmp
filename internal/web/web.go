@@ -71,6 +71,18 @@ type Store interface {
 	SearchStreamsAllProviders(ctx context.Context, arg db.SearchStreamsAllProvidersParams) ([]db.SearchStreamsAllProvidersRow, error)
 	GetStreamsByIDs(ctx context.Context, ids []int64) ([]db.GetStreamsByIDsRow, error)
 
+	ListUsers(ctx context.Context) ([]db.User, error)
+	GetUser(ctx context.Context, id int64) (db.User, error)
+	CreateUser(ctx context.Context, arg db.CreateUserParams) (db.User, error)
+	UpdateUser(ctx context.Context, arg db.UpdateUserParams) (db.User, error)
+	DeleteUser(ctx context.Context, id int64) error
+	SetUserStreamToken(ctx context.Context, arg db.SetUserStreamTokenParams) (db.User, error)
+	CountAdmins(ctx context.Context) (int64, error)
+	ListUserBouquetIDs(ctx context.Context, userID int64) ([]int64, error)
+	ClearUserBouquets(ctx context.Context, userID int64) error
+	AddUserBouquets(ctx context.Context, arg db.AddUserBouquetsParams) error
+	ListBouquets(ctx context.Context) ([]db.Bouquet, error)
+
 	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
 	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
 	DeleteMatchRule(ctx context.Context, id int64) error
@@ -96,6 +108,12 @@ type Deps struct {
 	Match   Matcher
 	Live    LiveStatus           // optional
 	Slots   func() map[int64]int // provider slots in use; optional
+	// Connections reports open customer streams per user; optional.
+	Connections func() map[int64]int
+	// InTx runs fn atomically (user + bouquet changes); nil runs directly.
+	InTx func(ctx context.Context, fn func(Store) error) error
+	// BaseURL is the public URL customers' players use; no trailing slash.
+	BaseURL string
 	Log     *slog.Logger
 	Version string
 }
@@ -119,10 +137,11 @@ var nav = []navItem{
 	{Prefix + "/providers", "Providers"},
 	{Prefix + "/channels", "Channels"},
 	{Prefix + "/match", "Match"},
+	{Prefix + "/users", "Users"},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -153,6 +172,7 @@ func New(d Deps) (*UI, error) {
 		"add":        func(a, b int) int { return a + b },
 		"inc":        func(i int) int { return i + 1 },
 		"list":       func(xs ...int) []int { return xs },
+		"field":      func(id, label, value string) copyField { return copyField{id, label, value} },
 		"last":       func(i, n int) bool { return i == n-1 },
 	}
 	for _, page := range pageNames {
@@ -206,6 +226,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountProviders(r)
 			ui.mountChannels(r)
 			ui.mountMatch(r)
+			ui.mountUsers(r)
 		})
 	})
 }
@@ -250,6 +271,9 @@ func (ui *UI) execute(w http.ResponseWriter, status int, page, name string, data
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
 }
+
+// copyField is a read-only value with a copy button.
+type copyField struct{ ID, Label, Value string }
 
 // formError is a validation message shown to the admin as written (a
 // sentence, unlike Go error strings).

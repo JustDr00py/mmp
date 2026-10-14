@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="head">
+  <h1>Users</h1>
+  <a class="button" href="/admin/users/new">New user</a>
+</div>
+{{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<form class="search" method="get" action="/admin/users" hx-get="/admin/users" hx-target="#users" hx-swap="outerHTML"
+  hx-trigger="input changed delay:300ms from:input, submit" hx-push-url="true">
+  <input type="search" name="q" value="{{.Data.Query}}" placeholder="Search users" aria-label="Search users">
+</form>
+{{template "users-table" .Data}}
+{{end}}
+
+{{define "users-table"}}
+<div id="users">
+{{if .Rows}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Username</th><th>Role</th><th class="num">Connections</th><th>Expires</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr{{if ne .Status "active"}} class="dim"{{end}}>
+    <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
+    <td>{{.Role}}</td>
+    <td class="num">{{.Active}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
+    <td>{{with .ExpiresAt}}{{.UTC.Format "2006-01-02"}}{{else}}<span class="muted">never</span>{{end}}</td>
+    <td>{{if eq .Status "active"}}<span class="pill ok">active</span>{{else if eq .Status "expired"}}<span class="pill warn">expired</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else if .Query}}<div class="card empty"><p>No users match.</p></div>
+{{else}}<div class="card empty"><p>No users yet.</p></div>{{end}}
+</div>
+{{end}}

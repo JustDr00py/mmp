@@ -37,6 +37,33 @@
     if (order(li.parentNode) !== before) li.closest('[data-sortable-form]')?.requestSubmit();
   });
 
+  // <form data-confirm="question"> asks before submitting.
+  document.addEventListener('submit', (e) => {
+    const msg = e.target.dataset?.confirm;
+    if (msg && !window.confirm(msg)) e.preventDefault();
+  }, true);
+
+  // <button data-copy="#id"> copies that input's value. Clipboard access
+  // needs a secure context (https or localhost); elsewhere the text is
+  // selected for a manual copy.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest?.('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    const field = document.querySelector(btn.dataset.copy);
+    if (!field) return;
+    const label = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(field.value);
+      btn.textContent = 'Copied';
+    } catch {
+      field.focus();
+      field.select();
+      btn.textContent = 'Press Ctrl+C';
+    }
+    setTimeout(() => { btn.textContent = label; }, 1500);
+  });
+
   document.addEventListener('change', (e) => {
     const t = e.target;
     // [data-check-all="name"] toggles every checkbox called name in its form.
