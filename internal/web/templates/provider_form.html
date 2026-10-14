@@ -1,0 +1,46 @@
+{{define "content"}}
+{{$f := .Data}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
+<h1>{{.Title}}</h1>
+<form class="card form" method="post" action="{{if $f.ID}}/admin/providers/{{$f.ID}}/edit{{else}}/admin/providers/new{{end}}">
+  {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid2">
+    <label>Name<input name="name" value="{{$f.Name}}" required></label>
+    <label>Type
+      <select name="type">
+        <option value="xtream"{{if eq $f.Type "xtream"}} selected{{end}}>Xtream Codes</option>
+        <option value="m3u"{{if eq $f.Type "m3u"}} selected{{end}}>M3U playlist</option>
+      </select>
+    </label>
+  </div>
+  <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
+    <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
+  <div class="grid2">
+    <label>Username<input name="username" value="{{$f.Username}}" autocomplete="off"></label>
+    <label>Password<input name="password" type="password" autocomplete="new-password"
+      placeholder="{{if $f.HasPassword}}unchanged{{end}}">
+      {{if $f.HasPassword}}<span class="hint">Leave blank to keep the current password.</span>{{end}}</label>
+  </div>
+  <label>EPG URL<input name="epg_url" type="url" value="{{$f.EPGURL}}" placeholder="optional; Xtream panels provide one">
+  </label>
+  <div class="grid3">
+    <label>Max connections<input name="max_connections" type="number" min="0" value="{{$f.MaxConnections}}">
+      <span class="hint">0 = unlimited</span></label>
+    <label>Priority<input name="priority" type="number" value="{{$f.Priority}}">
+      <span class="hint">lower is preferred</span></label>
+    <label>Refresh every (minutes)<input name="refresh_minutes" type="number" min="1" value="{{$f.RefreshMinutes}}"></label>
+  </div>
+  <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="default: MMP/1.0"></label>
+  <label class="check"><input type="checkbox" name="enabled"{{if $f.Enabled}} checked{{end}}> Enabled</label>
+  <div class="row">
+    <button type="submit">{{if $f.ID}}Save{{else}}Add provider{{end}}</button>
+    <a href="/admin/providers">Cancel</a>
+  </div>
+</form>
+{{if $f.ID}}
+<form class="danger" method="post" action="/admin/providers/{{$f.ID}}/delete"
+  hx-post="/admin/providers/{{$f.ID}}/delete" hx-confirm="Delete {{$f.Name}}? Its streams leave every channel that uses them.">
+  <button type="submit" class="danger">Delete provider</button>
+</form>
+{{end}}
+{{end}}

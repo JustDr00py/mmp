@@ -53,3 +53,12 @@ SELECT * FROM provider_streams WHERE provider_id = $1 ORDER BY name LIMIT $2 OFF
 SELECT * FROM provider_streams
 WHERE provider_id = $1 AND name ILIKE $2
 ORDER BY name LIMIT $3 OFFSET $4;
+
+-- name: ProviderStreamCounts :many
+-- Per-provider stream totals for the admin list (providers without streams
+-- are absent).
+SELECT provider_id,
+       count(*) AS total,
+       count(*) FILTER (WHERE NOT disabled) AS active,
+       count(*) FILTER (WHERE cooldown_until > now()) AS cooling
+FROM provider_streams GROUP BY provider_id;

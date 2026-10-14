@@ -165,6 +165,48 @@ func (q *Queries) MarkProviderRefreshed(ctx context.Context, id int64) error {
 	return err
 }
 
+const providerStreamCounts = `-- name: ProviderStreamCounts :many
+SELECT provider_id,
+       count(*) AS total,
+       count(*) FILTER (WHERE NOT disabled) AS active,
+       count(*) FILTER (WHERE cooldown_until > now()) AS cooling
+FROM provider_streams GROUP BY provider_id
+`
+
+type ProviderStreamCountsRow struct {
+	ProviderID int64 `json:"provider_id"`
+	Total      int64 `json:"total"`
+	Active     int64 `json:"active"`
+	Cooling    int64 `json:"cooling"`
+}
+
+// Per-provider stream totals for the admin list (providers without streams
+// are absent).
+func (q *Queries) ProviderStreamCounts(ctx context.Context) ([]ProviderStreamCountsRow, error) {
+	rows, err := q.db.Query(ctx, providerStreamCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProviderStreamCountsRow
+	for rows.Next() {
+		var i ProviderStreamCountsRow
+		if err := rows.Scan(
+			&i.ProviderID,
+			&i.Total,
+			&i.Active,
+			&i.Cooling,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchProviderStreams = `-- name: SearchProviderStreams :many
 SELECT id, provider_id, external_id, name, tvg_id, logo_url, group_title, stream_url, health_score, last_error, cooldown_until, last_seen, disabled, created_at, last_probed_at FROM provider_streams
 WHERE provider_id = $1 AND name ILIKE $2

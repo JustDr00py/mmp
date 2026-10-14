@@ -1,0 +1,52 @@
+{{define "content"}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> / {{.Data.Provider.Name}}</p>
+<div class="head">
+  <h1>Streams</h1>
+  <a class="button small secondary" href="/admin/providers/{{.Data.Provider.ID}}/edit">Edit provider</a>
+</div>
+<form class="search" method="get" action="/admin/providers/{{.Data.Provider.ID}}/streams"
+  hx-get="/admin/providers/{{.Data.Provider.ID}}/streams" hx-target="#streams" hx-swap="outerHTML"
+  hx-trigger="input changed delay:300ms from:input, submit" hx-push-url="true">
+  <input type="search" name="q" value="{{.Data.Query}}" placeholder="Search by name" aria-label="Search streams" autofocus>
+</form>
+{{template "streams-table" .Data}}
+{{end}}
+
+{{define "streams-table"}}
+{{$d := .}}
+<div id="streams">
+{{if $d.Streams}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Health</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range $d.Streams}}
+  <tr{{if .Disabled}} class="dim"{{end}}>
+    <td>{{if .LogoUrl}}<img class="logo" src="{{.LogoUrl}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}{{.Name}}
+      <div class="sub mono">{{redact .StreamUrl}}</div></td>
+    <td>{{.GroupTitle}}</td>
+    <td class="mono">{{.TvgID}}</td>
+    <td class="num">{{pct .HealthScore}}%</td>
+    <td>
+      {{if .Disabled}}<span class="pill off">gone</span>
+      {{else if future .CooldownUntil}}<span class="pill warn" title="{{.LastError}}">cooling down</span>
+      {{else if .LastError}}<span class="pill warn" title="{{.LastError}}">last probe failed</span>
+      {{else}}<span class="pill ok">ok</span>{{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+<nav class="pager">
+  {{if $d.Offset}}<a href="{{streamsURL $d.Provider.ID $d.Query $d.PrevOffset}}" hx-get="{{streamsURL $d.Provider.ID $d.Query $d.PrevOffset}}" hx-target="#streams" hx-swap="outerHTML" hx-push-url="true">← Previous</a>{{end}}
+  <span class="muted">{{$d.First}}–{{len $d.Streams | add $d.Offset}}</span>
+  {{if $d.NextOffset}}<a href="{{streamsURL $d.Provider.ID $d.Query $d.NextOffset}}" hx-get="{{streamsURL $d.Provider.ID $d.Query $d.NextOffset}}" hx-target="#streams" hx-swap="outerHTML" hx-push-url="true">Next →</a>{{end}}
+</nav>
+{{else if $d.Query}}
+<div class="card empty"><p>No streams match “{{$d.Query}}”.</p></div>
+{{else}}
+<div class="card empty"><p>No streams imported yet.</p><p class="muted">Refresh the provider from the providers list.</p></div>
+{{end}}
+</div>
+{{end}}

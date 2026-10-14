@@ -5,22 +5,27 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/sysadmin/mmp/internal/redact"
+	"github.com/sysadmin/mmp/internal/source"
 )
 
 //go:embed templates/*.html
@@ -37,12 +42,38 @@ type LiveStatus interface {
 	Channels() []proxy.ChannelStatus
 }
 
-// UI serves the admin pages.
-type UI struct {
+// Store is the persistence the pages need (satisfied by *db.Queries).
+type Store interface {
+	ListProviders(ctx context.Context) ([]db.Provider, error)
+	GetProvider(ctx context.Context, id int64) (db.Provider, error)
+	CreateProvider(ctx context.Context, arg db.CreateProviderParams) (db.Provider, error)
+	UpdateProvider(ctx context.Context, arg db.UpdateProviderParams) (db.Provider, error)
+	DeleteProvider(ctx context.Context, id int64) error
+	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
+	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
+	ListProviderStreams(ctx context.Context, arg db.ListProviderStreamsParams) ([]db.ProviderStream, error)
+	SearchProviderStreams(ctx context.Context, arg db.SearchProviderStreamsParams) ([]db.ProviderStream, error)
+}
+
+// Refresher refreshes a provider on demand (satisfied by *source.Refresher).
+type Refresher interface {
+	RefreshProvider(ctx context.Context, p db.Provider) (source.Result, error)
+}
+
+// Deps are the UI's collaborators.
+type Deps struct {
 	Auth    *auth.Authenticator
-	Live    LiveStatus // optional
+	Store   Store
+	Refresh Refresher
+	Live    LiveStatus           // optional
+	Slots   func() map[int64]int // provider slots in use; optional
 	Log     *slog.Logger
 	Version string
+}
+
+// UI serves the admin pages.
+type UI struct {
+	Deps
 
 	pages     map[string]*template.Template
 	assetHash string // busts browser caches when the embedded assets change
@@ -56,14 +87,18 @@ type navItem struct {
 
 var nav = []navItem{
 	{Prefix + "/", "Dashboard"},
+	{Prefix + "/providers", "Providers"},
 }
 
+// pageNames are the templates/<name>.html pages, each parsed with the layout.
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams"}
+
 // New parses the embedded templates.
-func New(a *auth.Authenticator, live LiveStatus, log *slog.Logger, version string) (*UI, error) {
-	ui := &UI{Auth: a, Live: live, Log: log, Version: version, pages: map[string]*template.Template{}}
+func New(d Deps) (*UI, error) {
+	ui := &UI{Deps: d, pages: map[string]*template.Template{}}
 	h := sha256.New()
-	err := fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	err := fs.WalkDir(staticFS, "static", func(p string, de fs.DirEntry, err error) error {
+		if err != nil || de.IsDir() {
 			return err
 		}
 		b, err := staticFS.ReadFile(p)
@@ -75,10 +110,18 @@ func New(a *auth.Authenticator, live LiveStatus, log *slog.Logger, version strin
 	}
 	ui.assetHash = hex.EncodeToString(h.Sum(nil))[:12]
 
-	funcs := template.FuncMap{"asset": func(name string) string {
-		return Prefix + "/static/" + name + "?v=" + ui.assetHash
-	}}
-	for _, page := range []string{"login", "dashboard"} {
+	funcs := template.FuncMap{
+		"asset": func(name string) string {
+			return Prefix + "/static/" + name + "?v=" + ui.assetHash
+		},
+		"redact":     redact.URL,
+		"ago":        ago,
+		"pct":        func(f float32) int { return int(f*100 + 0.5) },
+		"future":     func(t *time.Time) bool { return t != nil && t.After(time.Now()) },
+		"streamsURL": streamsQuery,
+		"add":        func(a, b int) int { return a + b },
+	}
+	for _, page := range pageNames {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -86,6 +129,23 @@ func New(a *auth.Authenticator, live LiveStatus, log *slog.Logger, version strin
 		ui.pages[page] = t
 	}
 	return ui, nil
+}
+
+// ago renders a past time coarsely ("3m ago"); nil is "never".
+func ago(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "never"
+	}
+	d := time.Since(*t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 }
 
 // Mount registers the UI routes on the root router.
@@ -109,6 +169,7 @@ func (ui *UI) Mount(r chi.Router) {
 			r.Use(ui.requireAdmin)
 			r.Post("/logout", ui.logout)
 			r.Get("/", ui.dashboard)
+			ui.mountProviders(r)
 		})
 	})
 }
@@ -124,12 +185,26 @@ type pageData struct {
 }
 
 func (ui *UI) render(w http.ResponseWriter, r *http.Request, status int, page, title string, data any) {
-	pd := pageData{Title: title, Nav: nav, Active: r.URL.Path, Version: ui.Version, Data: data}
+	ui.renderTemplate(w, r, status, page, "layout", title, data)
+}
+
+// fragment renders one named block of a page with data (not wrapped in
+// pageData), for htmx swaps.
+func (ui *UI) fragment(w http.ResponseWriter, r *http.Request, page, name string, data any) {
+	ui.execute(w, http.StatusOK, page, name, data)
+}
+
+func (ui *UI) renderTemplate(w http.ResponseWriter, r *http.Request, status int, page, name, title string, data any) {
+	pd := pageData{Title: title, Nav: nav, Active: activeNav(r.URL.Path), Version: ui.Version, Data: data}
 	if u, ok := auth.UserFrom(r.Context()); ok {
 		pd.User = &u
 	}
+	ui.execute(w, status, page, name, pd)
+}
+
+func (ui *UI) execute(w http.ResponseWriter, status int, page, name string, data any) {
 	var buf bytes.Buffer // render fully first: a template error must not leave half a page
-	if err := ui.pages[page].ExecuteTemplate(&buf, "layout", pd); err != nil {
+	if err := ui.pages[page].ExecuteTemplate(&buf, name, data); err != nil {
 		ui.Log.Error("web: render", "page", page, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -138,6 +213,28 @@ func (ui *UI) render(w http.ResponseWriter, r *http.Request, status int, page, t
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
+}
+
+// activeNav is the nav entry a path belongs to (its longest prefix).
+func activeNav(path string) string {
+	best := ""
+	for _, n := range nav {
+		if (path == n.Path || strings.HasPrefix(path, n.Path+"/")) && len(n.Path) > len(best) {
+			best = n.Path
+		}
+	}
+	return best
+}
+
+// redirect after a POST: htmx gets HX-Redirect (a full navigation), plain
+// forms a 303.
+func (ui *UI) redirect(w http.ResponseWriter, r *http.Request, target string) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", target)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // requireAdmin sends visitors without a valid admin session to the login

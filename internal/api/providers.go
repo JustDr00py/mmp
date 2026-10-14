@@ -1,15 +1,14 @@
 package api
 
 import (
-	"errors"
-
-	"github.com/go-chi/chi/v5"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/source"
 )
 
 // providerJSON is the wire form of a provider. The password is never
@@ -52,29 +51,8 @@ type providerInput struct {
 }
 
 func (in *providerInput) validate() error {
-	if strings.TrimSpace(in.Name) == "" {
-		return errors.New("name is required")
-	}
-	if in.Type != "m3u" && in.Type != "xtream" {
-		return errors.New(`type must be "m3u" or "xtream"`)
-	}
-	u, err := url.Parse(in.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("url must be an absolute http(s) URL")
-	}
-	if in.EPGURL != "" {
-		u, err := url.Parse(in.EPGURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return errors.New("epg_url must be an absolute http(s) URL")
-		}
-	}
-	if in.MaxConnections != nil && *in.MaxConnections < 0 {
-		return errors.New("max_connections must be >= 0")
-	}
-	if in.RefreshIntervalSecs != nil && *in.RefreshIntervalSecs <= 0 {
-		return errors.New("refresh_interval_secs must be > 0")
-	}
-	return nil
+	return source.ValidateProvider(in.Name, in.Type, in.URL, in.EPGURL,
+		defInt32(in.MaxConnections, 0), defInt32(in.RefreshIntervalSecs, 1))
 }
 
 func defInt32(p *int32, def int32) int32 {

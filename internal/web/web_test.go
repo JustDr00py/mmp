@@ -75,6 +75,11 @@ type fakeLive []proxy.ChannelStatus
 func (f fakeLive) Channels() []proxy.ChannelStatus { return f }
 
 func newUI(t *testing.T) (*httptest.Server, *fakeAuthStore) {
+	srv, store, _ := newUIWith(t)
+	return srv, store
+}
+
+func newUIWith(t *testing.T) (*httptest.Server, *fakeAuthStore, *UI) {
 	t.Helper()
 	auth.BcryptCost = bcrypt.MinCost
 	hash := func(pw string) string {
@@ -92,7 +97,8 @@ func newUI(t *testing.T) (*httptest.Server, *fakeAuthStore) {
 		{SessionStatus: proxy.SessionStatus{ChannelID: 1, State: "streaming"}, Viewers: 3},
 		{SessionStatus: proxy.SessionStatus{ChannelID: 2, State: "waiting"}, Viewers: 1},
 	}
-	ui, err := New(auth.NewAuthenticator(store, nil, 0, false), live, slog.New(slog.DiscardHandler), "test")
+	ui, err := New(Deps{Auth: auth.NewAuthenticator(store, nil, 0, false), Store: newFakeStore(), Refresh: &fakeRefresher{},
+		Live: live, Slots: func() map[int64]int { return map[int64]int{1: 1} }, Log: slog.New(slog.DiscardHandler), Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +106,7 @@ func newUI(t *testing.T) (*httptest.Server, *fakeAuthStore) {
 	ui.Mount(r)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
-	return srv, store
+	return srv, store, ui
 }
 
 // browser is a cookie-keeping client that does not follow redirects and
