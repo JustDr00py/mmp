@@ -124,3 +124,16 @@ legend { font-size: .9rem; color: var(--muted); padding: 0 .3rem; }
 .actions-row form { margin: 0; }
 details summary { cursor: pointer; color: var(--muted); margin: .25rem 0; }
 @media (max-width: 600px) { .copy { grid-template-columns: 1fr auto; } .copy .label { grid-column: 1 / -1; } }
+.split.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .split.even { grid-template-columns: 1fr; } }
+.editor { margin-bottom: 1.5rem; }
+.pane-head { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+.pane-head h2 { margin: 0; flex: 1; }
+ul.pick-list { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+ul.pick-list li { border-bottom: 1px solid var(--line); padding: .35rem .75rem; }
+ul.pick-list li:last-child { border-bottom: 0; }
+ul.pick-list .num { display: inline-block; min-width: 2.5rem; text-align: right; }
+form.narrow { max-width: 560px; }
+/* Form controls fill their grid cell and may shrink below their intrinsic size. */
+label > input:not([type=checkbox]):not([type=radio]), label > select { width: 100%; min-width: 0; }

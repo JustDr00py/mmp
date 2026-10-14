@@ -82,6 +82,15 @@ type Store interface {
 	ClearUserBouquets(ctx context.Context, userID int64) error
 	AddUserBouquets(ctx context.Context, arg db.AddUserBouquetsParams) error
 	ListBouquets(ctx context.Context) ([]db.Bouquet, error)
+	CreateBouquet(ctx context.Context, arg db.CreateBouquetParams) (db.Bouquet, error)
+	GetBouquet(ctx context.Context, id int64) (db.Bouquet, error)
+	UpdateBouquet(ctx context.Context, arg db.UpdateBouquetParams) (db.Bouquet, error)
+	DeleteBouquet(ctx context.Context, id int64) error
+	ListBouquetChannels(ctx context.Context, bouquetID int64) ([]db.Channel, error)
+	BouquetCounts(ctx context.Context) ([]db.BouquetCountsRow, error)
+	AddChannelsToBouquet(ctx context.Context, arg db.AddChannelsToBouquetParams) (int64, error)
+	AddGroupToBouquet(ctx context.Context, arg db.AddGroupToBouquetParams) (int64, error)
+	RemoveChannelsFromBouquet(ctx context.Context, arg db.RemoveChannelsFromBouquetParams) (int64, error)
 
 	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
 	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
@@ -136,12 +145,13 @@ var nav = []navItem{
 	{Prefix + "/", "Dashboard"},
 	{Prefix + "/providers", "Providers"},
 	{Prefix + "/channels", "Channels"},
+	{Prefix + "/bouquets", "Bouquets"},
 	{Prefix + "/match", "Match"},
 	{Prefix + "/users", "Users"},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -227,6 +237,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountChannels(r)
 			ui.mountMatch(r)
 			ui.mountUsers(r)
+			ui.mountBouquets(r)
 		})
 	})
 }

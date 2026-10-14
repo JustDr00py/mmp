@@ -1,0 +1,84 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/bouquets">Bouquets</a> /</p>
+<div class="head"><h1>{{$d.Bouquet.Name}}</h1><span class="muted">granted to {{$d.Users}} user{{if ne $d.Users 1}}s{{end}}</span></div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+
+<form class="search row" method="get" action="/admin/bouquets/{{$d.Bouquet.ID}}/editor"
+  hx-get="/admin/bouquets/{{$d.Bouquet.ID}}/editor" hx-target="#bouquet-editor" hx-swap="outerHTML"
+  hx-trigger="input changed delay:300ms from:input, change from:select, submit" id="bouquet-filter">
+  <input type="search" name="q" placeholder="Filter channels to add" aria-label="Filter channels to add">
+  <select name="group" aria-label="Group">
+    <option value="0">All groups</option>
+    {{range $d.Editor.Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+  </select>
+</form>
+{{template "bouquet-editor" $d.Editor}}
+
+<div class="split">
+  <section>
+    <h2>Add a whole group</h2>
+    <form class="row" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/add-group"
+      hx-post="/admin/bouquets/{{$d.Bouquet.ID}}/add-group" hx-target="#bouquet-editor" hx-swap="outerHTML" hx-include="#bouquet-filter">
+      <select name="add_group" aria-label="Group to add">
+        {{range $d.Editor.Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+        <option value="0">Channels without a group</option>
+      </select>
+      <button type="submit" class="secondary">Add all channels</button>
+    </form>
+  </section>
+  <section>
+    <h2>Settings</h2>
+    <form class="card form" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}">
+      {{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+      <div class="grid3">
+        <label class="span2">Name<input name="name" value="{{$d.Name}}" maxlength="100" required></label>
+        <label>Sort order<input name="sort_order" type="number" value="{{$d.Sort}}"></label>
+      </div>
+      <div class="row"><button type="submit">Save</button></div>
+    </form>
+    <form class="danger" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/delete"
+      data-confirm="Delete {{$d.Bouquet.Name}}? {{$d.Users}} user(s) lose its channels.">
+      <button type="submit" class="danger">Delete bouquet</button>
+    </form>
+  </section>
+</div>
+{{end}}
+
+{{define "bouquet-editor"}}
+<div id="bouquet-editor" class="editor">
+  {{with .Note}}<p class="flash small" role="status">{{.}}</p>{{end}}
+  <div class="split even">
+    <form method="post" action="/admin/bouquets/{{.BouquetID}}/remove" hx-post="/admin/bouquets/{{.BouquetID}}/remove"
+      hx-target="#bouquet-editor" hx-swap="outerHTML" hx-include="#bouquet-filter">
+      <div class="pane-head">
+        <h2>In this bouquet <span class="muted">({{len .Members}})</span></h2>
+        {{if .Members}}<label class="check small"><input type="checkbox" data-check-all="channel"> all</label>
+        <button type="submit" class="small secondary">Remove selected</button>{{end}}
+      </div>
+      {{if .Members}}
+      <ul class="pick-list">{{range .Members}}
+        <li><label class="check"><input type="checkbox" name="channel" value="{{.ID}}">
+          <span class="num muted">{{with .Number}}{{.}}{{end}}</span> {{.Name}}{{if not .Enabled}} <span class="pill off">disabled</span>{{end}}</label></li>
+      {{end}}</ul>
+      {{else}}<p class="muted">No channels yet. Pick some on the right.</p>{{end}}
+    </form>
+    <form method="post" action="/admin/bouquets/{{.BouquetID}}/add" hx-post="/admin/bouquets/{{.BouquetID}}/add"
+      hx-target="#bouquet-editor" hx-swap="outerHTML" hx-include="#bouquet-filter">
+      <div class="pane-head">
+        <h2>Add channels <span class="muted">({{len .Candidates}}{{if .More}}+{{end}})</span></h2>
+        {{if .Candidates}}<label class="check small"><input type="checkbox" data-check-all="channel"> all</label>
+        <button type="submit" class="small">Add selected</button>{{end}}
+      </div>
+      {{if .Candidates}}
+      <ul class="pick-list">{{range .Candidates}}
+        <li><label class="check"><input type="checkbox" name="channel" value="{{.ID}}">
+          <span class="num muted">{{with .Number}}{{.}}{{end}}</span> {{.Name}}</label></li>
+      {{end}}</ul>
+      {{if .More}}<p class="hint">Showing the first {{len .Candidates}}: filter to find others.</p>{{end}}
+      {{else if or .Query .GroupID}}<p class="muted">No other channels match.</p>
+      {{else}}<p class="muted">Every channel is already in this bouquet.</p>{{end}}
+    </form>
+  </div>
+</div>
+{{end}}
