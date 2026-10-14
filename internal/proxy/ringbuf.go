@@ -24,6 +24,34 @@ type Ring struct {
 	head   uint64        // absolute position of the next byte to be written
 	closed bool          // no more writes; readers drain then get io.EOF
 	notify chan struct{} // closed and replaced on every Write and on Close
+	join   joinPoint     // latest place a new reader can start decoding cleanly
+}
+
+// joinPoint is the start of a video keyframe in the ring plus the PAT and
+// PMT packets a decoder needs before it.
+type joinPoint struct {
+	pos    uint64
+	prefix []byte
+}
+
+// SetJoinPoint records that a keyframe starts at absolute position pos and
+// that prefix (the current PAT and PMT packets) must precede it for a new
+// decoder. The writer calls it; readers starting later begin there.
+func (r *Ring) SetJoinPoint(pos uint64, prefix []byte) {
+	r.mu.Lock()
+	r.join = joinPoint{pos: pos, prefix: append([]byte(nil), prefix...)}
+	r.mu.Unlock()
+}
+
+// usableJoin returns the join point if it is still buffered with room to
+// spare (at most half the ring behind the edge, so the writer will not lap
+// the new reader at once). Callers hold r.mu.
+func (r *Ring) usableJoin() (joinPoint, bool) {
+	j := r.join
+	if j.prefix == nil || j.pos > r.head || r.head-j.pos > uint64(len(r.buf))/2 {
+		return joinPoint{}, false
+	}
+	return j, true
 }
 
 // NewRing allocates a ring of size bytes, rounded down to whole TS packets
@@ -106,6 +134,24 @@ func (r *Ring) rejoinBacklog() uint64 {
 func (r *Ring) NewReader(backlog int) *Reader {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.newReaderLocked(backlog)
+}
+
+// NewReaderAtKeyframe attaches a reader at the latest join point, so the
+// player's first video frame is a keyframe (no artefacts or decode errors
+// while it waits for one), and sends it the PAT and PMT first. Without a
+// usable join point (no keyframe markers seen, or too old) it behaves like
+// NewReader(backlog).
+func (r *Ring) NewReaderAtKeyframe(backlog int) *Reader {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if j, ok := r.usableJoin(); ok {
+		return &Reader{ring: r, pos: j.pos, prefix: append([]byte(nil), j.prefix...)}
+	}
+	return r.newReaderLocked(backlog)
+}
+
+func (r *Ring) newReaderLocked(backlog int) *Reader {
 	back := uint64(max(backlog, 0))
 	back -= back % TSPacketSize
 	back = min(back, r.head, uint64(len(r.buf)))
@@ -118,6 +164,7 @@ type Reader struct {
 	ring    *Ring
 	pos     uint64
 	skipped uint64
+	prefix  []byte // PAT/PMT to deliver before the data at pos
 }
 
 // Pos is the reader's absolute position.
@@ -134,18 +181,33 @@ func (rd *Reader) Read(ctx context.Context, p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+	if len(rd.prefix) > 0 {
+		n := copy(p, rd.prefix)
+		rd.prefix = rd.prefix[n:]
+		return n, nil
+	}
 	r := rd.ring
 	for {
 		r.mu.RLock()
 		size := uint64(len(r.buf))
 		if r.head-rd.pos > size {
-			// Overrun: the bytes at our cursor were overwritten. Rejoin a
-			// quarter-ring behind the live edge: not the oldest byte (the
-			// writer overwrites it next) and not the edge itself (the viewer
-			// would get nothing until the next write).
+			// Overrun: the bytes at our cursor were overwritten. Rejoin at
+			// the latest keyframe if possible; otherwise a quarter-ring
+			// behind the live edge: not the oldest byte (the writer
+			// overwrites it next) and not the edge itself (the viewer would
+			// get nothing until the next write).
 			newPos := r.head - r.rejoinBacklog()
+			var prefix []byte
+			if j, ok := r.usableJoin(); ok {
+				newPos, prefix = j.pos, append([]byte(nil), j.prefix...)
+			}
 			rd.skipped += newPos - rd.pos
 			rd.pos = newPos
+			if len(prefix) > 0 {
+				r.mu.RUnlock()
+				rd.prefix = prefix
+				return rd.Read(ctx, p)
+			}
 		}
 		if avail := r.head - rd.pos; avail > 0 {
 			n := int(min(avail, uint64(len(p))))

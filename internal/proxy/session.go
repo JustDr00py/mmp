@@ -246,6 +246,7 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 	}()
 
 	sp := newSplicer(spliced)
+	keys := newKeyTracker()
 	buf := make([]byte, 64*1024)
 	var out []byte
 	var res streamResult
@@ -257,6 +258,11 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			now := time.Now()
 			out = sp.process(w.Feed(now, out[:0], buf[:n]))
 			if len(out) > 0 {
+				// Note the newest keyframe before writing: this goroutine is
+				// the ring's only writer, so Head is where out will land.
+				if idx, prefix := keys.scan(out); idx >= 0 {
+					s.cfg.Ring.SetJoinPoint(s.cfg.Ring.Head()+uint64(idx*TSPacketSize), prefix)
+				}
 				if _, werr := s.cfg.Ring.Write(out); werr != nil {
 					res.reason = "ring closed"
 					return res

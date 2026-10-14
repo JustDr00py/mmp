@@ -99,7 +99,7 @@ func (m *Manager) Attach(channelID int64) (*Viewer, error) {
 			run.idle.Stop()
 			run.idle = nil
 		}
-		rd := run.ring.NewReader(m.cfg.JoinBacklog)
+		rd := run.ring.NewReaderAtKeyframe(m.cfg.JoinBacklog)
 		m.mu.Unlock()
 		return &Viewer{Reader: rd, m: m, run: run}, nil
 	}
