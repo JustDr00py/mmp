@@ -157,7 +157,7 @@ func TestLiveRejections(t *testing.T) {
 		{"/live/alice/alice-pw1/11.ts", http.StatusNotFound}, // not in her bouquets
 		{"/live/alice/alice-pw1/999.ts", http.StatusNotFound},
 		{"/live/alice/alice-pw1/abc.ts", http.StatusNotFound},
-		{"/live/alice/alice-pw1/10.m3u8", http.StatusNotFound},       // HLS output is 6.5
+		{"/live/alice/alice-pw1/10.m3u8", http.StatusNotFound},       // HLS output disabled
 		{"/live/root/root-pw1/11.ts", http.StatusServiceUnavailable}, // no streams
 	} {
 		if code, _ := play(t, srv.URL, tc.path); code != tc.want {

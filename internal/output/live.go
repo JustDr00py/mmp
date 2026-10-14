@@ -39,10 +39,10 @@ func (h *Handlers) liveToken(w http.ResponseWriter, r *http.Request) {
 	h.serveLive(w, r, u)
 }
 
-// streamID parses "{id}" or "{id}.ts". Other containers (.m3u8) are not
-// served yet.
+// streamID parses "{id}", "{id}.ts" or "{id}.m3u8".
 func streamID(s string) (int64, bool) {
-	id, err := strconv.ParseInt(strings.TrimSuffix(s, ".ts"), 10, 64)
+	s = strings.TrimSuffix(strings.TrimSuffix(s, ".ts"), ".m3u8")
+	id, err := strconv.ParseInt(s, 10, 64)
 	return id, err == nil && id > 0
 }
 
@@ -50,8 +50,10 @@ func streamID(s string) (int64, bool) {
 // reported as missing, a full connection allowance is 403, and the viewer
 // joins the channel's shared upstream session.
 func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) {
-	id, ok := streamID(chi.URLParam(r, "id"))
-	if !ok {
+	raw := chi.URLParam(r, "id")
+	id, ok := streamID(raw)
+	hls := isHLSRequest(raw)
+	if !ok || (hls && h.HLS == nil) {
 		http.NotFound(w, r)
 		return
 	}
@@ -69,6 +71,11 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	}
 	if acc.Streams == 0 {
 		http.Error(w, "channel unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	if hls {
+		h.startHLS(w, r, u, id)
 		return
 	}
 
@@ -93,4 +100,21 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	h.Log.Info("viewer started", "user_id", u.ID, "channel_id", id)
 	proxy.ServeViewer(w, r, v)
 	h.Log.Info("viewer stopped", "user_id", u.ID, "channel_id", id)
+}
+
+// startHLS leases the channel for u and redirects to the lease's playlist.
+func (h *Handlers) startHLS(w http.ResponseWriter, r *http.Request, u db.User, id int64) {
+	key, err := h.HLS.lease(u, id)
+	switch {
+	case errors.Is(err, ErrTooManyConnections):
+		h.Log.Info("output: connection limit", "user_id", u.ID, "channel_id", id, "max", u.MaxConnections)
+		http.Error(w, "connection limit reached", http.StatusForbidden)
+		return
+	case err != nil:
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	h.Log.Info("viewer started", "user_id", u.ID, "channel_id", id, "output", "hls")
+	allowCORS(w) // hls.js follows the redirect over XHR
+	http.Redirect(w, r, h.BaseURL+"/hls/"+key+"/index.m3u8", http.StatusFound)
 }

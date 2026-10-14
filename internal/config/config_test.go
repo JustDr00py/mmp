@@ -163,6 +163,7 @@ func TestValidate(t *testing.T) {
 		{"cooldown inversion", func(c *Config) { c.Proxy.CooldownMax.Duration = time.Second }, "cooldown"},
 		{"zero buffer", func(c *Config) { c.Proxy.BufferSizeMB = 0 }, "buffer_size_mb"},
 		{"cc rate too big", func(c *Config) { c.Proxy.MaxCCErrorRate = 2 }, "cc_error_rate"},
+		{"tiny hls window", func(c *Config) { c.HLS.Window = 1 }, "hls"},
 		{"zero probe concurrency", func(c *Config) { c.Probe.Concurrency = 0 }, "probe"},
 		{"negative hls cap", func(c *Config) { c.Proxy.HLSMaxHeight = -1 }, "hls_max_height"},
 		{"zero match providers", func(c *Config) { c.Match.MinProviders = 0 }, "min_providers"},

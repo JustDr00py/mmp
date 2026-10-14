@@ -33,6 +33,7 @@ type Handlers struct {
 	Access  *Access
 	Store   Store
 	Streams StreamAttacher
+	HLS     *HLS   // nil: .m3u8 stream URLs are not served
 	BaseURL string // no trailing slash
 	Log     *slog.Logger
 	Now     func() time.Time // guide window clock; nil = time.Now
@@ -48,6 +49,9 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Post("/player_api.php", h.playerAPI)
 	r.Get("/live/{user}/{pass}/{id}", h.liveXtream)
 	r.Get("/t/{token}/{id}", h.liveToken)
+	if h.HLS != nil {
+		h.HLS.Mount(r)
+	}
 }
 
 // Channel is one playable channel as customers see it.
@@ -97,10 +101,19 @@ func (h *Handlers) authFail(w http.ResponseWriter, err error) {
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
-// xtreamStreamURL is /live/<user>/<pass>/<id>.ts on MMP.
-func (h *Handlers) xtreamStreamURL(user, pass string) func(int64) string {
+// xtreamStreamURL is /live/<user>/<pass>/<id>.<ext> on MMP.
+func (h *Handlers) xtreamStreamURL(user, pass, ext string) func(int64) string {
 	prefix := h.BaseURL + "/live/" + url.PathEscape(user) + "/" + url.PathEscape(pass) + "/"
-	return func(id int64) string { return prefix + strconv.FormatInt(id, 10) + ".ts" }
+	return func(id int64) string { return prefix + strconv.FormatInt(id, 10) + ext }
+}
+
+// streamExt is the container for get.php's output= parameter: .m3u8 for
+// output=m3u8 (or hls) when HLS is enabled, else .ts.
+func (h *Handlers) streamExt(output string) string {
+	if h.HLS != nil && (output == "m3u8" || output == "hls") {
+		return ".m3u8"
+	}
+	return ".ts"
 }
 
 // tokenStreamURL is /t/<token>/<id>.ts on MMP: no password in the playlist.
@@ -120,7 +133,7 @@ func (h *Handlers) getPHP(w http.ResponseWriter, r *http.Request) {
 	}
 	plus := q.Get("type") != "m3u" // m3u_plus is the default
 	epg := h.BaseURL + "/xmltv.php?username=" + url.QueryEscape(user) + "&password=" + url.QueryEscape(pass)
-	h.servePlaylist(w, r, u, plus, h.xtreamStreamURL(user, pass), epg)
+	h.servePlaylist(w, r, u, plus, h.xtreamStreamURL(user, pass, h.streamExt(q.Get("output"))), epg)
 }
 
 // tokenPlaylist is /playlist/{token}.m3u (always m3u_plus).

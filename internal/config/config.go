@@ -83,6 +83,14 @@ type Config struct {
 		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
 		MinProviders int  `yaml:"min_providers"` // auto-create channels only for groups at >= N providers
 	} `yaml:"match"`
+	// HLS is the customer .m3u8 output (a segmenter over each channel's
+	// shared session).
+	HLS struct {
+		Enabled bool     `yaml:"enabled"`
+		Segment Duration `yaml:"segment"`      // target segment length (cut on keyframes)
+		Window  int      `yaml:"window"`       // segments in the playlist
+		Idle    Duration `yaml:"idle_timeout"` // client silent this long has left (frees its slot)
+	} `yaml:"hls"`
 	// Probe is the background stream prober. Off by default: each probe
 	// costs a provider connection slot, and some providers dislike them.
 	Probe struct {
@@ -127,6 +135,10 @@ func Defaults() Config {
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Match.MinProviders = 2
+	c.HLS.Enabled = true
+	c.HLS.Segment = Duration{2 * time.Second}
+	c.HLS.Window = 6
+	c.HLS.Idle = Duration{30 * time.Second}
 	c.Probe.Interval = Duration{30 * time.Minute}
 	c.Probe.Recheck = Duration{time.Minute}
 	c.Probe.Sample = Duration{3 * time.Second}
@@ -253,6 +265,10 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_PROXY_SORT_BY_HEALTH", &c.Proxy.SortByHealth),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		boolv("MMP_HLS_ENABLED", &c.HLS.Enabled),
+		dur("MMP_HLS_SEGMENT", &c.HLS.Segment),
+		intv("MMP_HLS_WINDOW", &c.HLS.Window),
+		dur("MMP_HLS_IDLE_TIMEOUT", &c.HLS.Idle),
 		boolv("MMP_PROBE_ENABLED", &c.Probe.Enabled),
 		dur("MMP_PROBE_INTERVAL", &c.Probe.Interval),
 		dur("MMP_PROBE_RECHECK", &c.Probe.Recheck),
@@ -313,6 +329,9 @@ func (c *Config) Validate() error {
 	}
 	if p.HLSMaxBandwidthKbps < 0 || p.HLSMaxHeight < 0 {
 		return errors.New("config: proxy.hls_max_bandwidth_kbps and hls_max_height must be >= 0")
+	}
+	if hc := c.HLS; hc.Segment.Duration < 500*time.Millisecond || hc.Window < 3 || hc.Idle.Duration < hc.Segment.Duration*3 {
+		return errors.New("config: hls.segment must be >= 500ms, hls.window >= 3, hls.idle_timeout >= 3 segments")
 	}
 	if pr := c.Probe; pr.Interval.Duration <= 0 || pr.Recheck.Duration <= 0 || pr.Sample.Duration <= 0 || pr.Concurrency < 1 {
 		return errors.New("config: probe interval/recheck/sample must be > 0 and concurrency >= 1")

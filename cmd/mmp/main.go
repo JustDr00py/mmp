@@ -163,6 +163,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
 	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log}
+	if hc := cfg.HLS; hc.Enabled {
+		outputs.HLS = output.NewHLS(ctx, output.HLSConfig{Segment: hc.Segment.Duration, Window: hc.Window, Idle: hc.Idle.Duration},
+			streams, access, log)
+	}
 	outputs.Mount(srv.Mux())
 
 	// Background workers.

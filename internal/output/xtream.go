@@ -159,6 +159,9 @@ func (h *Handlers) userInfo(u db.User, user, pass string) xtreamUserInfo {
 		MaxConnections:       strconv.Itoa(int(u.MaxConnections)),
 		AllowedOutputFormats: []string{"ts"},
 	}
+	if h.HLS != nil {
+		info.AllowedOutputFormats = []string{"m3u8", "ts"}
+	}
 	if u.ExpiresAt != nil {
 		exp := unixString(*u.ExpiresAt)
 		info.ExpDate = &exp
