@@ -1,9 +1,56 @@
 {{define "content"}}
-<h1>Dashboard</h1>
+<div class="head">
+  <h1>Dashboard</h1>
+  <span class="live-state" id="live-state">● live</span>
+</div>
+<div id="live" data-sse="/admin/live" data-sse-state="#live-state">
+{{template "live" .Data}}
+</div>
+{{end}}
+
+{{define "live"}}
 <section class="stats">
-  <div class="card stat"><span class="num">{{.Data.Sessions}}</span><span class="label">channel sessions</span></div>
-  <div class="card stat"><span class="num">{{.Data.Streaming}}</span><span class="label">streaming</span></div>
-  <div class="card stat"><span class="num">{{.Data.Viewers}}</span><span class="label">viewers</span></div>
+  <div class="card stat"><span class="num">{{.Streaming}}<span class="of"> / {{.Sessions}}</span></span><span class="label">channels streaming</span></div>
+  <div class="card stat"><span class="num">{{.Viewers}}</span><span class="label">viewers on sessions</span></div>
+  <div class="card stat"><span class="num">{{.Customers}}</span><span class="label">customer connections</span></div>
 </section>
-<p class="muted">Live updates, failovers and provider slots arrive with the live dashboard.</p>
+<div class="split">
+  <section>
+    <h2>Live channels</h2>
+    {{if .Channels}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Channel</th><th>State</th><th>Playing from</th><th class="num">For</th><th class="num">Failovers</th><th class="num">Viewers</th></tr></thead>
+      <tbody>{{range .Channels}}
+      <tr>
+        <td><a href="/admin/channels/{{.ID}}">{{if .Name}}{{.Name}}{{else}}#{{.ID}}{{end}}</a></td>
+        <td>{{if eq .State "streaming"}}<span class="pill ok">streaming</span>{{else if eq .State "connecting"}}<span class="pill warn">connecting</span>{{else}}<span class="pill warn">{{.State}}</span>{{end}}{{if .Closing}} <span class="pill off">closing</span>{{end}}</td>
+        <td>{{if .Stream}}{{.Stream}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="num">{{.For}}</td>
+        <td class="num">{{if .Failovers}}<span class="pill warn">{{.Failovers}}</span>{{else}}0{{end}}</td>
+        <td class="num">{{.Viewers}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>
+    {{else}}<div class="card empty"><p class="muted">Nobody is watching right now.</p></div>{{end}}
+
+    <h2>Recent events</h2>
+    {{if .Events}}
+    <ul class="events">{{range .Events}}
+      <li><span class="mono muted">{{.At}}</span>
+        {{if eq .Type "failover"}}<span class="pill warn">failover</span>{{else if eq .Type "exhausted"}}<span class="pill bad">down</span>{{else if eq .Type "open_failed"}}<span class="pill off">open failed</span>{{else}}<span class="pill off">{{.Type}}</span>{{end}}
+        {{if .ChannelID}}<a href="/admin/channels/{{.ChannelID}}">{{if .Channel}}{{.Channel}}{{else}}#{{.ChannelID}}{{end}}</a>{{end}}
+        <span class="sub">{{.Message}}</span></li>{{end}}
+    </ul>
+    {{else}}<p class="muted">No failovers or upstream errors recorded.</p>{{end}}
+  </section>
+  <section>
+    <h2>Provider slots</h2>
+    {{if .Providers}}
+    <ul class="slots">{{range .Providers}}
+      <li><div class="slot-head"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a>{{if .Disabled}} <span class="pill off">disabled</span>{{end}}
+        <span class="muted">{{.Used}} / {{if .Max}}{{.Max}}{{else}}∞{{end}}</span></div>
+        {{if .Max}}<div class="bar"><span class="fill{{if ge .Percent 100}} full{{end}}" data-pct="{{.Percent}}"></span></div>{{end}}</li>{{end}}
+    </ul>
+    {{else}}<p class="muted">No providers.</p>{{end}}
+  </section>
+</div>
 {{end}}

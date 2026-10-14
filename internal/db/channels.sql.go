@@ -10,6 +10,35 @@ import (
 	"time"
 )
 
+const channelNamesByIDs = `-- name: ChannelNamesByIDs :many
+SELECT id, name FROM channels WHERE id = ANY($1::bigint[])
+`
+
+type ChannelNamesByIDsRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) ChannelNamesByIDs(ctx context.Context, ids []int64) ([]ChannelNamesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, channelNamesByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelNamesByIDsRow
+	for rows.Next() {
+		var i ChannelNamesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createChannel = `-- name: CreateChannel :one
 
 INSERT INTO channels (number, name, tvg_id, logo_url, group_id, stream_profile_id)

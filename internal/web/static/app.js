@@ -64,6 +64,23 @@
     setTimeout(() => { btn.textContent = label; }, 1500);
   });
 
+  // <div data-sse="/url" data-sse-state="#el">: the server re-renders the
+  // block and sends it as a "live" event; the browser reconnects on its own.
+  const bars = (root) => root.querySelectorAll('[data-pct]').forEach((el) => { el.style.width = `${el.dataset.pct}%`; });
+  bars(document);
+  document.querySelectorAll('[data-sse]').forEach((el) => {
+    const state = document.querySelector(el.dataset.sseState);
+    const es = new EventSource(el.dataset.sse);
+    es.addEventListener('live', (e) => {
+      el.innerHTML = e.data;
+      bars(el);
+      if (state) { state.textContent = '● live'; state.dataset.state = 'live'; }
+    });
+    es.addEventListener('error', () => {
+      if (state) { state.textContent = '○ reconnecting…'; state.dataset.state = 'down'; }
+    });
+  });
+
   document.addEventListener('change', (e) => {
     const t = e.target;
     // [data-check-all="name"] toggles every checkbox called name in its form.

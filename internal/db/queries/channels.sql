@@ -77,3 +77,6 @@ SELECT EXISTS (
                  WHERE ub.user_id = sqlc.arg('user_id') AND bc.channel_id = c.id))
        ) AS allowed,
        (SELECT count(*) FROM channel_streams cs WHERE cs.channel_id = sqlc.arg('channel_id'))::int AS streams;
+
+-- name: ChannelNamesByIDs :many
+SELECT id, name FROM channels WHERE id = ANY(sqlc.arg('ids')::bigint[]);

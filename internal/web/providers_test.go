@@ -25,6 +25,7 @@ type fakeStore struct {
 	nextID    int64
 	providers map[int64]db.Provider
 	streams   map[int64][]db.ProviderStream
+	events    []db.Event
 }
 
 func newFakeStore() *fakeStore {
@@ -129,6 +130,28 @@ func (f *fakeStore) page(id int64, like string, limit, offset int32) []db.Provid
 		return nil
 	}
 	return out[offset:min(int(offset+limit), len(out))]
+}
+
+func (f *fakeStore) ListRecentEvents(context.Context, db.ListRecentEventsParams) ([]db.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.events, nil
+}
+
+func (f *fakeStore) ChannelNamesByIDs(_ context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error) {
+	var out []db.ChannelNamesByIDsRow
+	for _, id := range ids {
+		out = append(out, db.ChannelNamesByIDsRow{ID: id, Name: fmt.Sprintf("Channel %d", id)})
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetStreamsByIDs(_ context.Context, ids []int64) ([]db.GetStreamsByIDsRow, error) {
+	var out []db.GetStreamsByIDsRow
+	for _, id := range ids {
+		out = append(out, db.GetStreamsByIDsRow{ID: id, Name: fmt.Sprintf("Stream %d", id), ProviderName: "Acme"})
+	}
+	return out, nil
 }
 
 type fakeRefresher struct {

@@ -99,6 +99,9 @@ type Store interface {
 	AddGroupToBouquet(ctx context.Context, arg db.AddGroupToBouquetParams) (int64, error)
 	RemoveChannelsFromBouquet(ctx context.Context, arg db.RemoveChannelsFromBouquetParams) (int64, error)
 
+	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
+	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
+
 	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
 	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
 	DeleteMatchRule(ctx context.Context, id int64) error
@@ -131,6 +134,8 @@ type Deps struct {
 	InTx func(ctx context.Context, fn func(Store) error) error
 	// BaseURL is the public URL customers' players use; no trailing slash.
 	BaseURL string
+	// Ctx ends long-lived responses (the live dashboard) at shutdown.
+	Ctx     context.Context
 	Log     *slog.Logger
 	Version string
 }
@@ -243,6 +248,7 @@ func (ui *UI) Mount(r chi.Router) {
 			r.Use(ui.requireAdmin)
 			r.Post("/logout", ui.logout)
 			r.Get("/", ui.dashboard)
+			r.Get("/live", ui.liveStream)
 			ui.mountProviders(r)
 			ui.mountChannels(r)
 			ui.mountMatch(r)
@@ -397,22 +403,13 @@ func (ui *UI) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, Prefix+"/login", http.StatusSeeOther)
 }
 
-type dashboardData struct {
-	Sessions, Streaming, Viewers int
-}
-
 func (ui *UI) dashboard(w http.ResponseWriter, r *http.Request) {
-	var d dashboardData
-	if ui.Live != nil {
-		for _, c := range ui.Live.Channels() {
-			d.Sessions++
-			d.Viewers += c.Viewers
-			if c.State == "streaming" {
-				d.Streaming++
-			}
-		}
+	snap, err := ui.snapshot(r.Context())
+	if err != nil {
+		ui.fail(w, "dashboard snapshot", err)
+		return
 	}
-	ui.render(w, r, http.StatusOK, "dashboard", "Dashboard", d)
+	ui.render(w, r, http.StatusOK, "dashboard", "Dashboard", snap)
 }
 
 // safeNext keeps post-login redirects inside the admin UI: anything that

@@ -139,3 +139,14 @@ form.narrow { max-width: 560px; }
 label > input:not([type=checkbox]):not([type=radio]), label > select { width: 100%; min-width: 0; }
 .search.row { align-items: center; flex-wrap: wrap; }
 .search.row label.check { white-space: nowrap; }
+.stat .of { font-size: 1rem; color: var(--muted); font-weight: 400; }
+.live-state { color: var(--ok-fg); font-size: .85rem; }
+.live-state[data-state="down"] { color: var(--warn-fg); }
+.pill.bad { background: var(--error-bg); color: var(--error-fg); }
+ul.events, ul.slots { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+ul.events li { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+ul.slots li { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .75rem; }
+.slot-head { display: flex; justify-content: space-between; gap: .5rem; }
+.bar { height: 6px; background: var(--off-bg); border-radius: 3px; margin-top: .4rem; overflow: hidden; }
+.bar .fill { display: block; height: 100%; width: 0; background: var(--accent); }
+.bar .fill.full { background: var(--warn-fg); }

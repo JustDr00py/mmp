@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -94,7 +95,7 @@ func newUIWith(t *testing.T) (*httptest.Server, *fakeAuthStore, *UI) {
 		"viewer": {ID: 2, Username: "viewer", PasswordHash: hash("viewer-pass-1"), Role: auth.RoleCustomer, Enabled: true},
 	}}
 	live := fakeLive{
-		{SessionStatus: proxy.SessionStatus{ChannelID: 1, State: "streaming"}, Viewers: 3},
+		{SessionStatus: proxy.SessionStatus{ChannelID: 1, State: "streaming", StreamID: 7, ProviderID: 1, Since: time.Now()}, Viewers: 3},
 		{SessionStatus: proxy.SessionStatus{ChannelID: 2, State: "waiting"}, Viewers: 1},
 	}
 	ui, err := New(Deps{Auth: auth.NewAuthenticator(store, nil, 0, false), Store: newFakeStore(), Refresh: &fakeRefresher{},
@@ -203,7 +204,7 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatalf("dashboard = %d\n%s", resp.StatusCode, body)
 	}
 	// 2 sessions, 1 streaming, 4 viewers.
-	for _, want := range []string{`<span class="num">2</span>`, `<span class="num">1</span>`, `<span class="num">4</span>`} {
+	for _, want := range []string{`<span class="num">1<span class="of"> / 2</span>`, `<span class="num">4</span>`, "Channel 1"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard lacks %s", want)
 		}
