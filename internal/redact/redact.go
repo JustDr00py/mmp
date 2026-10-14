@@ -122,9 +122,9 @@ func redactQuery(rawQuery string) string {
 	return strings.Join(parts, "&")
 }
 
-// tokenPath matches MMP's own stream-token URLs: /playlist/<tok>.m3u,
-// /epg/<tok>.xml and /t/<tok>/<id>.ts. The token is a bearer credential.
-var tokenPath = regexp.MustCompile(`(?i)/(playlist|epg|t)/[^/?.]+`)
+// tokenPath matches MMP's own bearer-credential URLs: /playlist/<tok>.m3u,
+// /epg/<tok>.xml, /t/<tok>/<id>.ts and /hls/<key>/... (the HLS lease key).
+var tokenPath = regexp.MustCompile(`(?i)/(playlist|epg|t|hls)/[^/?.]+`)
 
 // redactPath masks credential segments in Xtream-style media paths and
 // stream-token paths.
@@ -166,3 +166,9 @@ func Err(err error) error {
 	}
 	return err
 }
+
+// Text scrubs credential-shaped substrings from arbitrary text such as
+// error messages: URL userinfo (DSNs), sensitive query parameters, and
+// Xtream/token media paths. Use when an error may embed a raw URL or DSN
+// that its own words do not warrant.
+func Text(s string) string { return scrub(s) }

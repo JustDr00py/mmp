@@ -52,10 +52,13 @@ func TestRequestLoggerRedactsAndTags(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	s := New(testCfg(), log, nil)
-	// A route that would log player credentials in the query string.
+	// Routes that would log player credentials in the query string or path.
 	s.Mux().Get("/get.php", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = w.Write([]byte("x"))
+	})
+	s.Mux().Get("/hls/{key}/{seg}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/get.php?username=alice&password=s3cret&type=m3u_plus", nil)
@@ -75,6 +78,14 @@ func TestRequestLoggerRedactsAndTags(t *testing.T) {
 	}
 	if !strings.Contains(out, "req-123") || !strings.Contains(out, "418") {
 		t.Errorf("log missing req id or status: %s", out)
+	}
+
+	// The HLS lease key is a bearer credential in the path.
+	buf.Reset()
+	s.Mux().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/hls/Lease-S3cretkey/17.ts", nil))
+	if strings.Contains(buf.String(), "Lease-S3cretkey") {
+		t.Errorf("hls lease key leaked into request log: %s", buf.String())
 	}
 }
 

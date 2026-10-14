@@ -6,12 +6,15 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
+
+	"github.com/sysadmin/mmp/internal/redact"
 
 	// Register the pgx stdlib driver so goose can drive migrations through
 	// database/sql.
@@ -43,7 +46,8 @@ type PoolConfig struct {
 func Open(ctx context.Context, cfg PoolConfig) (*pgxpool.Pool, error) {
 	pc, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("db: parse DSN: %w", err)
+		// The parse error quotes the DSN, password included.
+		return nil, errors.New("db: parse DSN: " + redact.Text(err.Error()))
 	}
 	if cfg.MaxConns > 0 {
 		pc.MaxConns = cfg.MaxConns
@@ -76,7 +80,8 @@ func Migrate(ctx context.Context, dsn string) error {
 		return fmt.Errorf("db: goose provider: %w", err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
-		return fmt.Errorf("db: migrate up: %w", err)
+		// The DSN is parsed lazily, so a malformed one surfaces here quoted.
+		return errors.New("db: migrate up: " + redact.Text(err.Error()))
 	}
 	return nil
 }
@@ -95,7 +100,7 @@ func MigrateDownTo(ctx context.Context, dsn string, v int64) error {
 		return fmt.Errorf("db: goose provider: %w", err)
 	}
 	if _, err := provider.DownTo(ctx, v); err != nil {
-		return fmt.Errorf("db: migrate down to %d: %w", v, err)
+		return fmt.Errorf("db: migrate down to %d: %s", v, redact.Text(err.Error()))
 	}
 	return nil
 }

@@ -42,6 +42,16 @@ func TestURL(t *testing.T) {
 			want: "/t/" + Mask + "/42.ts",
 		},
 		{
+			name: "hls playlist key",
+			in:   "/hls/kx9-L3ase_Key/index.m3u8",
+			want: "/hls/" + Mask + "/index.m3u8",
+		},
+		{
+			name: "hls segment key",
+			in:   "/hls/kx9-L3ase_Key/17.ts",
+			want: "/hls/" + Mask + "/17.ts",
+		},
+		{
 			name: "non-token path untouched",
 			in:   "/api/v1/channels/42/stream",
 			want: "/api/v1/channels/42/stream",
@@ -124,6 +134,7 @@ func TestNoSecretsSurvive(t *testing.T) {
 		"/epg/" + secret + ".xml",
 		"/t/" + secret + "/7.ts",
 		"/live/a/" + secret + "/1.ts",
+		"/hls/" + secret + "/index.m3u8",
 		"http://a@" + secret + ".example.com/", // host contains it but is not a credential — acceptable
 	}
 	for i, in := range inputs {
@@ -162,5 +173,24 @@ func TestURLUnparseable(t *testing.T) {
 		if got := URL(in); strings.Contains(got, "s3cretPass") {
 			t.Errorf("URL(%q) = %q", in, got)
 		}
+	}
+}
+
+func TestText(t *testing.T) {
+	// pgx parse errors quote the DSN verbatim.
+	in := `cannot parse "postgres://mmp:hunter2@db.internal:5432/mmp?sslmode=disable": failed to parse as URL (parse "postgres://mmp:hunter2@db.internal:5432/mmp?sslmode=disable": first path segment in URL cannot contain colon)`
+	out := Text(in)
+	if strings.Contains(out, "hunter2") || strings.Contains(out, "mmp:hunter2") {
+		t.Errorf("DSN password survived: %q", out)
+	}
+	if !strings.Contains(out, "cannot parse") || !strings.Contains(out, "failed to parse as URL") {
+		t.Errorf("cause text lost: %q", out)
+	}
+	// Credential-bearing URLs inside other error prose.
+	if out := Text(`Get "http://u:p@host/x?token=t0ps3cret": dial refused`); strings.Contains(out, "p@") || strings.Contains(out, "t0ps3cret") {
+		t.Errorf("error prose leaked: %q", out)
+	}
+	if got, want := Text("plain error text"), "plain error text"; got != want {
+		t.Errorf("plain text changed: %q", got)
 	}
 }
