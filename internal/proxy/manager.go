@@ -34,6 +34,7 @@ type ManagerConfig struct {
 
 	Log     *slog.Logger
 	OnEvent func(Event)
+	Metrics *Metrics // optional
 }
 
 // Manager owns one Session per active channel and fans its ring out to
@@ -124,6 +125,7 @@ func (m *Manager) start(channelID int64) *channelRun {
 		StableAfter:    m.cfg.StableAfter,
 		Log:            m.log,
 		OnEvent:        m.cfg.OnEvent,
+		Metrics:        m.cfg.Metrics,
 	})
 	m.channels[channelID] = run
 	m.wg.Add(1)

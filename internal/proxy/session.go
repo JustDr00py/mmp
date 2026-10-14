@@ -51,6 +51,7 @@ type SessionConfig struct {
 	StableAfter    time.Duration // healthy streaming this long clears a stream's backoff; default 30s
 	Log            *slog.Logger
 	OnEvent        func(Event) // optional; called from the session goroutine
+	Metrics        *Metrics    // optional
 }
 
 // SessionStatus is a snapshot for the dashboard.
@@ -159,6 +160,7 @@ func (s *Session) Run(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return nil
 				}
+				s.cfg.Metrics.openFailure()
 				d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 				// Opener errors carry redacted URLs only.
 				s.log.Warn("session: open failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
@@ -177,6 +179,7 @@ func (s *Session) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
+			s.cfg.Metrics.upstreamFailure(res.reason)
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 			s.log.Warn("session: upstream failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 				"reason", res.reason, "cooldown", d)
@@ -190,6 +193,7 @@ func (s *Session) Run(ctx context.Context) error {
 
 		if time.Since(failingSince) > s.cfg.MaxRetryWindow {
 			s.log.Error("session: candidates exhausted", "window", s.cfg.MaxRetryWindow)
+			s.cfg.Metrics.exhaust()
 			s.emit(Event{Type: EventExhausted, FromStreamID: lastFailed, Message: ErrExhausted.Error()})
 			return ErrExhausted
 		}
@@ -257,11 +261,13 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 					res.reason = "ring closed"
 					return res
 				}
+				s.cfg.Metrics.addUpstreamBytes(len(out))
 				if !res.delivered {
 					res.delivered, firstAt = true, now
 					s.setState("streaming", &c)
 					s.log.Info("session: streaming", "stream_id", c.StreamID, "provider_id", c.ProviderID)
 					if failedID != 0 {
+						s.cfg.Metrics.failover()
 						s.emit(Event{Type: EventFailover, ProviderID: c.ProviderID, FromStreamID: failedID,
 							ToStreamID: c.StreamID, Message: "switched upstream"})
 					}

@@ -99,6 +99,7 @@ func TestEnvOverridesYAML(t *testing.T) {
 	t.Setenv("MMP_PROXY_FFMPEG_PATH", "/opt/ffmpeg/bin/ffmpeg")
 	t.Setenv("MMP_PROBE_ENABLED", "true")
 	t.Setenv("MMP_PROXY_SORT_BY_HEALTH", "true")
+	t.Setenv("MMP_METRICS_TOKEN", "scrape-secret")
 	t.Setenv("MMP_PROBE_RECHECK", "15s")
 
 	c, err := Load(p)
@@ -122,6 +123,9 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 	if c.Proxy.FFmpegPath != "/opt/ffmpeg/bin/ffmpeg" {
 		t.Errorf("ffmpeg_path = %q", c.Proxy.FFmpegPath)
+	}
+	if !c.Metrics.Enabled || c.Metrics.Token != "scrape-secret" {
+		t.Errorf("metrics = %+v", c.Metrics)
 	}
 	if !c.Proxy.SortByHealth {
 		t.Error("sort_by_health not set from env")

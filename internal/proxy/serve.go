@@ -25,7 +25,9 @@ func ServeViewer(w http.ResponseWriter, r *http.Request, v *Viewer) {
 		n, err := v.Read(r.Context(), buf)
 		if n > 0 {
 			_ = rc.SetWriteDeadline(time.Now().Add(WriteTimeout))
-			if _, werr := w.Write(buf[:n]); werr != nil {
+			wn, werr := w.Write(buf[:n])
+			v.m.cfg.Metrics.addViewerBytes(wn)
+			if werr != nil {
 				return // client gone
 			}
 			_ = rc.Flush()

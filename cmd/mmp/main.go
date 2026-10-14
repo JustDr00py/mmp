@@ -22,6 +22,7 @@ import (
 	"github.com/sysadmin/mmp/internal/config"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/health"
+	"github.com/sysadmin/mmp/internal/metrics"
 	"github.com/sysadmin/mmp/internal/output"
 	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/server"
@@ -90,6 +91,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		MaxHeight:    pc.HLSMaxHeight,
 	})
 	capacity := proxy.NewCapacity()
+	proxyMetrics := proxy.NewMetrics()
 	cooldowns := proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration)
 	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
 		Source: proxy.SortedByHealth(proxy.DBSource(db.New(pool)),
@@ -110,6 +112,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		MaxRetryWindow: pc.MaxRetryWindow.Duration,
 		Log:            log,
 		OnEvent:        events.Record,
+		Metrics:        proxyMetrics,
 	})
 	defer streams.Shutdown()
 
@@ -178,6 +181,14 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		return fmt.Errorf("admin ui: %w", err)
 	}
 	ui.Mount(srv.Mux())
+	if cfg.Metrics.Enabled {
+		src := metrics.Sources{Channels: streams.Channels, Proxy: proxyMetrics, Slots: capacity.Snapshot,
+			Connections: access.Connections, EventsDrop: events.Dropped, Version: version}
+		if outputs.HLS != nil {
+			src.HLSClients = outputs.HLS.Leases
+		}
+		srv.Mux().Handle("/metrics", metrics.Handler(src, cfg.Metrics.Token))
+	}
 
 	// Background workers.
 	go func() {

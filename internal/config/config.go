@@ -91,6 +91,11 @@ type Config struct {
 		Window  int      `yaml:"window"`       // segments in the playlist
 		Idle    Duration `yaml:"idle_timeout"` // client silent this long has left (frees its slot)
 	} `yaml:"hls"`
+	// Metrics is the Prometheus endpoint (/metrics).
+	Metrics struct {
+		Enabled bool   `yaml:"enabled"`
+		Token   string `yaml:"token"` // if set, scrapes need "Authorization: Bearer <token>"; never logged
+	} `yaml:"metrics"`
 	// Probe is the background stream prober. Off by default: each probe
 	// costs a provider connection slot, and some providers dislike them.
 	Probe struct {
@@ -135,6 +140,7 @@ func Defaults() Config {
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Match.MinProviders = 2
+	c.Metrics.Enabled = true
 	c.HLS.Enabled = true
 	c.HLS.Segment = Duration{2 * time.Second}
 	c.HLS.Window = 6
@@ -241,6 +247,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_LOG_LEVEL", &c.Log.Level)
 	str("MMP_PROXY_FFMPEG_PATH", &c.Proxy.FFmpegPath)
 	str("MMP_PROBE_FFPROBE_PATH", &c.Probe.FFprobePath)
+	str("MMP_METRICS_TOKEN", &c.Metrics.Token)
 	str("MMP_LOG_FORMAT", &c.Log.Format)
 	str("MMP_DB_DSN", &c.DB.DSN)
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
@@ -265,6 +272,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_PROXY_SORT_BY_HEALTH", &c.Proxy.SortByHealth),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		boolv("MMP_METRICS_ENABLED", &c.Metrics.Enabled),
 		boolv("MMP_HLS_ENABLED", &c.HLS.Enabled),
 		dur("MMP_HLS_SEGMENT", &c.HLS.Segment),
 		intv("MMP_HLS_WINDOW", &c.HLS.Window),
