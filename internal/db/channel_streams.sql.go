@@ -160,7 +160,7 @@ func (q *Queries) ListBouquets(ctx context.Context) ([]Bouquet, error) {
 }
 
 const listChannelCandidates = `-- name: ListChannelCandidates :many
-SELECT ps.id AS stream_id, ps.stream_url,
+SELECT ps.id AS stream_id, ps.stream_url, ps.health_score,
        pr.id AS provider_id, pr.max_connections, pr.user_agent,
        COALESCE(sp.mode, 'passthrough')::text AS profile_mode,
        COALESCE(sp.ffmpeg_args, '')::text AS profile_ffmpeg_args,
@@ -177,14 +177,15 @@ ORDER BY cs.priority, pr.priority, ps.id
 `
 
 type ListChannelCandidatesRow struct {
-	StreamID          int64  `json:"stream_id"`
-	StreamUrl         string `json:"stream_url"`
-	ProviderID        int64  `json:"provider_id"`
-	MaxConnections    int32  `json:"max_connections"`
-	UserAgent         string `json:"user_agent"`
-	ProfileMode       string `json:"profile_mode"`
-	ProfileFfmpegArgs string `json:"profile_ffmpeg_args"`
-	ProfileUserAgent  string `json:"profile_user_agent"`
+	StreamID          int64   `json:"stream_id"`
+	StreamUrl         string  `json:"stream_url"`
+	HealthScore       float32 `json:"health_score"`
+	ProviderID        int64   `json:"provider_id"`
+	MaxConnections    int32   `json:"max_connections"`
+	UserAgent         string  `json:"user_agent"`
+	ProfileMode       string  `json:"profile_mode"`
+	ProfileFfmpegArgs string  `json:"profile_ffmpeg_args"`
+	ProfileUserAgent  string  `json:"profile_user_agent"`
 }
 
 // The proxy's failover list: live streams of enabled providers, preferred first.
@@ -201,6 +202,7 @@ func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([
 		if err := rows.Scan(
 			&i.StreamID,
 			&i.StreamUrl,
+			&i.HealthScore,
 			&i.ProviderID,
 			&i.MaxConnections,
 			&i.UserAgent,

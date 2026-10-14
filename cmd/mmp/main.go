@@ -91,7 +91,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	capacity := proxy.NewCapacity()
 	cooldowns := proxy.NewCooldowns(pc.CooldownBase.Duration, pc.CooldownMax.Duration)
 	streams := proxy.NewManager(ctx, proxy.ManagerConfig{
-		Source:    proxy.DBSource(db.New(pool)),
+		Source: proxy.SortedByHealth(proxy.DBSource(db.New(pool)),
+			func() bool { return pc.SortByHealth }),
 		Opener:    proxy.NewProfileOpener(direct, pc.FFmpegPath),
 		Capacity:  capacity,
 		Cooldowns: cooldowns,

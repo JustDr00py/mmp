@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -315,6 +316,94 @@ func TestManagerAttachDetachStress(t *testing.T) {
 	for id := range srcs {
 		if n := m.cfg.Capacity.InUse(id); n != 0 {
 			t.Errorf("provider %d slots leaked: %d", id, n)
+		}
+	}
+}
+
+func TestSortedByHealth(t *testing.T) {
+	cands := []Candidate{
+		{StreamID: 1, Health: 0.42}, // first by priority, but failing
+		{StreamID: 2, Health: 0.97}, // rounds to the same tier as 3
+		{StreamID: 3, Health: 1},
+		{StreamID: 4, Health: 0.75},
+	}
+	src := func(context.Context, int64) ([]Candidate, error) { return slices.Clone(cands), nil }
+	on := true
+	sorted := SortedByHealth(src, func() bool { return on })
+	ids := func() []int64 {
+		got, err := sorted(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []int64
+		for _, c := range got {
+			out = append(out, c.StreamID)
+		}
+		return out
+	}
+	if got := ids(); !slices.Equal(got, []int64{2, 3, 4, 1}) {
+		t.Errorf("sorted = %v, want [2 3 4 1] (2 and 3 tie: priority order kept)", got)
+	}
+	on = false // the setting is read per load
+	if got := ids(); !slices.Equal(got, []int64{1, 2, 3, 4}) {
+		t.Errorf("unsorted = %v, want priority order", got)
+	}
+	failing := SortedByHealth(func(context.Context, int64) ([]Candidate, error) { return nil, errors.New("db down") }, func() bool { return true })
+	if _, err := failing(context.Background(), 1); err == nil {
+		t.Error("source error swallowed")
+	}
+}
+
+// TestSortByHealthPicksHealthierStream: with the setting on, a session
+// opens the healthier stream even though it is second by priority.
+func TestSortByHealthPicksHealthierStream(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		var mu sync.Mutex
+		var opened []int64
+		cands := map[int64][]Candidate{1: {{StreamID: 10, ProviderID: 1, Health: 0.3}, {StreamID: 20, ProviderID: 2, Health: 1}}}
+		m := newTestManager(t, cands, func(cfg *ManagerConfig) {
+			cfg.Source = SortedByHealth(cfg.Source, func() bool { return on })
+			cfg.Opener = openerFunc(func(ctx context.Context, c Candidate) (io.ReadCloser, error) {
+				mu.Lock()
+				opened = append(opened, c.StreamID)
+				mu.Unlock()
+				pr, pw := io.Pipe()
+				go func() {
+					pkt := make([]byte, TSPacketSize)
+					pkt[0] = 0x47
+					for ctx.Err() == nil {
+						if _, err := pw.Write(pkt); err != nil {
+							return
+						}
+						time.Sleep(time.Millisecond)
+					}
+					pw.Close()
+				}()
+				return pr, nil
+			})
+		})
+		v, err := m.Attach(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var first int64
+		for deadline := time.Now().Add(2 * time.Second); first == 0; time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("no upstream opened")
+			}
+			mu.Lock()
+			if len(opened) > 0 {
+				first = opened[0]
+			}
+			mu.Unlock()
+		}
+		v.Close()
+		want := int64(10)
+		if on {
+			want = 20
+		}
+		if first != want {
+			t.Errorf("sort_by_health=%v: opened stream %d first, want %d", on, first, want)
 		}
 	}
 }

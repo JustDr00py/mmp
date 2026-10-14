@@ -69,6 +69,9 @@ type Config struct {
 		// HLS master playlists: the best variant within these caps (0 = no cap).
 		HLSMaxBandwidthKbps int `yaml:"hls_max_bandwidth_kbps"`
 		HLSMaxHeight        int `yaml:"hls_max_height"`
+		// SortByHealth tries healthier streams first (prober health_score,
+		// rounded to 0.1); priority order breaks ties.
+		SortByHealth bool `yaml:"sort_by_health"`
 		// FFmpegPath runs stream profiles in ffmpeg mode ("" = ffmpeg from PATH).
 		FFmpegPath string `yaml:"ffmpeg_path"`
 	} `yaml:"proxy"`
@@ -248,6 +251,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		floatv("MMP_PROXY_MAX_CC_ERROR_RATE", &c.Proxy.MaxCCErrorRate),
 		intv("MMP_PROXY_HLS_MAX_BANDWIDTH_KBPS", &c.Proxy.HLSMaxBandwidthKbps),
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
+		boolv("MMP_PROXY_SORT_BY_HEALTH", &c.Proxy.SortByHealth),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
 		boolv("MMP_PROBE_ENABLED", &c.Probe.Enabled),
 		dur("MMP_PROBE_INTERVAL", &c.Probe.Interval),

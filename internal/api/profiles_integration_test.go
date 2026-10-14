@@ -77,7 +77,7 @@ func TestStreamProfilesAPI(t *testing.T) {
 	if err != nil || len(cands) != 1 {
 		t.Fatalf("candidates = %v %v", cands, err)
 	}
-	if c := cands[0]; !c.FFmpeg || c.FFmpegArgs != "-c copy" || c.UserAgent != "ProfileUA/2" {
+	if c := cands[0]; !c.FFmpeg || c.FFmpegArgs != "-c copy" || c.UserAgent != "ProfileUA/2" || c.Health != 1 {
 		t.Errorf("candidate = %+v", c)
 	}
 	if code, obj, _ := call(t, h, http.MethodPost, "/api/v1/channels", map[string]any{"name": "X", "stream_profile_id": 999999}); code != http.StatusBadRequest {

@@ -18,6 +18,8 @@ type Candidate struct {
 	// channel's stream profile in ffmpeg mode).
 	FFmpeg     bool
 	FFmpegArgs string
+	// Health is the prober's health_score (1 = healthy, the default).
+	Health float32
 }
 
 // Opener opens an upstream byte stream for a candidate. The returned stream
