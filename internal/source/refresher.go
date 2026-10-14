@@ -166,14 +166,14 @@ func (r *Refresher) fetchXtream(ctx context.Context, p db.Provider) ([]streamEnt
 func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url)) // err echoes the raw URL
 	}
 	if p.UserAgent != "" {
 		req.Header.Set("User-Agent", p.UserAgent)
 	}
 	resp, err := r.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), err)
+		return nil, fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -233,14 +233,14 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, xmltvURL, nil)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("refresh epg provider %d: fetch %s: invalid url", p.ID, redact.URL(xmltvURL))
 	}
 	if p.UserAgent != "" {
 		req.Header.Set("User-Agent", p.UserAgent)
 	}
 	resp, err := r.hc.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: fetch %s: %w", p.ID, redact.URL(xmltvURL), err)
+		return 0, fmt.Errorf("refresh epg provider %d: fetch %s: %w", p.ID, redact.URL(xmltvURL), redact.Err(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

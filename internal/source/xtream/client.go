@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/sysadmin/mmp/internal/redact"
 )
 
 // ErrUnauthorized is returned when the panel rejects the credentials.
@@ -30,7 +32,7 @@ type Client struct {
 func New(baseURL, username, password, userAgent string) (*Client, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("xtream: invalid base URL %q", baseURL)
+		return nil, fmt.Errorf("xtream: invalid base URL %q", redact.URL(baseURL))
 	}
 	hc := &http.Client{} // timeouts come from the caller's context
 	return &Client{base: u, username: username, password: password, ua: userAgent, hc: hc}, nil
@@ -95,16 +97,16 @@ func (c *Client) LiveCategories(ctx context.Context) ([]Category, error) {
 
 // Stream is one live stream from the panel.
 type Stream struct {
-	Num         int    `json:"num"`
-	Name        string `json:"name"`
-	StreamType  string `json:"stream_type"`
-	StreamID    int64  `json:"stream_id"`
-	StreamIcon  string `json:"stream_icon"`
-	EPGChannel  string `json:"epg_channel_id"` // maps to XMLTV channel id
-	Added       string `json:"added"`
-	CategoryID  string `json:"category_id"`
-	CustomSid   string `json:"custom_sid"`
-	TVFormat    string `json:"tv_format"`
+	Num        int    `json:"num"`
+	Name       string `json:"name"`
+	StreamType string `json:"stream_type"`
+	StreamID   int64  `json:"stream_id"`
+	StreamIcon string `json:"stream_icon"`
+	EPGChannel string `json:"epg_channel_id"` // maps to XMLTV channel id
+	Added      string `json:"added"`
+	CategoryID string `json:"category_id"`
+	CustomSid  string `json:"custom_sid"`
+	TVFormat   string `json:"tv_format"`
 }
 
 // LiveStreams fetches the provider's live streams.
@@ -146,14 +148,14 @@ const maxBody = 256 << 20 // 256 MiB: stream lists get large
 func (c *Client) get(ctx context.Context, rawURL string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return fmt.Errorf("xtream: build request: %w", err)
+		return errors.New("xtream: build request: invalid url") // err echoes the URL, password included
 	}
 	if c.ua != "" {
 		req.Header.Set("User-Agent", c.ua)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("xtream: request: %w", err)
+		return fmt.Errorf("xtream: request: %w", redact.Err(err)) // the URL carries the password
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {

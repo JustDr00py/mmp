@@ -1,7 +1,10 @@
 package redact
 
 import (
+	"errors"
+	"net/http"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -127,6 +130,37 @@ func TestNoSecretsSurvive(t *testing.T) {
 		out := URL(in)
 		if i < len(inputs)-1 && strings.Contains(out, secret) {
 			t.Errorf("input %d: secret survived: %q", i, out)
+		}
+	}
+}
+
+func TestErr(t *testing.T) {
+	_, err := http.Get("http://127.0.0.1:1/get.php?username=u&password=hunter2")
+	if err == nil {
+		t.Skip("port 1 answered")
+	}
+	got := Err(err)
+	if strings.Contains(got.Error(), "hunter2") || !strings.HasPrefix(got.Error(), "Get: ") {
+		t.Errorf("Err = %v", got)
+	}
+	if !errors.Is(got, syscall.ECONNREFUSED) {
+		t.Errorf("cause lost: %v", got)
+	}
+	plain := errors.New("x")
+	if Err(plain) != plain {
+		t.Error("non-URL error changed")
+	}
+}
+
+func TestURLUnparseable(t *testing.T) {
+	for _, in := range []string{
+		"http://someuser:s3cretPass@bad host/get.php?username=someuser&password=s3cretPass&type=m3u",
+		"http://bad host/live/someuser/s3cretPass/1.ts",
+		"http://bad host/playlist/s3cretPass.m3u",
+		"%zz?token=s3cretPass",
+	} {
+		if got := URL(in); strings.Contains(got, "s3cretPass") {
+			t.Errorf("URL(%q) = %q", in, got)
 		}
 	}
 }

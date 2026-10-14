@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -167,5 +168,28 @@ func TestRequestContextCancel(t *testing.T) {
 	defer cancel()
 	if _, err := c.LiveStreams(ctx); err == nil {
 		t.Error("want error when context deadline exceeded")
+	}
+}
+
+// TestRequestErrorsHideCredentials: a transport failure (here: nothing
+// listening) must not surface the player_api URL, which carries the
+// password.
+func TestRequestErrorsHideCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	base := srv.URL
+	srv.Close() // connection refused from now on
+	c, err := New(base, "someuser", "s3cretPass", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Login(context.Background())
+	if err == nil {
+		t.Fatal("login against a closed port succeeded")
+	}
+	if msg := err.Error(); strings.Contains(msg, "s3cretPass") || strings.Contains(msg, "someuser") || strings.Contains(msg, "player_api") {
+		t.Errorf("error leaks the request URL: %v", err)
+	}
+	if !strings.Contains(err.Error(), "refused") {
+		t.Errorf("error lost its cause: %v", err)
 	}
 }

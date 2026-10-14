@@ -7,8 +7,11 @@
 package redact
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -135,7 +138,31 @@ func redactPath(path string) string {
 	return path
 }
 
-// scrub is the last-resort scrubber for unparseable strings.
+// sensitiveParamRe finds sensitive query parameters in unparsed text.
+var sensitiveParamRe = func() *regexp.Regexp {
+	keys := make([]string, 0, len(sensitiveParams))
+	for k := range sensitiveParams {
+		keys = append(keys, regexp.QuoteMeta(k))
+	}
+	sort.Strings(keys) // deterministic pattern
+	return regexp.MustCompile(`(?i)([?&](?:` + strings.Join(keys, "|") + `)=)[^&#\s]*`)
+}()
+
+// scrub is the last-resort scrubber for unparseable strings: userinfo,
+// sensitive query parameters, and Xtream/token path credentials.
 func scrub(s string) string {
-	return userinfoRe.ReplaceAllString(s, "$1://"+userMask+"@")
+	s = userinfoRe.ReplaceAllString(s, "$1://"+userMask+"@")
+	s = sensitiveParamRe.ReplaceAllString(s, "${1}"+Mask)
+	return redactPath(s)
+}
+
+// Err drops the request URL that net/http errors (*url.Error) embed, which
+// carries any credentials in the URL, and keeps the operation and cause:
+// `Get "http://h/x?password=p": dial tcp: ...` becomes `Get: dial tcp: ...`.
+// Other errors pass through unchanged.
+func Err(err error) error {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
 }
