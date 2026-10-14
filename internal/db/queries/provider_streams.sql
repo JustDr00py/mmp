@@ -46,6 +46,16 @@ ORDER BY p.priority, p.name;
 -- name: CountProviderStreams :one
 SELECT count(*) FROM provider_streams WHERE provider_id = $1;
 
+-- name: CountActiveProviderStreams :one
+-- Active (not soft-disabled) rows of a provider, as a refresh sees them.
+SELECT count(*) FROM provider_streams WHERE provider_id = $1 AND disabled = FALSE;
+
+-- name: CountActiveProviderStreamsNotIn :one
+-- Active rows a refresh that saw exactly these external ids would disable.
+SELECT count(*) FROM provider_streams
+WHERE provider_id = $1 AND disabled = FALSE
+  AND NOT (external_id = ANY(sqlc.arg('external_ids')::text[]));
+
 -- name: ListProviderStreams :many
 SELECT * FROM provider_streams WHERE provider_id = $1 ORDER BY name LIMIT $2 OFFSET $3;
 

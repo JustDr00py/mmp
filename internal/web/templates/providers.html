@@ -49,5 +49,10 @@
 
 {{define "refresh-result"}}
 {{if .OK}}<span class="okmsg">{{.Result.Seen}} streams, {{.Result.Disabled}} gone · {{.Elapsed}}</span>
+{{else if .Refused}}<span class="errmsg">{{.Error}}</span>
+<form method="post" action="/admin/providers/{{.ProviderID}}/refresh" hx-post="/admin/providers/{{.ProviderID}}/refresh" hx-target="#provider-{{.ProviderID}}" hx-swap="outerHTML" hx-confirm="Disable {{.Refused.WouldDisable}} of {{.Refused.Active}} active streams anyway?">
+  <input type="hidden" name="force" value="1">
+  <button type="submit" class="small">Disable anyway</button>
+</form>
 {{else}}<span class="errmsg">{{.Error}}</span>{{end}}
 {{end}}

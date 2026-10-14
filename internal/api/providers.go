@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ type providerJSON struct {
 	RefreshIntervalSecs int32  `json:"refresh_interval_secs"`
 	Priority            int32  `json:"priority"`
 	Enabled             bool   `json:"enabled"`
+	// Per-provider override of the refresh disable threshold; nil = default.
+	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct,omitempty"`
 }
 
 func toJSON(p db.Provider) providerJSON {
@@ -32,6 +35,7 @@ func toJSON(p db.Provider) providerJSON {
 		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username,
 		EPGURL: p.EpgUrl, MaxConnections: p.MaxConnections, UserAgent: p.UserAgent,
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
+		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
 	}
 }
 
@@ -48,9 +52,14 @@ type providerInput struct {
 	RefreshIntervalSecs *int32 `json:"refresh_interval_secs"`
 	Priority            *int32 `json:"priority"`
 	Enabled             *bool  `json:"enabled"`
+	// 0-100; absent (or null) = the global default threshold.
+	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 }
 
 func (in *providerInput) validate() error {
+	if err := source.ValidateRefreshMaxDisablePct(in.RefreshMaxDisablePct); err != nil {
+		return err
+	}
 	return source.ValidateProvider(in.Name, in.Type, in.URL, in.EPGURL,
 		defInt32(in.MaxConnections, 0), defInt32(in.RefreshIntervalSecs, 1))
 }
@@ -111,11 +120,12 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 	p, err := env.Store.CreateProvider(r.Context(), db.CreateProviderParams{
 		Name: in.Name, Type: in.Type, Url: in.URL,
 		Username: in.Username, Password: in.Password, EpgUrl: in.EPGURL,
-		MaxConnections:      defInt32(in.MaxConnections, 1),
-		UserAgent:           in.UserAgent,
-		RefreshIntervalSecs: defInt32(in.RefreshIntervalSecs, 21600),
-		Priority:            defInt32(in.Priority, 0),
-		Enabled:             defBool(in.Enabled, true),
+		MaxConnections:       defInt32(in.MaxConnections, 1),
+		UserAgent:            in.UserAgent,
+		RefreshIntervalSecs:  defInt32(in.RefreshIntervalSecs, 21600),
+		Priority:             defInt32(in.Priority, 0),
+		Enabled:              defBool(in.Enabled, true),
+		RefreshMaxDisablePct: in.RefreshMaxDisablePct,
 	})
 	if err != nil {
 		env.Log.Error("api: create provider", "err", err)
@@ -174,15 +184,22 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 	if password == "" {
 		password = current.Password
 	}
+	// Empty password keeps the stored one; likewise an absent threshold
+	// keeps the stored override (set 100 to disable the guard outright).
+	pct := in.RefreshMaxDisablePct
+	if pct == nil {
+		pct = current.RefreshMaxDisablePct
+	}
 	p, err := env.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
 		ID:   id,
 		Name: in.Name, Type: in.Type, Url: in.URL,
 		Username: in.Username, Password: password, EpgUrl: in.EPGURL,
-		MaxConnections:      defInt32(in.MaxConnections, current.MaxConnections),
-		UserAgent:           in.UserAgent,
-		RefreshIntervalSecs: defInt32(in.RefreshIntervalSecs, current.RefreshIntervalSecs),
-		Priority:            defInt32(in.Priority, current.Priority),
-		Enabled:             defBool(in.Enabled, current.Enabled),
+		MaxConnections:       defInt32(in.MaxConnections, current.MaxConnections),
+		UserAgent:            in.UserAgent,
+		RefreshIntervalSecs:  defInt32(in.RefreshIntervalSecs, current.RefreshIntervalSecs),
+		Priority:             defInt32(in.Priority, current.Priority),
+		Enabled:              defBool(in.Enabled, current.Enabled),
+		RefreshMaxDisablePct: pct,
 	})
 	if err != nil {
 		env.Log.Error("api: update provider", "provider_id", id, "err", err)
@@ -222,8 +239,23 @@ func (env *Env) refreshProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "refresh failed")
 		return
 	}
-	res, err := env.Refresh.RefreshProvider(r.Context(), p)
+	// ?force=1 applies a refresh that the disable threshold would refuse.
+	force := r.URL.Query().Get("force") == "1" || r.URL.Query().Get("force") == "true"
+	res, err := env.Refresh.RefreshProvider(r.Context(), p, force)
 	if err != nil {
+		var refused *source.DisableRefusedError
+		if errors.As(err, &refused) {
+			env.Log.Warn("api: refresh provider refused", "provider_id", id, "would_disable", refused.WouldDisable, "active", refused.Active)
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":           "refresh refused: " + refused.Error(),
+				"code":            "too_many_disabled",
+				"would_disable":   refused.WouldDisable,
+				"active":          refused.Active,
+				"max_disable_pct": refused.MaxPct,
+				"force_url":       "/api/v1/providers/" + strconv.FormatInt(id, 10) + "/refresh?force=1",
+			})
+			return
+		}
 		env.Log.Error("api: refresh provider", "provider_id", id, "err", err)
 		writeErr(w, http.StatusBadGateway, "refresh failed: "+err.Error())
 		return

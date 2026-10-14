@@ -30,6 +30,8 @@
       <span class="hint">lower is preferred</span></label>
     <label>Refresh every (minutes)<input name="refresh_minutes" type="number" min="1" value="{{$f.RefreshMinutes}}"></label>
   </div>
+  <label>Max % of streams a refresh may disable<input name="max_disable_pct" type="number" min="0" max="100" value="{{$f.MaxDisablePct}}" placeholder="default: 80">
+    <span class="hint">A refresh that would disable more is refused (a truncated provider answer); blank uses the server default, 100 disables the guard.</span></label>
   <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="default: MMP/1.0"></label>
   <label class="check"><input type="checkbox" name="enabled"{{if $f.Enabled}} checked{{end}}> Enabled</label>
   <div class="row">

@@ -153,7 +153,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		}
 	}()
 
-	refresher := source.NewRefresher(log, pool)
+	refresher := source.NewRefresher(log, pool, cfg.Refresh.MaxDisablePct)
 	matcher := channel.NewService(log, pool)
 	if cfg.Match.Auto {
 		refresher.AfterRefresh = matcher.AutoMatchHook(cfg.Match.MinProviders)

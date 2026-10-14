@@ -9,6 +9,37 @@ import (
 	"context"
 )
 
+const countActiveProviderStreams = `-- name: CountActiveProviderStreams :one
+SELECT count(*) FROM provider_streams WHERE provider_id = $1 AND disabled = FALSE
+`
+
+// Active (not soft-disabled) rows of a provider, as a refresh sees them.
+func (q *Queries) CountActiveProviderStreams(ctx context.Context, providerID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveProviderStreams, providerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countActiveProviderStreamsNotIn = `-- name: CountActiveProviderStreamsNotIn :one
+SELECT count(*) FROM provider_streams
+WHERE provider_id = $1 AND disabled = FALSE
+  AND NOT (external_id = ANY($2::text[]))
+`
+
+type CountActiveProviderStreamsNotInParams struct {
+	ProviderID  int64    `json:"provider_id"`
+	ExternalIds []string `json:"external_ids"`
+}
+
+// Active rows a refresh that saw exactly these external ids would disable.
+func (q *Queries) CountActiveProviderStreamsNotIn(ctx context.Context, arg CountActiveProviderStreamsNotInParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveProviderStreamsNotIn, arg.ProviderID, arg.ExternalIds)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countProviderStreams = `-- name: CountProviderStreams :one
 SELECT count(*) FROM provider_streams WHERE provider_id = $1
 `
@@ -21,7 +52,7 @@ func (q *Queries) CountProviderStreams(ctx context.Context, providerID int64) (i
 }
 
 const listDueProviders = `-- name: ListDueProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at FROM providers
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct FROM providers
 WHERE enabled
   AND (last_refreshed_at IS NULL
        OR last_refreshed_at <= now() - make_interval(secs => refresh_interval_secs))
@@ -53,6 +84,7 @@ func (q *Queries) ListDueProviders(ctx context.Context) ([]Provider, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
 		); err != nil {
 			return nil, err
 		}
@@ -111,7 +143,7 @@ func (q *Queries) ListProviderStreams(ctx context.Context, arg ListProviderStrea
 }
 
 const listProvidersDueForEpg = `-- name: ListProvidersDueForEpg :many
-SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at FROM providers p
+SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at, p.refresh_max_disable_pct FROM providers p
 LEFT JOIN epg_sources s ON s.provider_id = p.id
 WHERE p.enabled
   AND (p.type = 'xtream' OR p.epg_url <> '')
@@ -145,6 +177,7 @@ func (q *Queries) ListProvidersDueForEpg(ctx context.Context, dollar_1 float64) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
 		); err != nil {
 			return nil, err
 		}

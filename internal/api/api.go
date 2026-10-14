@@ -107,7 +107,7 @@ type Store interface {
 
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
 type Refresher interface {
-	RefreshProvider(ctx context.Context, p db.Provider) (source.Result, error)
+	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
 }
 
 // Matcher proposes and applies cross-provider channel groupings

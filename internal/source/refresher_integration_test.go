@@ -5,6 +5,7 @@ package source
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -94,10 +95,10 @@ func TestRefreshProviderM3UTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool)
+	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool, 80)
 
 	// First refresh: three streams appear.
-	res1, err := ref.RefreshProvider(ctx, p)
+	res1, err := ref.RefreshProvider(ctx, p, false)
 	if err != nil {
 		t.Fatalf("refresh 1: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestRefreshProviderM3UTwice(t *testing.T) {
 		"http://fake.tv/abc.ts\n" +
 		"#EXTINF:-1 group-title=\"News\",News 24\n" +
 		"http://fake.tv/news.ts\n")
-	res2, err := ref.RefreshProvider(ctx, p)
+	res2, err := ref.RefreshProvider(ctx, p, false)
 	if err != nil {
 		t.Fatalf("refresh 2: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestRefreshProviderM3UTwice(t *testing.T) {
 	}
 
 	// Third refresh, identical content: nothing gets disabled.
-	res3, err := ref.RefreshProvider(ctx, p)
+	res3, err := ref.RefreshProvider(ctx, p, false)
 	if err != nil || res3.Disabled != 0 {
 		t.Fatalf("refresh 3 = %+v, %v", res3, err)
 	}
@@ -169,7 +170,7 @@ func TestRefreshProviderM3UTwice(t *testing.T) {
 		"not m3u":     strings.Repeat("\x47\x40\x00\x10", 400),
 	} {
 		body.Store(broken)
-		if _, err := ref.RefreshProvider(ctx, p); !errors.Is(err, ErrNoStreams) {
+		if _, err := ref.RefreshProvider(ctx, p, false); !errors.Is(err, ErrNoStreams) {
 			t.Errorf("%s: err = %v, want ErrNoStreams", name, err)
 		}
 	}
@@ -215,8 +216,8 @@ func TestRefreshProviderXtream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool)
-	res, err := ref.RefreshProvider(ctx, p)
+	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool, 80)
+	res, err := ref.RefreshProvider(ctx, p, false)
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool)
+	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool, 80)
 
 	n, err := ref.RefreshEPG(ctx, p)
 	if err != nil {
@@ -287,5 +288,86 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	}
 	if src.LastRefreshedAt == nil {
 		t.Error("epg source last_refreshed_at not set")
+	}
+}
+
+// playlist builds an M3U with streams n0..n(count-1).
+func playlist(count int) string {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	for i := range count {
+		fmt.Fprintf(&b, "#EXTINF:-1 group-title=\"G\",Chan %d\nhttp://fake.tv/%d.ts\n", i, i)
+	}
+	return b.String()
+}
+
+// TestRefreshRefusesTruncatedList is the 8.2c AC: a provider answering
+// with 10% of its list is refused (nothing disabled) unless forced, and
+// the per-provider override moves the threshold either way.
+func TestRefreshRefusesTruncatedList(t *testing.T) {
+	w, q := newTestDB(t)
+	ts, body := newM3UServer(t)
+	ctx := context.Background()
+	body.Store(playlist(20))
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "Big", Type: "m3u", Url: ts.URL, UserAgent: "MMP-Test/1.0",
+		MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+	if _, err := ref.RefreshProvider(ctx, p, false); err != nil {
+		t.Fatal(err)
+	}
+	active := func() int64 { n, _ := q.CountActiveProviderStreams(ctx, p.ID); return n }
+	refreshedAt := func() time.Time { pr, _ := q.GetProvider(ctx, p.ID); return *pr.LastRefreshedAt }
+
+	// 90% truncated: refused, rolled back.
+	body.Store(playlist(2))
+	before := refreshedAt()
+	_, err = ref.RefreshProvider(ctx, p, false)
+	var refused *DisableRefusedError
+	if !errors.As(err, &refused) || refused.WouldDisable != 18 || refused.Active != 20 || refused.Pct() != 90 || refused.MaxPct != 80 {
+		t.Fatalf("err = %v (%+v), want a refusal of 18/20", err, refused)
+	}
+	if n := active(); n != 20 || !refreshedAt().Equal(before) {
+		t.Fatalf("refused refresh changed state: %d active", n)
+	}
+
+	// A normal drop (20%) still applies.
+	body.Store(playlist(16))
+	if res, err := ref.RefreshProvider(ctx, p, false); err != nil || res.Disabled != 4 {
+		t.Fatalf("20%% drop = %+v, %v", res, err)
+	}
+
+	// Forced: the truncated list applies.
+	body.Store(playlist(2))
+	if res, err := ref.RefreshProvider(ctx, p, true); err != nil || res.Disabled != 14 || active() != 2 {
+		t.Fatalf("forced = %+v, %v (active %d)", res, err, active())
+	}
+
+	// Per-provider override: 100 turns the guard off; 10 makes it strict.
+	body.Store(playlist(20))
+	if _, err := ref.RefreshProvider(ctx, p, false); err != nil { // re-enabling is never refused
+		t.Fatal(err)
+	}
+	pct := func(v int32) {
+		cur, _ := q.GetProvider(ctx, p.ID)
+		upd, err := q.UpdateProvider(ctx, db.UpdateProviderParams{ID: cur.ID, Name: cur.Name, Type: cur.Type, Url: cur.Url,
+			UserAgent: cur.UserAgent, MaxConnections: cur.MaxConnections, RefreshIntervalSecs: cur.RefreshIntervalSecs,
+			Enabled: cur.Enabled, RefreshMaxDisablePct: &v})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p = upd
+	}
+	pct(10)
+	body.Store(playlist(16)) // 20% > 10%
+	if _, err := ref.RefreshProvider(ctx, p, false); !errors.As(err, &refused) || refused.MaxPct != 10 {
+		t.Errorf("strict override: err = %v", err)
+	}
+	pct(100)
+	body.Store(playlist(2))
+	if res, err := ref.RefreshProvider(ctx, p, false); err != nil || res.Disabled != 18 {
+		t.Errorf("guard off: %+v, %v", res, err)
 	}
 }

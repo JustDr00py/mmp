@@ -20,7 +20,7 @@ func TestParseFFmpegArgs(t *testing.T) {
 		"-c copy":                           "[-c copy]",
 		"  -c:v libx264\t-preset veryfast ": "[-c:v libx264 -preset veryfast]",
 		`-vf "scale=1280:-2, fps=25" -metadata title='a "b"'`: `[-vf scale=1280:-2, fps=25 -metadata title=a "b"]`,
-		`-metadata a\ b=c -metadata ''`: `[-metadata a b=c -metadata ]`,
+		`-metadata a\ b=c -metadata ''`:                       `[-metadata a b=c -metadata ]`,
 		// Full transcode chains stay within the allowlist.
 		"-c:v libx264 -preset veryfast -b:v 3M -maxrate 3M -bufsize 6M -c:a aac -b:a 128k -vf scale=-2:480 -g 50 -threads 2": "[-c:v libx264 -preset veryfast -b:v 3M -maxrate 3M -bufsize 6M -c:a aac -b:a 128k -vf scale=-2:480 -g 50 -threads 2]",
 		"-map 0:v:0 -map 0:a:0 -c copy":                      "[-map 0:v:0 -map 0:a:0 -c copy]",

@@ -33,7 +33,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := NewRefresher(log, w.pool)
+	ref := NewRefresher(log, w.pool, 80)
 	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2)
 
 	mk := func(name, url, ua string, prio int32) db.Provider {
@@ -73,7 +73,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 	}
 
 	// A alone: ABC joins the existing channel; single-provider groups wait.
-	if _, err := ref.RefreshProvider(ctx, pA); err != nil {
+	if _, err := ref.RefreshProvider(ctx, pA, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := channelStreams(abc.ID); len(got) != 1 || got[0] != "http://fake.tv/abc.ts" {
@@ -85,7 +85,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 
 	// B brings a second NBC: that group now spans 2 providers and is created
 	// with A (priority 0) first. Cartoons stays unassigned.
-	if _, err := ref.RefreshProvider(ctx, pB); err != nil {
+	if _, err := ref.RefreshProvider(ctx, pB, false); err != nil {
 		t.Fatal(err)
 	}
 	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 100})
@@ -103,7 +103,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 	}
 
 	// Re-refreshing is a no-op for channel membership.
-	if _, err := ref.RefreshProvider(ctx, pA); err != nil {
+	if _, err := ref.RefreshProvider(ctx, pA, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := channelStreams(abc.ID); len(got) != 1 {

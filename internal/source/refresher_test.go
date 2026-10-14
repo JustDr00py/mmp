@@ -17,7 +17,7 @@ func TestFetchErrorsHideCredentials(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	base := srv.URL
 	srv.Close() // connection refused
-	r := NewRefresher(slog.New(slog.DiscardHandler), nil)
+	r := NewRefresher(slog.New(slog.DiscardHandler), nil, 80)
 	for name, raw := range map[string]string{
 		"refused": base + "/get.php?username=someuser&password=s3cretPass&type=m3u_plus",
 		"invalid": "http://someuser:s3cretPass@bad host/get.php?password=s3cretPass",

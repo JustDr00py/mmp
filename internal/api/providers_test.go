@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -103,12 +104,14 @@ func (f *fakeStore) SearchProviderStreams(_ context.Context, arg db.SearchProvid
 // fakeRefresher captures refresh calls.
 type fakeRefresher struct {
 	got    []int64
+	forced []bool
 	result source.Result
 	err    error
 }
 
-func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider) (source.Result, error) {
+func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider, force bool) (source.Result, error) {
 	f.got = append(f.got, p.ID)
+	f.forced = append(f.forced, force)
 	return f.result, f.err
 }
 
@@ -267,6 +270,21 @@ func TestRefreshNow(t *testing.T) {
 	}
 	if !strings.Contains(body["error"].(string), "upstream down") {
 		t.Errorf("error = %v", body)
+	}
+
+	// The disable threshold refuses: 409 with the numbers and a force URL;
+	// ?force=1 is passed through.
+	ref.err = fmt.Errorf("refresh provider 1: %w", &source.DisableRefusedError{ProviderID: 1, WouldDisable: 90, Active: 100, MaxPct: 80})
+	rec, raw = doJSON(t, h, http.MethodPost, "/api/v1/providers/1/refresh", nil)
+	body = asMap(t, raw)
+	if rec.Code != http.StatusConflict || body["code"] != "too_many_disabled" || body["would_disable"] != float64(90) ||
+		body["force_url"] != "/api/v1/providers/1/refresh?force=1" {
+		t.Fatalf("refused = %d %v", rec.Code, body)
+	}
+	ref.err = nil
+	doJSON(t, h, http.MethodPost, "/api/v1/providers/1/refresh?force=1", nil)
+	if n := len(ref.forced); n != 4 || ref.forced[n-1] != true || ref.forced[0] != false {
+		t.Errorf("forced = %v", ref.forced)
 	}
 }
 

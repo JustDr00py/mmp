@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -101,24 +102,30 @@ type providerForm struct {
 	UserAgent                         string
 	MaxConnections, RefreshMinutes    string
 	Priority                          string
+	MaxDisablePct                     string // blank = server default
 	Enabled                           bool
 	HasPassword                       bool
 	Error                             string
 }
 
 func formFromProvider(p db.Provider) providerForm {
-	return providerForm{
+	f := providerForm{
 		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username, EPGURL: p.EpgUrl,
 		UserAgent: p.UserAgent, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
 		RefreshMinutes: strconv.Itoa(int(p.RefreshIntervalSecs / 60)), Priority: strconv.Itoa(int(p.Priority)),
 		Enabled: p.Enabled, HasPassword: p.Password != "",
 	}
+	if p.RefreshMaxDisablePct != nil {
+		f.MaxDisablePct = strconv.Itoa(int(*p.RefreshMaxDisablePct))
+	}
+	return f
 }
 
 // parsed is a validated form.
 type parsedProvider struct {
 	name, typ, url, username, password, epgURL, userAgent string
 	maxConns, refreshSecs, priority                       int32
+	maxDisablePct                                         *int32
 	enabled                                               bool
 }
 
@@ -132,7 +139,8 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request) (providerForm, pa
 	form := providerForm{
 		Name: trim("name"), Type: trim("type"), URL: trim("url"), Username: trim("username"),
 		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
-		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), Enabled: f.Get("enabled") == "on",
+		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
+		Enabled: f.Get("enabled") == "on",
 	}
 	num := func(s, field string, def int) (int32, error) {
 		if s == "" {
@@ -157,6 +165,17 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request) (providerForm, pa
 	p.refreshSecs = mins * 60
 	if p.priority, err = num(form.Priority, "Priority", 0); err != nil {
 		return form, p, err
+	}
+	if form.MaxDisablePct != "" { // blank keeps the server default
+		n, err := strconv.Atoi(form.MaxDisablePct)
+		if err != nil {
+			return form, p, formError("Max % disabled must be a whole number.")
+		}
+		pct := int32(n)
+		if err := source.ValidateRefreshMaxDisablePct(&pct); err != nil {
+			return form, p, formError("Max % disabled must be within 0-100.")
+		}
+		p.maxDisablePct = &pct
 	}
 	if err := source.ValidateProvider(p.name, p.typ, p.url, p.epgURL, p.maxConns, p.refreshSecs); err != nil {
 		return form, p, errors.New(humanize(err.Error()))
@@ -187,7 +206,7 @@ func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
 	created, err := ui.Store.CreateProvider(r.Context(), db.CreateProviderParams{
 		Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password, EpgUrl: p.epgURL,
 		MaxConnections: p.maxConns, UserAgent: p.userAgent, RefreshIntervalSecs: p.refreshSecs,
-		Priority: p.priority, Enabled: p.enabled,
+		Priority: p.priority, Enabled: p.enabled, RefreshMaxDisablePct: p.maxDisablePct,
 	})
 	if err != nil {
 		ui.fail(w, "create provider", err)
@@ -239,10 +258,14 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	if p.password == "" {
 		p.password = cur.Password // blank keeps the stored password
 	}
+	if p.maxDisablePct == nil {
+		p.maxDisablePct = cur.RefreshMaxDisablePct // blank keeps the stored override
+	}
 	if _, err := ui.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
 		ID: cur.ID, Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password,
 		EpgUrl: p.epgURL, MaxConnections: p.maxConns, UserAgent: p.userAgent,
 		RefreshIntervalSecs: p.refreshSecs, Priority: p.priority, Enabled: p.enabled,
+		RefreshMaxDisablePct: p.maxDisablePct,
 	}); err != nil {
 		ui.fail(w, "update provider", err)
 		return
@@ -287,10 +310,14 @@ func (ui *UI) providerToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 type refreshData struct {
-	OK      bool
-	Result  source.Result
-	Error   string
-	Elapsed time.Duration
+	OK     bool
+	Result source.Result
+	Error  string
+	// Refused is set when the disable threshold refused the refresh: the
+	// row offers a "disable anyway" button that re-runs it with force.
+	Refused    *source.DisableRefusedError
+	ProviderID int64
+	Elapsed    time.Duration
 }
 
 // providerRefresh runs a refresh now and reports the outcome inline.
@@ -299,15 +326,20 @@ func (ui *UI) providerRefresh(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	force := r.FormValue("force") == "1"
 	// The refresh outlives a closed tab: it is one transaction either way.
 	ctx, cancel := contextFor(r, refreshTimeout)
 	defer cancel()
 	start := time.Now()
-	res, err := ui.Refresh.RefreshProvider(ctx, p)
-	d := refreshData{OK: err == nil, Result: res, Elapsed: time.Since(start).Round(100 * time.Millisecond)}
+	res, err := ui.Refresh.RefreshProvider(ctx, p, force)
+	d := refreshData{OK: err == nil, Result: res, ProviderID: p.ID, Elapsed: time.Since(start).Round(100 * time.Millisecond)}
 	if err != nil {
 		ui.Log.Warn("web: refresh provider", "provider_id", p.ID, "err", err) // refresher errors are redacted
 		d.Error = err.Error()
+		if errors.As(err, &d.Refused) {
+			d.Error = fmt.Sprintf("would disable %d of %d active streams (%d%%) — possibly a truncated provider answer; nothing was changed.",
+				d.Refused.WouldDisable, d.Refused.Active, d.Refused.Pct())
+		}
 	}
 	if r.Header.Get("HX-Request") != "true" {
 		ui.redirect(w, r, Prefix+"/providers")

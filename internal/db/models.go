@@ -104,21 +104,22 @@ type MatchRule struct {
 }
 
 type Provider struct {
-	ID                  int64      `json:"id"`
-	Name                string     `json:"name"`
-	Type                string     `json:"type"`
-	Url                 string     `json:"url"`
-	Username            string     `json:"username"`
-	Password            string     `json:"password"`
-	EpgUrl              string     `json:"epg_url"`
-	MaxConnections      int32      `json:"max_connections"`
-	UserAgent           string     `json:"user_agent"`
-	RefreshIntervalSecs int32      `json:"refresh_interval_secs"`
-	Priority            int32      `json:"priority"`
-	Enabled             bool       `json:"enabled"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	LastRefreshedAt     *time.Time `json:"last_refreshed_at"`
+	ID                   int64      `json:"id"`
+	Name                 string     `json:"name"`
+	Type                 string     `json:"type"`
+	Url                  string     `json:"url"`
+	Username             string     `json:"username"`
+	Password             string     `json:"password"`
+	EpgUrl               string     `json:"epg_url"`
+	MaxConnections       int32      `json:"max_connections"`
+	UserAgent            string     `json:"user_agent"`
+	RefreshIntervalSecs  int32      `json:"refresh_interval_secs"`
+	Priority             int32      `json:"priority"`
+	Enabled              bool       `json:"enabled"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	LastRefreshedAt      *time.Time `json:"last_refreshed_at"`
+	RefreshMaxDisablePct *int32     `json:"refresh_max_disable_pct"`
 }
 
 type ProviderStream struct {

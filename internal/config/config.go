@@ -78,6 +78,10 @@ type Config struct {
 	Refresh struct {
 		Interval    Duration `yaml:"interval"`     // default source refresh cadence
 		EPGInterval Duration `yaml:"epg_interval"` // EPG refresh cadence
+		// MaxDisablePct caps the share of a provider's active streams one
+		// refresh may soft-disable; a bigger drop (a truncated provider
+		// answer) is refused unless forced. 100 disables the guard.
+		MaxDisablePct int `yaml:"max_disable_pct"`
 	} `yaml:"refresh"`
 	Match struct {
 		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
@@ -143,6 +147,7 @@ func Defaults() Config {
 	c.Proxy.MaxCCErrorRate = 0.05
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
+	c.Refresh.MaxDisablePct = 80
 	c.Match.MinProviders = 2
 	c.Metrics.Enabled = true
 	c.HLS.Enabled = true
@@ -270,6 +275,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_PROXY_COOLDOWN_MAX", &c.Proxy.CooldownMax),
 		dur("MMP_REFRESH_INTERVAL", &c.Refresh.Interval),
 		dur("MMP_REFRESH_EPG_INTERVAL", &c.Refresh.EPGInterval),
+		intv("MMP_REFRESH_MAX_DISABLE_PCT", &c.Refresh.MaxDisablePct),
 		dur("MMP_AUTH_SESSION_TTL", &c.Auth.SessionTTL),
 		dur("MMP_AUTH_LOCKOUT", &c.Auth.Lockout),
 		intv("MMP_AUTH_MAX_ATTEMPTS", &c.Auth.MaxAttempts),
@@ -357,6 +363,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Match.MinProviders < 1 {
 		return errors.New("config: match.min_providers must be >= 1")
+	}
+	if c.Refresh.MaxDisablePct < 0 || c.Refresh.MaxDisablePct > 100 {
+		return errors.New("config: refresh.max_disable_pct must be within [0,100]")
 	}
 	return nil
 }

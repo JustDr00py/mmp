@@ -13,24 +13,26 @@ const createProvider = `-- name: CreateProvider :one
 
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
-    max_connections, user_agent, refresh_interval_secs, priority, enabled
+    max_connections, user_agent, refresh_interval_secs, priority, enabled,
+    refresh_max_disable_pct
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct
 `
 
 type CreateProviderParams struct {
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	Url                 string `json:"url"`
-	Username            string `json:"username"`
-	Password            string `json:"password"`
-	EpgUrl              string `json:"epg_url"`
-	MaxConnections      int32  `json:"max_connections"`
-	UserAgent           string `json:"user_agent"`
-	RefreshIntervalSecs int32  `json:"refresh_interval_secs"`
-	Priority            int32  `json:"priority"`
-	Enabled             bool   `json:"enabled"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	Url                  string `json:"url"`
+	Username             string `json:"username"`
+	Password             string `json:"password"`
+	EpgUrl               string `json:"epg_url"`
+	MaxConnections       int32  `json:"max_connections"`
+	UserAgent            string `json:"user_agent"`
+	RefreshIntervalSecs  int32  `json:"refresh_interval_secs"`
+	Priority             int32  `json:"priority"`
+	Enabled              bool   `json:"enabled"`
+	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 }
 
 // Providers: basic CRUD used by the admin API and the refresher.
@@ -47,6 +49,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.RefreshIntervalSecs,
 		arg.Priority,
 		arg.Enabled,
+		arg.RefreshMaxDisablePct,
 	)
 	var i Provider
 	err := row.Scan(
@@ -65,6 +68,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastRefreshedAt,
+		&i.RefreshMaxDisablePct,
 	)
 	return i, err
 }
@@ -79,7 +83,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -101,12 +105,13 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastRefreshedAt,
+		&i.RefreshMaxDisablePct,
 	)
 	return i, err
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -134,6 +139,7 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
 		); err != nil {
 			return nil, err
 		}
@@ -163,24 +169,25 @@ const updateProvider = `-- name: UpdateProvider :one
 UPDATE providers SET
     name = $2, type = $3, url = $4, username = $5, password = $6, epg_url = $7,
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
-    priority = $11, enabled = $12, updated_at = now()
+    priority = $11, enabled = $12, refresh_max_disable_pct = $13, updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct
 `
 
 type UpdateProviderParams struct {
-	ID                  int64  `json:"id"`
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	Url                 string `json:"url"`
-	Username            string `json:"username"`
-	Password            string `json:"password"`
-	EpgUrl              string `json:"epg_url"`
-	MaxConnections      int32  `json:"max_connections"`
-	UserAgent           string `json:"user_agent"`
-	RefreshIntervalSecs int32  `json:"refresh_interval_secs"`
-	Priority            int32  `json:"priority"`
-	Enabled             bool   `json:"enabled"`
+	ID                   int64  `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	Url                  string `json:"url"`
+	Username             string `json:"username"`
+	Password             string `json:"password"`
+	EpgUrl               string `json:"epg_url"`
+	MaxConnections       int32  `json:"max_connections"`
+	UserAgent            string `json:"user_agent"`
+	RefreshIntervalSecs  int32  `json:"refresh_interval_secs"`
+	Priority             int32  `json:"priority"`
+	Enabled              bool   `json:"enabled"`
+	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) (Provider, error) {
@@ -197,6 +204,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.RefreshIntervalSecs,
 		arg.Priority,
 		arg.Enabled,
+		arg.RefreshMaxDisablePct,
 	)
 	var i Provider
 	err := row.Scan(
@@ -215,6 +223,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastRefreshedAt,
+		&i.RefreshMaxDisablePct,
 	)
 	return i, err
 }

@@ -34,21 +34,47 @@ type Refresher struct {
 	pool *pgxpool.Pool
 	hc   *http.Client
 
+	// MaxDisablePct is the default refresh disable threshold (0-100); a
+	// provider may override it per row. 100 disables the guard.
+	MaxDisablePct int
+
 	// AfterRefresh, if set, runs after each successful provider refresh
 	// (scheduled or on demand), e.g. to auto-match new streams. Set it
 	// before Start.
 	AfterRefresh func(ctx context.Context, p db.Provider)
 }
 
-// NewRefresher builds a Refresher. The http client carries no global timeout:
-// per-refresh deadlines come from the caller's context.
-func NewRefresher(log *slog.Logger, pool *pgxpool.Pool) *Refresher {
-	return &Refresher{log: log, pool: pool, hc: &http.Client{}}
+// NewRefresher builds a Refresher with the disable threshold maxDisablePct.
+// The http client carries no global timeout: per-refresh deadlines come from
+// the caller's context.
+func NewRefresher(log *slog.Logger, pool *pgxpool.Pool, maxDisablePct int) *Refresher {
+	return &Refresher{log: log, pool: pool, hc: &http.Client{}, MaxDisablePct: maxDisablePct}
 }
 
 // ErrNoStreams means a provider answered with no streams at all; the
 // refresh is refused so existing streams stay enabled.
 var ErrNoStreams = errors.New("provider returned no streams (existing streams kept)")
+
+// DisableRefusedError means a refresh would soft-disable more of the
+// provider's active streams than the configured threshold allows — almost
+// always a truncated provider answer (one category, a half-loaded panel).
+// Nothing is changed; retry with force=true to apply it anyway.
+type DisableRefusedError struct {
+	ProviderID, WouldDisable, Active int
+	MaxPct                           int
+}
+
+func (e *DisableRefusedError) Error() string {
+	return fmt.Sprintf("refused: would disable %d of %d active streams (%d%% > %d%% threshold); retry with force", e.WouldDisable, e.Active, e.Pct(), e.MaxPct)
+}
+
+// Pct is the share of active streams this refresh would disable.
+func (e *DisableRefusedError) Pct() int {
+	if e.Active <= 0 {
+		return 0
+	}
+	return e.WouldDisable * 100 / e.Active
+}
 
 // Result summarises one provider refresh.
 type Result struct {
@@ -58,9 +84,12 @@ type Result struct {
 }
 
 // RefreshProvider pulls the provider's current stream list and reconciles
-// provider_streams in one transaction.
-func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider) (Result, error) {
-	r.log.Info("refreshing provider", "provider_id", p.ID, "type", p.Type)
+// provider_streams in one transaction. A refresh that would soft-disable
+// more than maxDisablePct (per-provider override, else the Refresher's
+// default) of the provider's active streams is refused with a
+// *DisableRefusedError and nothing is changed, unless force is set.
+func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider, force bool) (Result, error) {
+	r.log.Info("refreshing provider", "provider_id", p.ID, "type", p.Type, "force", force)
 	var res Result
 
 	entries, err := r.fetchEntries(ctx, p)
@@ -98,6 +127,34 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider) (Result,
 		res.Upserted++
 		seenIDs = append(seenIDs, e.externalID)
 	}
+
+	// Guard against truncated answers before disabling anything: if this
+	// list would switch off a large share of the provider's active streams,
+	// roll back and keep the current state (unless forced).
+	if !force {
+		maxPct := r.MaxDisablePct
+		if p.RefreshMaxDisablePct != nil {
+			maxPct = int(*p.RefreshMaxDisablePct)
+		}
+		if maxPct < 100 {
+			wouldDisable, err := q.CountActiveProviderStreamsNotIn(ctx,
+				db.CountActiveProviderStreamsNotInParams{ProviderID: p.ID, ExternalIds: seenIDs})
+			if err != nil {
+				return res, fmt.Errorf("refresh provider %d: count would-disable: %w", p.ID, err)
+			}
+			if wouldDisable > 0 {
+				active, err := q.CountActiveProviderStreams(ctx, p.ID)
+				if err != nil {
+					return res, fmt.Errorf("refresh provider %d: count active: %w", p.ID, err)
+				}
+				refused := &DisableRefusedError{ProviderID: int(p.ID), WouldDisable: int(wouldDisable), Active: int(active), MaxPct: maxPct}
+				if refused.Pct() > maxPct {
+					return res, fmt.Errorf("refresh provider %d: %w", p.ID, refused)
+				}
+			}
+		}
+	}
+
 	disabled, err := q.SoftDisableMissing(ctx, db.SoftDisableMissingParams{
 		ProviderID: p.ID, ExternalIds: seenIDs,
 	})
@@ -327,7 +384,7 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 		return
 	}
 	for _, p := range providers {
-		if _, err := r.RefreshProvider(ctx, p); err != nil {
+		if _, err := r.RefreshProvider(ctx, p, false); err != nil { // scheduled: never force
 			r.log.Error("refresher: refresh failed", "provider_id", p.ID, "err", err.Error())
 		}
 	}

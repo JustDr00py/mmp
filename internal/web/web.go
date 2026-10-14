@@ -116,7 +116,7 @@ type Matcher interface {
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).
 type Refresher interface {
-	RefreshProvider(ctx context.Context, p db.Provider) (source.Result, error)
+	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
 	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
 }
 

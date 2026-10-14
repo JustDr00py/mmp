@@ -34,3 +34,16 @@ func absHTTP(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
+
+// ValidateRefreshMaxDisablePct checks a per-provider refresh disable
+// threshold override (nil = keep the global default). Shared by the REST
+// API and the admin UI.
+func ValidateRefreshMaxDisablePct(pct *int32) error {
+	if pct == nil {
+		return nil
+	}
+	if *pct < 0 || *pct > 100 {
+		return errors.New("refresh_max_disable_pct must be within 0-100")
+	}
+	return nil
+}

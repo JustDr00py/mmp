@@ -155,9 +155,11 @@ func (f *fakeStore) GetStreamsByIDs(_ context.Context, ids []int64) ([]db.GetStr
 }
 
 type fakeRefresher struct {
-	mu    sync.Mutex
-	calls []int64
-	err   error
+	mu             sync.Mutex
+	calls          []int64
+	forced         []bool
+	err            error
+	refuseUnforced bool // answer like the disable threshold unless forced
 }
 
 func (f *fakeRefresher) RefreshEPG(_ context.Context, p db.Provider) (int, error) {
@@ -170,12 +172,16 @@ func (f *fakeRefresher) RefreshEPG(_ context.Context, p db.Provider) (int, error
 	return 4321, nil
 }
 
-func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider) (source.Result, error) {
+func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider, force bool) (source.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, p.ID)
+	f.forced = append(f.forced, force)
 	if f.err != nil {
 		return source.Result{}, f.err
+	}
+	if f.refuseUnforced && !force {
+		return source.Result{}, fmt.Errorf("refresh provider %d: %w", p.ID, &source.DisableRefusedError{ProviderID: int(p.ID), WouldDisable: 900, Active: 1000, MaxPct: 80})
 	}
 	return source.Result{Seen: 1234, Upserted: 1234, Disabled: 5}, nil
 }
@@ -322,6 +328,19 @@ func TestProviderRefresh(t *testing.T) {
 	}
 	if len(refresher.calls) != 2 {
 		t.Errorf("refresh calls = %v", refresher.calls)
+	}
+
+	// Refused by the disable threshold: the numbers and a confirmed
+	// "Disable anyway" that re-posts with force=1.
+	refresher.err, refresher.refuseUnforced = nil, true
+	_, body = b.htmx(http.MethodPost, "/admin/providers/1/refresh", nil, "provider-1")
+	if !strings.Contains(body, "would disable 900 of 1000 active streams (90%)") || !strings.Contains(body, `name="force" value="1"`) ||
+		!strings.Contains(body, "Disable anyway") {
+		t.Fatalf("refused row:\n%s", body)
+	}
+	_, body = b.htmx(http.MethodPost, "/admin/providers/1/refresh", url.Values{"force": {"1"}}, "provider-1")
+	if !strings.Contains(body, "1234 streams, 5 gone") || refresher.forced[len(refresher.forced)-1] != true {
+		t.Errorf("forced refresh:\n%s", body)
 	}
 }
 
