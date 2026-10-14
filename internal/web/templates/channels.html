@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="head">
+  <h1>Channels</h1>
+  <div class="row"><a class="button secondary" href="/admin/match">Match suggestions</a><a class="button" href="/admin/channels/new">New channel</a></div>
+</div>
+{{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<form class="search row" method="get" action="/admin/channels"
+  hx-get="/admin/channels" hx-target="#channels" hx-swap="outerHTML" hx-push-url="true"
+  hx-trigger="input changed delay:300ms from:input, change from:select, submit">
+  <input type="search" name="q" value="{{.Data.Query}}" placeholder="Search channels" aria-label="Search channels">
+  <select name="group" aria-label="Group">
+    <option value="0">All groups</option>
+    {{range .Data.Groups}}<option value="{{.ID}}"{{if eq .ID $.Data.GroupID}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+</form>
+{{template "channels-table" .Data}}
+{{end}}
+
+{{define "channels-table"}}
+<div id="channels">
+{{if .Rows}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th class="num">#</th><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Streams</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr{{if not .Enabled}} class="dim"{{end}}>
+    <td class="num">{{with .Number}}{{.}}{{end}}</td>
+    <td>{{if .LogoUrl}}<img class="logo" src="{{.LogoUrl}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}<a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
+    <td>{{.Group}}</td>
+    <td class="mono">{{.TvgID}}</td>
+    <td class="num">{{if .Streams}}{{.Streams}}{{else}}<span class="pill warn">none</span>{{end}}</td>
+    <td>{{if .Playing}}<span class="pill ok">playing</span>{{else if not .Enabled}}<span class="pill off">disabled</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+<nav class="pager">
+  {{if .Offset}}<a href="/admin/channels?q={{.Query}}&group={{.GroupID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="/admin/channels?q={{.Query}}&group={{.GroupID}}&offset={{.NextOffset}}">Next →</a>{{end}}
+</nav>
+{{else if or .Query .GroupID}}
+<div class="card empty"><p>No channels match.</p></div>
+{{else}}
+<div class="card empty"><p>No channels yet.</p>
+  <p class="muted">Create one, or let <a href="/admin/match">match suggestions</a> build channels from your providers' streams.</p></div>
+{{end}}
+</div>
+{{end}}

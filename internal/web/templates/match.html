@@ -1,0 +1,66 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <h1>Match suggestions</h1>
+  <form method="get" action="/admin/match" class="row">
+    <label class="inline">Seen at ≥
+      <select name="min" data-autosubmit>
+        {{range $n := list 1 2 3 4}}<option value="{{$n}}"{{if eq $n $d.MinProv}} selected{{end}}>{{$n}} provider{{if ne $n 1}}s{{end}}</option>{{end}}
+      </select>
+    </label>
+    <noscript><button type="submit" class="small">Filter</button></noscript>
+  </form>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<p class="muted">Streams from different providers that look like the same channel (same tvg-id, same normalised name, or a rule below).
+  Applying creates the channel, or adds the streams to an existing one, ordered by provider priority.</p>
+{{if $d.Proposals}}
+<form method="post" action="/admin/match/apply">
+  <input type="hidden" name="min" value="{{$d.MinProv}}">
+  <div class="row bar">
+    <label class="check"><input type="checkbox" data-check-all="key"> Select all</label>
+    <button type="submit">Apply selected</button>
+    <span class="muted">{{len $d.Proposals}} shown{{if gt $d.Total (len $d.Proposals)}} of {{$d.Total}}{{end}}{{if $d.Hidden}} · {{$d.Hidden}} below the provider filter{{end}}</span>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Channel</th><th>Matched by</th><th class="num">Providers</th><th>Streams (failover order)</th></tr></thead>
+    <tbody>
+    {{range $d.Proposals}}
+    <tr>
+      <td><input type="checkbox" name="key" value="{{.Key}}" aria-label="Apply {{.Name}}"></td>
+      <td><strong>{{.Name}}</strong>{{if .ChannelID}} <span class="pill ok">existing</span>{{else}} <span class="pill warn">new</span>{{end}}
+        {{with .TvgID}}<div class="sub mono">{{.}}</div>{{end}}</td>
+      <td class="sub">{{range $i, $m := .MatchedBy}}{{if $i}}, {{end}}{{$m}}{{end}}</td>
+      <td class="num">{{.Providers}}</td>
+      <td><ol class="compact">{{range .Streams}}<li>{{.Name}} <span class="sub">· {{.Provider}}</span></li>{{end}}</ol></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</form>
+{{else}}
+<div class="card empty"><p>Nothing to suggest{{if $d.Hidden}} at this provider filter ({{$d.Hidden}} hidden){{end}}.</p>
+  <p class="muted">Every stream seen at {{$d.MinProv}}+ providers is already on a channel.</p></div>
+{{end}}
+
+<h2>Rules</h2>
+<p class="muted">A rule groups streams whose name matches a regular expression under one channel name, for channels the automatic matching misses.</p>
+{{if $d.Rules}}
+<div class="table-wrap"><table>
+  <thead><tr><th>Pattern</th><th>Channel name</th><th class="num">Priority</th><th></th></tr></thead>
+  <tbody>{{range $d.Rules}}<tr><td class="mono">{{.Pattern}}</td><td>{{.ChannelName}}</td><td class="num">{{.Priority}}</td>
+    <td><form method="post" action="/admin/match/rules/{{.ID}}/delete"><button type="submit" class="small secondary">Delete</button></form></td></tr>{{end}}</tbody>
+</table></div>
+{{end}}
+<form class="card form rule" method="post" action="/admin/match/rules">
+  {{with $d.RuleError}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid3">
+    <label>Pattern<input name="pattern" class="mono" value="{{$d.RuleForm.Pattern}}" placeholder="(?i)^(uk|gb)[: ]+bbc ?one" required></label>
+    <label>Channel name<input name="channel_name" value="{{$d.RuleForm.ChannelName}}" placeholder="BBC One" required></label>
+    <label>Priority<input name="priority" type="number" value="{{$d.RuleForm.Priority}}"></label>
+  </div>
+  <div class="row"><button type="submit">Add rule</button></div>
+</form>
+{{end}}

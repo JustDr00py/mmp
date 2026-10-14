@@ -1,0 +1,91 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/channels">Channels</a> /</p>
+<h1>{{.Title}}</h1>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<div class="split">
+  <section>
+    <h2>Failover order</h2>
+    <p class="muted small">The first available stream plays; on a stall or error the next one takes over. Drag rows or use the arrows.</p>
+    {{template "stream-list" $d.Streams}}
+    <h2>Add streams</h2>
+    <form class="search" method="get" action="/admin/channels/{{$d.Form.ID}}/picker"
+      hx-get="/admin/channels/{{$d.Form.ID}}/picker" hx-target="#picker" hx-trigger="input changed delay:300ms from:input, submit">
+      <input type="search" name="q" placeholder="Search streams across all providers" aria-label="Search streams to add">
+    </form>
+    <div id="picker"></div>
+  </section>
+  <section>
+    <h2>Settings</h2>
+    {{template "channel-form" $d.Form}}
+    <form class="danger" method="post" action="/admin/channels/{{$d.Form.ID}}/delete"
+      hx-post="/admin/channels/{{$d.Form.ID}}/delete" hx-confirm="Delete this channel? Customers lose it from their playlists.">
+      <button type="submit" class="danger">Delete channel</button>
+    </form>
+  </section>
+</div>
+{{end}}
+
+{{define "stream-list"}}
+<div id="stream-list">
+{{if .Rows}}
+<form method="post" action="/admin/channels/{{.ChannelID}}/streams/order" hx-post="/admin/channels/{{.ChannelID}}/streams/order"
+  hx-target="#stream-list" hx-swap="outerHTML" data-sortable-form>
+<ol class="failover" data-sortable>
+  {{$n := len .Rows}}{{$cid := .ChannelID}}{{$playing := .Playing}}
+  {{range $i, $s := .Rows}}
+  <li draggable="true" class="{{if $s.Disabled}}dim{{end}}">
+    <input type="hidden" name="stream" value="{{$s.ProviderStreamID}}">
+    <span class="grip" aria-hidden="true">⠿</span>
+    <span class="rank">{{inc $i}}</span>
+    <span class="what">
+      <strong>{{$s.StreamName}}</strong>
+      <span class="sub">{{$s.ProviderName}}{{with $s.GroupTitle}} · {{.}}{{end}}{{with $s.StreamTvgID}} · {{.}}{{end}}</span>
+    </span>
+    <span class="state">
+      {{if eq $s.ProviderStreamID $playing}}<span class="pill ok">playing</span>{{end}}
+      {{if $s.Disabled}}<span class="pill off">gone</span>{{else if future $s.CooldownUntil}}<span class="pill warn">cooling down</span>{{end}}
+      <span class="sub">{{pct $s.HealthScore}}%</span>
+    </span>
+    <span class="moves">
+      <button type="submit" class="small secondary" formaction="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/move?dir=up"
+        hx-post="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/move?dir=up" {{if eq $i 0}}disabled{{end}} aria-label="Move up">↑</button>
+      <button type="submit" class="small secondary" formaction="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/move?dir=down"
+        hx-post="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/move?dir=down" {{if last $i $n}}disabled{{end}} aria-label="Move down">↓</button>
+      <button type="submit" class="small secondary" formaction="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/remove"
+        hx-post="/admin/channels/{{$cid}}/streams/{{$s.ProviderStreamID}}/remove" aria-label="Remove">✕</button>
+    </span>
+  </li>
+  {{end}}
+</ol>
+</form>
+{{else}}
+<div class="card empty"><p>No streams yet: this channel cannot play.</p><p class="muted">Search below to add streams from your providers.</p></div>
+{{end}}
+</div>
+{{end}}
+
+{{define "picker-results"}}
+{{if .Query}}
+{{if .Results}}
+<ul class="picker">
+{{range .Results}}
+  <li>
+    <span class="what"><strong>{{.Name}}</strong><span class="sub">{{.ProviderName}}{{with .GroupTitle}} · {{.}}{{end}}{{with .TvgID}} · {{.}}{{end}}</span></span>
+    {{if index $.Listed .ID}}<span class="pill off">in list</span>{{else}}
+    <span id="pick-{{.ID}}"><form method="post" action="/admin/channels/{{$.ChannelID}}/streams" hx-post="/admin/channels/{{$.ChannelID}}/streams"
+      hx-target="#stream-list" hx-swap="outerHTML">
+      <input type="hidden" name="stream" value="{{.ID}}">
+      <button type="submit" class="small">Add</button>
+    </form></span>{{end}}
+  </li>
+{{end}}
+</ul>
+{{else}}<p class="muted">No streams match “{{.Query}}”.</p>{{end}}
+{{end}}
+{{end}}
+
+{{define "stream-list-added"}}
+{{template "stream-list" .List}}
+<span id="pick-{{.AddedID}}" hx-swap-oob="true"><span class="pill ok">added</span></span>
+{{end}}

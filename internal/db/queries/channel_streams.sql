@@ -74,3 +74,23 @@ WHERE cs.channel_id = $1
   AND pr.enabled
   AND NOT ps.disabled
 ORDER BY cs.priority, pr.priority, ps.id;
+
+-- name: ChannelStreamCounts :many
+-- Failover-list length per channel, for the admin list.
+SELECT channel_id, count(*) AS streams FROM channel_streams GROUP BY channel_id;
+
+-- name: SearchStreamsAllProviders :many
+-- Admin stream picker: live streams of every provider matching a name.
+SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, ps.logo_url, ps.health_score,
+       pr.id AS provider_id, pr.name AS provider_name
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE NOT ps.disabled AND ps.name ILIKE sqlc.arg('pattern')
+ORDER BY ps.name, pr.priority, ps.id
+LIMIT sqlc.arg('limit');
+
+-- name: GetStreamsByIDs :many
+SELECT ps.id, ps.name, ps.tvg_id, pr.id AS provider_id, pr.name AS provider_name
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE ps.id = ANY(sqlc.arg('ids')::bigint[]);

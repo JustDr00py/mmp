@@ -1,0 +1,32 @@
+{{define "channel-form"}}
+<form class="card form" method="post" action="{{if .ID}}/admin/channels/{{.ID}}{{else}}/admin/channels/new{{end}}">
+  {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid3">
+    <label>Number<input name="number" type="number" min="1" max="99999" value="{{.Number}}"></label>
+    <label class="span2">Name<input name="name" value="{{.Name}}" required></label>
+  </div>
+  <div class="grid2">
+    <label>Group
+      <select name="group_id">
+        <option value="0">— none —</option>
+        {{range .Groups}}<option value="{{.ID}}"{{if eq .ID $.GroupID}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    </label>
+    <label>Stream profile
+      <select name="profile_id">
+        <option value="0">— passthrough —</option>
+        {{range .Profiles}}<option value="{{.ID}}"{{if eq .ID $.ProfileID}} selected{{end}}>{{.Name}} ({{.Mode}})</option>{{end}}
+      </select>
+    </label>
+  </div>
+  <div class="grid2">
+    <label>tvg-id<input name="tvg_id" value="{{.TvgID}}" placeholder="links the guide (XMLTV channel id)"></label>
+    <label>Logo URL<input name="logo_url" type="url" value="{{.Logo}}"></label>
+  </div>
+  <label class="check"><input type="checkbox" name="enabled"{{if .Enabled}} checked{{end}}> Enabled</label>
+  <div class="row">
+    <button type="submit">{{if .ID}}Save{{else}}Create channel{{end}}</button>
+    <a href="/admin/channels">Cancel</a>
+  </div>
+</form>
+{{end}}

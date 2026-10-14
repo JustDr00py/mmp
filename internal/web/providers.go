@@ -140,7 +140,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request) (providerForm, pa
 		}
 		n, err := strconv.Atoi(s)
 		if err != nil || n < -1_000_000 || n > 1_000_000 {
-			return 0, errors.New(field + " must be a whole number.")
+			return 0, formError(field + " must be a whole number.")
 		}
 		return int32(n), nil
 	}

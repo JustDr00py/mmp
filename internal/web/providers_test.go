@@ -20,6 +20,7 @@ import (
 
 // fakeStore is an in-memory web.Store.
 type fakeStore struct {
+	Store     // unimplemented methods panic; channel pages are tested against Postgres
 	mu        sync.Mutex
 	nextID    int64
 	providers map[int64]db.Provider

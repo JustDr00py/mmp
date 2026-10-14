@@ -44,6 +44,36 @@ func (q *Queries) AddStreamToChannel(ctx context.Context, arg AddStreamToChannel
 	return err
 }
 
+const channelStreamCounts = `-- name: ChannelStreamCounts :many
+SELECT channel_id, count(*) AS streams FROM channel_streams GROUP BY channel_id
+`
+
+type ChannelStreamCountsRow struct {
+	ChannelID int64 `json:"channel_id"`
+	Streams   int64 `json:"streams"`
+}
+
+// Failover-list length per channel, for the admin list.
+func (q *Queries) ChannelStreamCounts(ctx context.Context) ([]ChannelStreamCountsRow, error) {
+	rows, err := q.db.Query(ctx, channelStreamCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelStreamCountsRow
+	for rows.Next() {
+		var i ChannelStreamCountsRow
+		if err := rows.Scan(&i.ChannelID, &i.Streams); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createBouquet = `-- name: CreateBouquet :one
 
 INSERT INTO bouquets (name, sort_order) VALUES ($1, $2) RETURNING id, name, sort_order, created_at
@@ -90,6 +120,47 @@ func (q *Queries) GetBouquet(ctx context.Context, id int64) (Bouquet, error) {
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getStreamsByIDs = `-- name: GetStreamsByIDs :many
+SELECT ps.id, ps.name, ps.tvg_id, pr.id AS provider_id, pr.name AS provider_name
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE ps.id = ANY($1::bigint[])
+`
+
+type GetStreamsByIDsRow struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	TvgID        string `json:"tvg_id"`
+	ProviderID   int64  `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+}
+
+func (q *Queries) GetStreamsByIDs(ctx context.Context, ids []int64) ([]GetStreamsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getStreamsByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetStreamsByIDsRow
+	for rows.Next() {
+		var i GetStreamsByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.TvgID,
+			&i.ProviderID,
+			&i.ProviderName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listBouquetChannels = `-- name: ListBouquetChannels :many
@@ -331,6 +402,62 @@ type ReorderChannelStreamsParams struct {
 func (q *Queries) ReorderChannelStreams(ctx context.Context, arg ReorderChannelStreamsParams) error {
 	_, err := q.db.Exec(ctx, reorderChannelStreams, arg.ChannelID, arg.StreamIds)
 	return err
+}
+
+const searchStreamsAllProviders = `-- name: SearchStreamsAllProviders :many
+SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, ps.logo_url, ps.health_score,
+       pr.id AS provider_id, pr.name AS provider_name
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE NOT ps.disabled AND ps.name ILIKE $1
+ORDER BY ps.name, pr.priority, ps.id
+LIMIT $2
+`
+
+type SearchStreamsAllProvidersParams struct {
+	Pattern string `json:"pattern"`
+	Limit   int32  `json:"limit"`
+}
+
+type SearchStreamsAllProvidersRow struct {
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	TvgID        string  `json:"tvg_id"`
+	GroupTitle   string  `json:"group_title"`
+	LogoUrl      string  `json:"logo_url"`
+	HealthScore  float32 `json:"health_score"`
+	ProviderID   int64   `json:"provider_id"`
+	ProviderName string  `json:"provider_name"`
+}
+
+// Admin stream picker: live streams of every provider matching a name.
+func (q *Queries) SearchStreamsAllProviders(ctx context.Context, arg SearchStreamsAllProvidersParams) ([]SearchStreamsAllProvidersRow, error) {
+	rows, err := q.db.Query(ctx, searchStreamsAllProviders, arg.Pattern, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchStreamsAllProvidersRow
+	for rows.Next() {
+		var i SearchStreamsAllProvidersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.TvgID,
+			&i.GroupTitle,
+			&i.LogoUrl,
+			&i.HealthScore,
+			&i.ProviderID,
+			&i.ProviderName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateBouquet = `-- name: UpdateBouquet :one

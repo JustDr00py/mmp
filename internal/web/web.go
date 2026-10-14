@@ -22,13 +22,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sysadmin/mmp/internal/auth"
+	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/redact"
 	"github.com/sysadmin/mmp/internal/source"
 )
 
-//go:embed templates/*.html
+//go:embed templates
 var templateFS embed.FS
 
 //go:embed static
@@ -53,6 +54,33 @@ type Store interface {
 	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
 	ListProviderStreams(ctx context.Context, arg db.ListProviderStreamsParams) ([]db.ProviderStream, error)
 	SearchProviderStreams(ctx context.Context, arg db.SearchProviderStreamsParams) ([]db.ProviderStream, error)
+
+	ListChannels(ctx context.Context, arg db.ListChannelsParams) ([]db.Channel, error)
+	GetChannel(ctx context.Context, id int64) (db.Channel, error)
+	CreateChannel(ctx context.Context, arg db.CreateChannelParams) (db.Channel, error)
+	UpdateChannel(ctx context.Context, arg db.UpdateChannelParams) (db.Channel, error)
+	DeleteChannel(ctx context.Context, id int64) error
+	NextChannelNumber(ctx context.Context) (int32, error)
+	ListChannelGroups(ctx context.Context) ([]db.ChannelGroup, error)
+	ListStreamProfiles(ctx context.Context) ([]db.StreamProfile, error)
+	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
+	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
+	AddStreamToChannel(ctx context.Context, arg db.AddStreamToChannelParams) error
+	RemoveStreamFromChannel(ctx context.Context, arg db.RemoveStreamFromChannelParams) error
+	ReorderChannelStreams(ctx context.Context, arg db.ReorderChannelStreamsParams) error
+	SearchStreamsAllProviders(ctx context.Context, arg db.SearchStreamsAllProvidersParams) ([]db.SearchStreamsAllProvidersRow, error)
+	GetStreamsByIDs(ctx context.Context, ids []int64) ([]db.GetStreamsByIDsRow, error)
+
+	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
+	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
+	DeleteMatchRule(ctx context.Context, id int64) error
+}
+
+// Matcher proposes and applies channel groupings (satisfied by
+// *channel.Service).
+type Matcher interface {
+	Propose(ctx context.Context) ([]channel.Proposal, error)
+	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
 }
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).
@@ -65,6 +93,7 @@ type Deps struct {
 	Auth    *auth.Authenticator
 	Store   Store
 	Refresh Refresher
+	Match   Matcher
 	Live    LiveStatus           // optional
 	Slots   func() map[int64]int // provider slots in use; optional
 	Log     *slog.Logger
@@ -88,10 +117,12 @@ type navItem struct {
 var nav = []navItem{
 	{Prefix + "/", "Dashboard"},
 	{Prefix + "/providers", "Providers"},
+	{Prefix + "/channels", "Channels"},
+	{Prefix + "/match", "Match"},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -120,9 +151,12 @@ func New(d Deps) (*UI, error) {
 		"future":     func(t *time.Time) bool { return t != nil && t.After(time.Now()) },
 		"streamsURL": streamsQuery,
 		"add":        func(a, b int) int { return a + b },
+		"inc":        func(i int) int { return i + 1 },
+		"list":       func(xs ...int) []int { return xs },
+		"last":       func(i, n int) bool { return i == n-1 },
 	}
 	for _, page := range pageNames {
-		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
+		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials/*.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -170,6 +204,8 @@ func (ui *UI) Mount(r chi.Router) {
 			r.Post("/logout", ui.logout)
 			r.Get("/", ui.dashboard)
 			ui.mountProviders(r)
+			ui.mountChannels(r)
+			ui.mountMatch(r)
 		})
 	})
 }
@@ -214,6 +250,12 @@ func (ui *UI) execute(w http.ResponseWriter, status int, page, name string, data
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
 }
+
+// formError is a validation message shown to the admin as written (a
+// sentence, unlike Go error strings).
+type formError string
+
+func (e formError) Error() string { return string(e) }
 
 // activeNav is the nav entry a path belongs to (its longest prefix).
 func activeNav(path string) string {

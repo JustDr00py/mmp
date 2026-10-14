@@ -169,7 +169,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			streams, access, log)
 	}
 	outputs.Mount(srv.Mux())
-	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Live: streams,
+	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
 		Slots: capacity.Snapshot, Log: log, Version: version})
 	if err != nil {
 		return fmt.Errorf("admin ui: %w", err)
