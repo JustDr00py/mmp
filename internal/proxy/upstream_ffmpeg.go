@@ -170,8 +170,9 @@ func (t *tailBuffer) suffix() string {
 
 // ParseFFmpegArgs splits a profile's ffmpeg_args like a POSIX shell would
 // split words (whitespace, 'single' and "double" quotes, backslash escapes)
-// without any expansion; nothing is run through a shell. MMP owns the input
-// and output, so -i is rejected.
+// without any expansion; nothing is run through a shell. MMP owns the input,
+// the format and the output, so only allowlisted output options survive
+// validation (see ffmpegOptions).
 func ParseFFmpegArgs(s string) ([]string, error) {
 	var args []string
 	var cur strings.Builder
@@ -216,12 +217,67 @@ func ParseFFmpegArgs(s string) ([]string, error) {
 	if inWord {
 		args = append(args, cur.String())
 	}
-	for _, a := range args {
-		if a == "-i" {
-			return nil, errors.New("-i is not allowed: MMP supplies the input")
-		}
+	if err := validateFFmpegArgs(args); err != nil {
+		return nil, err
 	}
 	return args, nil
+}
+
+// ffmpegOptions is the allowlist of output options a profile may set,
+// mapped to how many following tokens the option consumes as its value.
+// Anything absent — notably -i, -f and positional outputs — is refused:
+// MMP supplies the input, the MPEG-TS format, and the pipe output.
+var ffmpegOptions = map[string]int{
+	// Codecs and rate control.
+	"-c": 1, "-c:v": 1, "-c:a": 1, "-c:s": 1, "-c:d": 1,
+	"-codec": 1, "-codec:v": 1, "-codec:a": 1, "-codec:s": 1, "-codec:d": 1,
+	"-b": 1, "-b:v": 1, "-b:a": 1, "-minrate": 1, "-maxrate": 1, "-bufsize": 1,
+	"-crf": 1, "-qp": 1, "-qscale": 1, "-q:v": 1, "-q:a": 1,
+	"-preset": 1, "-tune": 1, "-profile": 1, "-profile:v": 1, "-level": 1,
+	"-x264-params": 1, "-x265-params": 1, "-flags": 1,
+	// Frame layout and GOP.
+	"-s": 1, "-r": 1, "-fps_mode": 1, "-pix_fmt": 1,
+	"-g": 1, "-keyint_min": 1, "-sc_threshold": 1,
+	// Filters.
+	"-vf": 1, "-af": 1, "-filter:v": 1, "-filter:a": 1,
+	// Audio.
+	"-ar": 1, "-ac": 1,
+	// Stream selection, mapping, metadata, duration cap.
+	"-map": 1, "-metadata": 1, "-t": 1,
+	"-vn": 0, "-an": 0, "-sn": 0, "-dn": 0,
+	// Threading and MPEG-TS muxing.
+	"-threads": 1, "-muxrate": 1, "-muxdelay": 1, "-mpegts_flags": 1,
+	"-vtag": 1, "-atag": 1,
+}
+
+// validateFFmpegArgs enforces the allowlist. A bare token that is not the
+// value of a preceding option would be an extra output file (ffmpeg allows
+// several), letting a profile write anywhere the MMP user can; that is the
+// main thing this stops.
+func validateFFmpegArgs(args []string) error {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "-i":
+			return errors.New("-i is not allowed: MMP supplies the input")
+		case "-f":
+			return errors.New("-f is not allowed: MMP sets the MPEG-TS format")
+		}
+		if !strings.HasPrefix(a, "-") {
+			return fmt.Errorf("unexpected argument %q: ffmpeg_args may not name output files or URLs (MMP supplies input and output)", a)
+		}
+		argc, ok := ffmpegOptions[a]
+		if !ok {
+			return fmt.Errorf("unknown option %q: only common ffmpeg output options are allowed", a)
+		}
+		if argc == 1 {
+			if i+1 >= len(args) {
+				return fmt.Errorf("option %q needs a value", a)
+			}
+			i++ // the value may be anything, dash-prefixed or not
+		}
+	}
+	return nil
 }
 
 // ValidateProfile checks a stream profile's mode and ffmpeg arguments.

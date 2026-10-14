@@ -20,14 +20,30 @@ func TestParseFFmpegArgs(t *testing.T) {
 		"-c copy":                           "[-c copy]",
 		"  -c:v libx264\t-preset veryfast ": "[-c:v libx264 -preset veryfast]",
 		`-vf "scale=1280:-2, fps=25" -metadata title='a "b"'`: `[-vf scale=1280:-2, fps=25 -metadata title=a "b"]`,
-		`-metadata a\ b=c ''`: `[-metadata a b=c ]`,
+		`-metadata a\ b=c -metadata ''`: `[-metadata a b=c -metadata ]`,
+		// Full transcode chains stay within the allowlist.
+		"-c:v libx264 -preset veryfast -b:v 3M -maxrate 3M -bufsize 6M -c:a aac -b:a 128k -vf scale=-2:480 -g 50 -threads 2": "[-c:v libx264 -preset veryfast -b:v 3M -maxrate 3M -bufsize 6M -c:a aac -b:a 128k -vf scale=-2:480 -g 50 -threads 2]",
+		"-map 0:v:0 -map 0:a:0 -c copy":                      "[-map 0:v:0 -map 0:a:0 -c copy]",
+		"-t 30 -mpegts_flags +initial_discontinuity -c copy": "[-t 30 -mpegts_flags +initial_discontinuity -c copy]",
+		"-an -vn -sn -dn -c copy":                            "[-an -vn -sn -dn -c copy]",
 	} {
 		got, err := ParseFFmpegArgs(in)
 		if err != nil || fmt.Sprint(got) != want {
 			t.Errorf("%q = %q, %v; want %s", in, got, err, want)
 		}
 	}
-	for _, in := range []string{`-vf "open`, `-x 'open`, `trailing\`, "-i http://x/y.ts -c copy"} {
+	for _, in := range []string{
+		// Output files and URLs: the attack this validation exists for.
+		`-c copy /tmp/out.ts`, `out.ts -c copy`, `-c copy pipe:1`, `pipe:1`,
+		`-c copy http://evil/x`, `-c copy udp://239.0.0.1:5000`, `-c copy /dev/stderr`,
+		// Options MMP owns.
+		`-i http://x/y.ts -c copy`, `-f mpegts -c copy`, `-c copy -f flv`,
+		// Unknown or dangerous options.
+		`-report`, `-c copy -y /tmp/out.ts`, `-filter_complex lavfi -c copy`,
+		`-progress /tmp/p.txt -c copy`, `-c copy -report`, `-hide_banner`,
+		// Malformed.
+		`-vf "open`, `-x 'open`, `trailing\`, `-c copy -vf`, `-c`,
+	} {
 		if _, err := ParseFFmpegArgs(in); err == nil {
 			t.Errorf("%q accepted", in)
 		}

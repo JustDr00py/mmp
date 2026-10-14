@@ -32,11 +32,17 @@ func TestStreamProfilesAPI(t *testing.T) {
 	}
 
 	for name, body := range map[string]map[string]any{
-		"no name":        {"mode": "passthrough"},
-		"bad mode":       {"name": "x", "mode": "transcode"},
-		"ffmpeg no args": {"name": "x", "mode": "ffmpeg"},
-		"ffmpeg -i":      {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-i http://evil/ -c copy"},
-		"bad quoting":    {"name": "x", "mode": "ffmpeg", "ffmpeg_args": `-vf "scale`},
+		"no name":            {"mode": "passthrough"},
+		"bad mode":           {"name": "x", "mode": "transcode"},
+		"ffmpeg no args":     {"name": "x", "mode": "ffmpeg"},
+		"ffmpeg -i":          {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-i http://evil/ -c copy"},
+		"bad quoting":        {"name": "x", "mode": "ffmpeg", "ffmpeg_args": `-vf "scale`},
+		"output file":        {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy /tmp/out.ts"},
+		"output pipe":        {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy pipe:1"},
+		"output url":         {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy udp://239.0.0.1:5000"},
+		"second format":      {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy -f flv"},
+		"unknown option":     {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy -report"},
+		"option needs value": {"name": "x", "mode": "ffmpeg", "ffmpeg_args": "-c copy -vf"},
 	} {
 		if code, obj, _ := call(t, h, http.MethodPost, "/api/v1/stream-profiles", body); code != http.StatusBadRequest {
 			t.Errorf("%s: %d %v, want 400", name, code, obj)
