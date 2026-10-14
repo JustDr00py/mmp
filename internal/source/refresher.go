@@ -5,6 +5,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,6 +46,10 @@ func NewRefresher(log *slog.Logger, pool *pgxpool.Pool) *Refresher {
 	return &Refresher{log: log, pool: pool, hc: &http.Client{}}
 }
 
+// ErrNoStreams means a provider answered with no streams at all; the
+// refresh is refused so existing streams stay enabled.
+var ErrNoStreams = errors.New("provider returned no streams (existing streams kept)")
+
 // Result summarises one provider refresh.
 type Result struct {
 	Seen     int `json:"seen"`     // entries observed from the provider
@@ -61,6 +66,12 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider) (Result,
 	entries, err := r.fetchEntries(ctx, p)
 	if err != nil {
 		return res, fmt.Errorf("refresh provider %d: %w", p.ID, err)
+	}
+	// An empty list is almost always a provider fault (an error page, an
+	// empty body, a panel hiccup), and reconciling against it would
+	// soft-disable every stream the provider has. Keep what we have.
+	if len(entries) == 0 {
+		return res, fmt.Errorf("refresh provider %d: %w", p.ID, ErrNoStreams)
 	}
 	res.Seen = len(entries)
 

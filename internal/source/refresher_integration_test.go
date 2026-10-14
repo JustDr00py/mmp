@@ -4,10 +4,12 @@ package source
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -155,6 +157,30 @@ func TestRefreshProviderM3UTwice(t *testing.T) {
 	res3, err := ref.RefreshProvider(ctx, p)
 	if err != nil || res3.Disabled != 0 {
 		t.Fatalf("refresh 3 = %+v, %v", res3, err)
+	}
+
+	// The provider breaks: an empty body, a header-only playlist, or video
+	// bytes instead of a playlist. Each refresh is refused and nothing is
+	// disabled or marked refreshed.
+	before, _ := q.GetProvider(ctx, p.ID)
+	for name, broken := range map[string]string{
+		"empty":       "",
+		"header only": "#EXTM3U\n",
+		"not m3u":     strings.Repeat("\x47\x40\x00\x10", 400),
+	} {
+		body.Store(broken)
+		if _, err := ref.RefreshProvider(ctx, p); !errors.Is(err, ErrNoStreams) {
+			t.Errorf("%s: err = %v, want ErrNoStreams", name, err)
+		}
+	}
+	streams, _ = q.ListProviderStreams(ctx, db.ListProviderStreamsParams{ProviderID: p.ID, Limit: 100, Offset: 0})
+	for _, s := range streams {
+		if s.StreamUrl != "http://fake.tv/nbc.ts" && s.Disabled {
+			t.Errorf("%s disabled by a broken refresh", s.StreamUrl)
+		}
+	}
+	if after, _ := q.GetProvider(ctx, p.ID); !after.LastRefreshedAt.Equal(*before.LastRefreshedAt) {
+		t.Error("a refused refresh marked the provider refreshed")
 	}
 }
 
