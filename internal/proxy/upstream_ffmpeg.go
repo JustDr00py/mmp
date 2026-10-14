@@ -224,6 +224,24 @@ func ParseFFmpegArgs(s string) ([]string, error) {
 	return args, nil
 }
 
+// ValidateProfile checks a stream profile's mode and ffmpeg arguments.
+func ValidateProfile(mode, ffmpegArgs string) error {
+	switch mode {
+	case "passthrough":
+		return nil
+	case "ffmpeg":
+		args, err := ParseFFmpegArgs(ffmpegArgs)
+		if err != nil {
+			return errors.New("ffmpeg_args: " + err.Error())
+		}
+		if len(args) == 0 { // ffmpeg's defaults would re-encode to MPEG-2
+			return errors.New(`ffmpeg_args is required in ffmpeg mode (e.g. "-c copy")`)
+		}
+		return nil
+	}
+	return errors.New("mode must be passthrough or ffmpeg")
+}
+
 // ProfileOpener sends candidates whose channel has an ffmpeg profile
 // through FFmpeg, and the rest straight to Direct.
 type ProfileOpener struct {

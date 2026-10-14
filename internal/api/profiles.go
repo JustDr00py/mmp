@@ -39,20 +39,7 @@ func (in *profileInput) validate() error {
 	if in.Mode == "" {
 		in.Mode = "passthrough"
 	}
-	switch in.Mode {
-	case "passthrough":
-	case "ffmpeg":
-		args, err := proxy.ParseFFmpegArgs(in.FFmpegArgs)
-		if err != nil {
-			return errors.New("ffmpeg_args: " + err.Error())
-		}
-		if len(args) == 0 { // ffmpeg's defaults would re-encode to MPEG-2
-			return errors.New(`ffmpeg_args is required in ffmpeg mode (e.g. "-c copy")`)
-		}
-	default:
-		return errors.New("mode must be passthrough or ffmpeg")
-	}
-	return nil
+	return proxy.ValidateProfile(in.Mode, in.FFmpegArgs)
 }
 
 func (env *Env) listProfiles(w http.ResponseWriter, r *http.Request) {

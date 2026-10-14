@@ -14,3 +14,7 @@ WHERE id = $1 RETURNING *;
 
 -- name: DeleteStreamProfile :execrows
 DELETE FROM stream_profiles WHERE id = $1;
+
+-- name: ProfileChannelCounts :many
+SELECT stream_profile_id AS profile_id, count(*) AS channels
+FROM channels WHERE stream_profile_id IS NOT NULL GROUP BY stream_profile_id;

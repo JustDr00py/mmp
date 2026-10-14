@@ -1,0 +1,31 @@
+{{define "content"}}
+{{$f := .Data}}
+<p class="crumbs"><a href="/admin/profiles">Profiles</a> /</p>
+<h1>{{.Title}}</h1>
+<form class="card form" method="post" action="{{if $f.ID}}/admin/profiles/{{$f.ID}}{{else}}/admin/profiles/new{{end}}">
+  {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid2">
+    <label>Name<input name="name" value="{{$f.Name}}" maxlength="100" required></label>
+    <label>Mode
+      <select name="mode">
+        <option value="passthrough"{{if eq $f.Mode "passthrough"}} selected{{end}}>Passthrough (relay as is)</option>
+        <option value="ffmpeg"{{if eq $f.Mode "ffmpeg"}} selected{{end}}>ffmpeg (remux or transcode)</option>
+      </select>
+    </label>
+  </div>
+  <label>ffmpeg arguments<input name="ffmpeg_args" class="mono" value="{{$f.FFmpegArgs}}" placeholder="-c copy">
+    <span class="hint">Output options only: MMP supplies the input and the MPEG-TS output. Examples: <span class="mono">-c copy</span> ·
+      <span class="mono">-c:v libx264 -preset veryfast -b:v 3M -c:a aac</span>. Ignored in passthrough mode.</span></label>
+  <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="blank: the provider's (or MMP/1.0)">
+    <span class="hint">Overrides the provider's user agent for channels using this profile.</span></label>
+  <div class="row">
+    <button type="submit">{{if $f.ID}}Save{{else}}Create profile{{end}}</button>
+    <a href="/admin/profiles">Cancel</a>
+  </div>
+</form>
+{{if $f.ID}}
+<form class="danger" method="post" action="/admin/profiles/{{$f.ID}}/delete" data-confirm="Delete {{$f.Name}}? Its channels go back to passthrough.">
+  <button type="submit" class="danger">Delete profile</button>
+</form>
+{{end}}
+{{end}}

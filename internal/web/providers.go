@@ -300,7 +300,7 @@ func (ui *UI) providerRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The refresh outlives a closed tab: it is one transaction either way.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), refreshTimeout)
+	ctx, cancel := contextFor(r, refreshTimeout)
 	defer cancel()
 	start := time.Now()
 	res, err := ui.Refresh.RefreshProvider(ctx, p)
@@ -366,6 +366,15 @@ func (ui *UI) streamsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.render(w, r, http.StatusOK, "streams", p.Name+" streams", d)
 }
+
+// contextFor detaches a long admin action from the request: it finishes
+// (within d) even if the tab is closed, since it is one transaction anyway.
+func contextFor(r *http.Request, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), d)
+}
+
+// resultOf adapts a programme count to the refresh result display.
+func resultOf(programmes int) source.Result { return source.Result{Seen: programmes} }
 
 // likeEscape makes user input literal inside an ILIKE pattern.
 func likeEscape(s string) string {

@@ -137,3 +137,5 @@ ul.pick-list .num { display: inline-block; min-width: 2.5rem; text-align: right;
 form.narrow { max-width: 560px; }
 /* Form controls fill their grid cell and may shrink below their intrinsic size. */
 label > input:not([type=checkbox]):not([type=radio]), label > select { width: 100%; min-width: 0; }
+.search.row { align-items: center; flex-wrap: wrap; }
+.search.row label.check { white-space: nowrap; }

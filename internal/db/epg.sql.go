@@ -10,6 +10,79 @@ import (
 	"time"
 )
 
+const channelGuideStatus = `-- name: ChannelGuideStatus :many
+SELECT id, number, name, tvg_id, enabled, upcoming, now_title FROM (
+    SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
+           (SELECT count(*) FROM epg_programmes p
+              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+               AND p.stop_time > now() AND p.start_time < now() + interval '24 hours') AS upcoming,
+           COALESCE((SELECT p.title FROM epg_programmes p
+              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+               AND p.start_time <= now() AND p.stop_time > now()
+             ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
+    FROM channels c
+    WHERE ($1::text IS NULL OR c.name ILIKE $1)
+) g
+WHERE NOT $2::bool OR g.upcoming = 0
+ORDER BY g.number NULLS LAST, g.name
+LIMIT $4 OFFSET $3
+`
+
+type ChannelGuideStatusParams struct {
+	Search      *string `json:"search"`
+	MissingOnly bool    `json:"missing_only"`
+	Offset      int32   `json:"offset"`
+	Limit       int32   `json:"limit"`
+}
+
+type ChannelGuideStatusRow struct {
+	ID       int64  `json:"id"`
+	Number   *int32 `json:"number"`
+	Name     string `json:"name"`
+	TvgID    string `json:"tvg_id"`
+	Enabled  bool   `json:"enabled"`
+	Upcoming int64  `json:"upcoming"`
+	NowTitle string `json:"now_title"`
+}
+
+// Per-channel guide coverage: programmes in the next 24h from enabled
+// sources and what is on now, matched by tvg-id case-insensitively.
+// missing_only keeps channels without upcoming programmes.
+func (q *Queries) ChannelGuideStatus(ctx context.Context, arg ChannelGuideStatusParams) ([]ChannelGuideStatusRow, error) {
+	rows, err := q.db.Query(ctx, channelGuideStatus,
+		arg.Search,
+		arg.MissingOnly,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelGuideStatusRow
+	for rows.Next() {
+		var i ChannelGuideStatusRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Name,
+			&i.TvgID,
+			&i.Enabled,
+			&i.Upcoming,
+			&i.NowTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const clearEpgSourceProgrammes = `-- name: ClearEpgSourceProgrammes :execrows
 DELETE FROM epg_programmes WHERE epg_source_id = $1
 `
@@ -60,6 +133,59 @@ type InsertEpgProgrammesParams struct {
 	Description  string    `json:"description"`
 	StartTime    time.Time `json:"start_time"`
 	StopTime     time.Time `json:"stop_time"`
+}
+
+const listEpgSourceStats = `-- name: ListEpgSourceStats :many
+SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at,
+       pr.id AS provider_id, COALESCE(pr.name, '')::text AS provider_name,
+       (SELECT count(*) FROM epg_programmes p WHERE p.epg_source_id = s.id) AS programmes,
+       (SELECT count(DISTINCT lower(p.channel_tvg_id)) FROM epg_programmes p WHERE p.epg_source_id = s.id) AS channels
+FROM epg_sources s
+LEFT JOIN providers pr ON pr.id = s.provider_id
+ORDER BY pr.priority NULLS LAST, s.name
+`
+
+type ListEpgSourceStatsRow struct {
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Url             string     `json:"url"`
+	Enabled         bool       `json:"enabled"`
+	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
+	ProviderID      *int64     `json:"provider_id"`
+	ProviderName    string     `json:"provider_name"`
+	Programmes      int64      `json:"programmes"`
+	Channels        int64      `json:"channels"`
+}
+
+// Admin overview of guide sources.
+func (q *Queries) ListEpgSourceStats(ctx context.Context) ([]ListEpgSourceStatsRow, error) {
+	rows, err := q.db.Query(ctx, listEpgSourceStats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpgSourceStatsRow
+	for rows.Next() {
+		var i ListEpgSourceStatsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.Enabled,
+			&i.LastRefreshedAt,
+			&i.ProviderID,
+			&i.ProviderName,
+			&i.Programmes,
+			&i.Channels,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listGuideProgrammes = `-- name: ListGuideProgrammes :many

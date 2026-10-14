@@ -98,6 +98,36 @@ func (q *Queries) ListStreamProfiles(ctx context.Context) ([]StreamProfile, erro
 	return items, nil
 }
 
+const profileChannelCounts = `-- name: ProfileChannelCounts :many
+SELECT stream_profile_id AS profile_id, count(*) AS channels
+FROM channels WHERE stream_profile_id IS NOT NULL GROUP BY stream_profile_id
+`
+
+type ProfileChannelCountsRow struct {
+	ProfileID *int64 `json:"profile_id"`
+	Channels  int64  `json:"channels"`
+}
+
+func (q *Queries) ProfileChannelCounts(ctx context.Context) ([]ProfileChannelCountsRow, error) {
+	rows, err := q.db.Query(ctx, profileChannelCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProfileChannelCountsRow
+	for rows.Next() {
+		var i ProfileChannelCountsRow
+		if err := rows.Scan(&i.ProfileID, &i.Channels); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateStreamProfile = `-- name: UpdateStreamProfile :one
 UPDATE stream_profiles SET name = $2, mode = $3, ffmpeg_args = $4, user_agent = $5
 WHERE id = $1 RETURNING id, name, mode, ffmpeg_args, user_agent

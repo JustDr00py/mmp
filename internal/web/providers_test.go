@@ -137,6 +137,16 @@ type fakeRefresher struct {
 	err   error
 }
 
+func (f *fakeRefresher) RefreshEPG(_ context.Context, p db.Provider) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, p.ID)
+	if f.err != nil {
+		return 0, f.err
+	}
+	return 4321, nil
+}
+
 func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider) (source.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

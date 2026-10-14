@@ -63,6 +63,13 @@ type Store interface {
 	NextChannelNumber(ctx context.Context) (int32, error)
 	ListChannelGroups(ctx context.Context) ([]db.ChannelGroup, error)
 	ListStreamProfiles(ctx context.Context) ([]db.StreamProfile, error)
+	GetStreamProfile(ctx context.Context, id int64) (db.StreamProfile, error)
+	CreateStreamProfile(ctx context.Context, arg db.CreateStreamProfileParams) (db.StreamProfile, error)
+	UpdateStreamProfile(ctx context.Context, arg db.UpdateStreamProfileParams) (db.StreamProfile, error)
+	DeleteStreamProfile(ctx context.Context, id int64) (int64, error)
+	ProfileChannelCounts(ctx context.Context) ([]db.ProfileChannelCountsRow, error)
+	ListEpgSourceStats(ctx context.Context) ([]db.ListEpgSourceStatsRow, error)
+	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
 	AddStreamToChannel(ctx context.Context, arg db.AddStreamToChannelParams) error
@@ -107,6 +114,7 @@ type Matcher interface {
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).
 type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider) (source.Result, error)
+	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
 }
 
 // Deps are the UI's collaborators.
@@ -148,10 +156,12 @@ var nav = []navItem{
 	{Prefix + "/bouquets", "Bouquets"},
 	{Prefix + "/match", "Match"},
 	{Prefix + "/users", "Users"},
+	{Prefix + "/epg", "Guide"},
+	{Prefix + "/profiles", "Profiles"},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -238,6 +248,8 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountMatch(r)
 			ui.mountUsers(r)
 			ui.mountBouquets(r)
+			ui.mountEPG(r)
+			ui.mountProfiles(r)
 		})
 	})
 }
