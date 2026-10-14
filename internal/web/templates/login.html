@@ -1,0 +1,15 @@
+{{define "content"}}
+<form class="card login" method="post" action="/admin/login">
+  <h1>MMP</h1>
+  <p class="muted">Sign in with an admin account.</p>
+  {{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <input type="hidden" name="next" value="{{.Data.Next}}">
+  <label>Username
+    <input name="username" autocomplete="username" value="{{.Data.Username}}" required {{if not .Data.Username}}autofocus{{end}}>
+  </label>
+  <label>Password
+    <input name="password" type="password" autocomplete="current-password" required {{if .Data.Username}}autofocus{{end}}>
+  </label>
+  <button type="submit">Sign in</button>
+</form>
+{{end}}

@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+<section class="stats">
+  <div class="card stat"><span class="num">{{.Data.Sessions}}</span><span class="label">channel sessions</span></div>
+  <div class="card stat"><span class="num">{{.Data.Streaming}}</span><span class="label">streaming</span></div>
+  <div class="card stat"><span class="num">{{.Data.Viewers}}</span><span class="label">viewers</span></div>
+</section>
+<p class="muted">Live updates, failovers and provider slots arrive with the live dashboard.</p>
+{{end}}

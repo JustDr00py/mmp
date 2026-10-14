@@ -1,0 +1,31 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false}'>
+<title>{{.Title}} · MMP</title>
+<link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "htmx.min.js"}}" defer></script>
+</head>
+<body>
+{{if .User}}
+<header class="top">
+  <a class="brand" href="/admin/">MMP</a>
+  <nav>
+    {{range .Nav}}<a href="{{.Path}}"{{if eq .Path $.Active}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+  <div class="who">
+    <span>{{.User.Username}}</span>
+    <form method="post" action="/admin/logout"><button type="submit" class="link">Sign out</button></form>
+  </div>
+</header>
+{{end}}
+<main class="{{if .User}}page{{else}}center{{end}}">
+{{template "content" .}}
+</main>
+{{if .User}}<footer class="foot">MMP {{.Version}}</footer>{{end}}
+</body>
+</html>
+{{end}}

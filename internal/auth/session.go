@@ -150,7 +150,12 @@ func (a *Authenticator) lookupErr(err error) error {
 
 type ctxKey struct{}
 
-// UserFrom returns the admin stored by RequireAdmin.
+// WithUser stores an authenticated admin in ctx, for UserFrom.
+func WithUser(ctx context.Context, u db.User) context.Context {
+	return context.WithValue(ctx, ctxKey{}, u)
+}
+
+// UserFrom returns the admin stored by RequireAdmin (or WithUser).
 func UserFrom(ctx context.Context) (db.User, bool) {
 	u, ok := ctx.Value(ctxKey{}).(db.User)
 	return u, ok
@@ -172,7 +177,7 @@ func (a *Authenticator) RequireAdmin(next http.Handler) http.Handler {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
+		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), u)))
 	})
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/sysadmin/mmp/internal/proxy"
 	"github.com/sysadmin/mmp/internal/server"
 	"github.com/sysadmin/mmp/internal/source"
+	"github.com/sysadmin/mmp/internal/web"
 )
 
 var version = "dev"
@@ -168,6 +169,11 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			streams, access, log)
 	}
 	outputs.Mount(srv.Mux())
+	ui, err := web.New(authn, streams, log, version)
+	if err != nil {
+		return fmt.Errorf("admin ui: %w", err)
+	}
+	ui.Mount(srv.Mux())
 
 	// Background workers.
 	go func() {
