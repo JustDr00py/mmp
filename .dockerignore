@@ -1,0 +1,12 @@
+# Keep the build context small; the binary embeds all assets it needs.
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+Makefile
+Plan/
+*.md
+mmp
+*.out
+sqlc.yaml

@@ -17,15 +17,29 @@ services:
     restart: unless-stopped
 
   mmp:
-    build: .
+    build:
+      context: .
+      # Variant with ffmpeg on board for transcode profiles and the prober:
+      # target: mmp-ffmpeg
+      args:
+        VERSION: dev
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       MMP_DB_DSN: postgres://mmp:mmp@postgres:5432/mmp?sslmode=disable
       MMP_BASE_URL: http://localhost:8080
+      # Bootstrap the first admin on first start:
+      # MMP_ADMIN_USERNAME: admin
+      # MMP_ADMIN_PASSWORD: change-me
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     restart: unless-stopped
 
 volumes:

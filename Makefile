@@ -8,6 +8,9 @@ DSN      ?= postgres://mmp:mmp@localhost:5432/mmp?sslmode=disable
 # Prefer a locally installed sqlc; fall back to go run (slower first time).
 SQLC     := $(shell command -v sqlc 2>/dev/null || echo "$(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@latest")
 
+# docker compose or podman compose, e.g. make up COMPOSE="podman compose".
+COMPOSE  ?= docker compose
+
 .PHONY: build dev test test-integration lint vet staticcheck generate migrate up down
 
 build:
@@ -41,7 +44,7 @@ migrate:
 	$(GO) run ./cmd/mmp -config mmp.yaml -migrate
 
 up:
-	docker compose up -d postgres
+	$(COMPOSE) up -d postgres
 
 down:
-	docker compose down
+	$(COMPOSE) down
