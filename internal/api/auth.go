@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -38,7 +39,19 @@ func (env *Env) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
+	keys := auth.AttemptKeys(r, in.Username)
+	if ok, retry := env.LoginLimit.Allowed(keys...); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "too many attempts; retry later")
+		return
+	}
 	token, u, err := env.Auth.Login(r.Context(), in.Username, in.Password)
+	switch { // only password verdicts count; infrastructure errors do not
+	case err == nil:
+		env.LoginLimit.Record(true, keys...)
+	case errors.Is(err, auth.ErrUnauthorized):
+		env.LoginLimit.Record(false, keys...)
+	}
 	if err != nil {
 		if errors.Is(err, auth.ErrUnauthorized) {
 			writeErr(w, http.StatusUnauthorized, "invalid credentials")

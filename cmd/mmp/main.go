@@ -134,6 +134,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	authn := auth.NewAuthenticator(queries, log, cfg.Auth.SessionTTL.Duration,
 		strings.HasPrefix(cfg.BaseURL, "https://"))
+	// Shared failure lockout for every password check (admin + customer).
+	loginLimit := auth.NewLimiter(cfg.Auth.MaxAttempts, cfg.Auth.Lockout.Duration)
 	go func() { // purge expired admin sessions hourly
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
@@ -157,7 +159,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		refresher.AfterRefresh = matcher.AutoMatchHook(cfg.Match.MinProviders)
 	}
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: matcher, Streams: streams, Auth: authn,
+		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}
@@ -166,7 +168,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
-	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log}
+	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log,
+		Limit: loginLimit}
 	if hc := cfg.HLS; hc.Enabled {
 		outputs.HLS = output.NewHLS(ctx, output.HLSConfig{Segment: hc.Segment.Duration, Window: hc.Window, Idle: hc.Idle.Duration},
 			streams, access, log)
@@ -174,6 +177,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	outputs.Mount(srv.Mux())
 	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
+		LoginLimit: loginLimit,
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}})

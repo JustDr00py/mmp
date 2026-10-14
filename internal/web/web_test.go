@@ -149,6 +149,31 @@ func (b *browser) post(path string, form url.Values, origin string) (*http.Respo
 	return b.do(req)
 }
 
+func TestLoginLockout(t *testing.T) {
+	srv, store, ui := newUIWith(t)
+	ui.LoginLimit = auth.NewLimiter(3, time.Minute)
+	b := newBrowser(t, srv.URL)
+
+	bad := url.Values{"username": {"boss"}, "password": {"wrong-pass-1"}}
+	for range 3 {
+		if resp, body := b.post("/admin/login", bad, srv.URL); resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("attempt = %d\n%s", resp.StatusCode, body)
+		}
+	}
+	// The correct password is refused too: the IP and username are locked.
+	resp, body := b.post("/admin/login", url.Values{"username": {"boss"}, "password": {"boss-pass-1"}}, srv.URL)
+	if resp.StatusCode != http.StatusTooManyRequests || !strings.Contains(body, "Too many attempts") {
+		t.Fatalf("locked login = %d\n%s", resp.StatusCode, body)
+	}
+	// The lock is per IP: every account from this client is refused.
+	if resp, _ := b.post("/admin/login", url.Values{"username": {"viewer"}, "password": {"viewer-pass-1"}}, srv.URL); resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("other account from locked IP = %d", resp.StatusCode)
+	}
+	if len(store.sessions) != 0 { // nothing about the lock creates sessions
+		t.Fatal("session created during lockout")
+	}
+}
+
 func TestLoginFlow(t *testing.T) {
 	srv, store := newUI(t)
 	b := newBrowser(t, srv.URL)

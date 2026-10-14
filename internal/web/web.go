@@ -122,12 +122,13 @@ type Refresher interface {
 
 // Deps are the UI's collaborators.
 type Deps struct {
-	Auth    *auth.Authenticator
-	Store   Store
-	Refresh Refresher
-	Match   Matcher
-	Live    LiveStatus           // optional
-	Slots   func() map[int64]int // provider slots in use; optional
+	Auth       *auth.Authenticator
+	Store      Store
+	Refresh    Refresher
+	Match      Matcher
+	Live       LiveStatus           // optional
+	Slots      func() map[int64]int // provider slots in use; optional
+	LoginLimit *auth.Limiter        // locks out repeated login failures; optional
 	// Connections reports open customer streams per user; optional.
 	Connections func() map[int64]int
 	// InTx runs fn atomically (user + bouquet changes); nil runs directly.
@@ -208,6 +209,18 @@ func New(d Deps) (*UI, error) {
 		ui.pages[page] = t
 	}
 	return ui, nil
+}
+
+// waitString renders a wait for humans: "45 seconds", "5 minutes".
+func waitString(d time.Duration) string {
+	if d < time.Minute {
+		s := int(d.Seconds())
+		if s < 1 {
+			s = 1
+		}
+		return fmt.Sprintf("%d seconds", s)
+	}
+	return fmt.Sprintf("%d minutes", int(d.Minutes())+1)
 }
 
 // ago renders a past time coarsely ("3m ago"); nil is "never".
@@ -381,7 +394,19 @@ func (ui *UI) login(w http.ResponseWriter, r *http.Request) {
 	}
 	username, password := strings.TrimSpace(r.PostForm.Get("username")), r.PostForm.Get("password")
 	next := safeNext(r.PostForm.Get("next"))
+	keys := auth.AttemptKeys(r, username)
+	if ok, retry := ui.LoginLimit.Allowed(keys...); !ok {
+		msg := "Too many attempts. Try again in " + waitString(retry) + "."
+		ui.render(w, r, http.StatusTooManyRequests, "login", "Sign in", loginData{Username: username, Next: next, Error: msg})
+		return
+	}
 	token, _, err := ui.Auth.Login(r.Context(), username, password)
+	switch { // only password verdicts count; infrastructure errors do not
+	case err == nil:
+		ui.LoginLimit.Record(true, keys...)
+	case errors.Is(err, auth.ErrUnauthorized):
+		ui.LoginLimit.Record(false, keys...)
+	}
 	if err != nil {
 		status, msg := http.StatusUnauthorized, "Invalid username or password."
 		if !errors.Is(err, auth.ErrUnauthorized) {

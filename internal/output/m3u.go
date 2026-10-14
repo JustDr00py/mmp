@@ -37,6 +37,8 @@ type Handlers struct {
 	BaseURL string // no trailing slash
 	Log     *slog.Logger
 	Now     func() time.Time // guide window clock; nil = time.Now
+	// Limit locks out repeated password failures (nil = no limiting).
+	Limit *auth.Limiter
 }
 
 // Mount registers the customer routes on the root router.
@@ -93,12 +95,36 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 
 // authFail answers a failed customer auth. Players expect a bare 401.
 func (h *Handlers) authFail(w http.ResponseWriter, err error) {
+	var locked *auth.LockedError
+	if errors.As(err, &locked) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(locked.RetryAfter.Seconds())+1))
+		http.Error(w, "too many attempts", http.StatusTooManyRequests)
+		return
+	}
 	if !errors.Is(err, auth.ErrUnauthorized) {
 		h.Log.Error("output: auth lookup", "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
+}
+
+// authPassword authenticates a password-style request with failure lockout
+// (per client IP and per username). Locked-out attempts return a
+// *auth.LockedError; the caller picks the wire format its players expect.
+func (h *Handlers) authPassword(r *http.Request, user, pass string) (db.User, error) {
+	keys := auth.AttemptKeys(r, user)
+	if ok, retry := h.Limit.Allowed(keys...); !ok {
+		return db.User{}, &auth.LockedError{RetryAfter: retry}
+	}
+	u, err := h.Access.Customers.ByPassword(r.Context(), user, pass)
+	switch { // only password verdicts count; infrastructure errors do not
+	case err == nil:
+		h.Limit.Record(true, keys...)
+	case errors.Is(err, auth.ErrUnauthorized):
+		h.Limit.Record(false, keys...)
+	}
+	return u, err
 }
 
 // xtreamStreamURL is /live/<user>/<pass>/<id>.<ext> on MMP.
@@ -126,7 +152,7 @@ func (h *Handlers) tokenStreamURL(token string) func(int64) string {
 func (h *Handlers) getPHP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	user, pass := q.Get("username"), q.Get("password")
-	u, err := h.Access.Customers.ByPassword(r.Context(), user, pass)
+	u, err := h.authPassword(r, user, pass)
 	if err != nil {
 		h.authFail(w, err)
 		return

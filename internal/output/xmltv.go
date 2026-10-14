@@ -128,7 +128,7 @@ func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFe
 // xmltvPHP is the Xtream guide: /xmltv.php?username=&password=.
 func (h *Handlers) xmltvPHP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	u, err := h.Access.Customers.ByPassword(r.Context(), q.Get("username"), q.Get("password"))
+	u, err := h.authPassword(r, q.Get("username"), q.Get("password"))
 	if err != nil {
 		h.authFail(w, err)
 		return

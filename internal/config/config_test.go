@@ -101,6 +101,8 @@ func TestEnvOverridesYAML(t *testing.T) {
 	t.Setenv("MMP_PROXY_SORT_BY_HEALTH", "true")
 	t.Setenv("MMP_METRICS_TOKEN", "scrape-secret")
 	t.Setenv("MMP_PROBE_RECHECK", "15s")
+	t.Setenv("MMP_AUTH_MAX_ATTEMPTS", "25")
+	t.Setenv("MMP_AUTH_LOCKOUT", "2m")
 
 	c, err := Load(p)
 	if err != nil {
@@ -132,6 +134,9 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 	if !c.Probe.Enabled || c.Probe.Recheck.Duration != 15*time.Second || c.Probe.Interval.Duration != 30*time.Minute {
 		t.Errorf("probe = %+v", c.Probe)
+	}
+	if c.Auth.MaxAttempts != 25 || c.Auth.Lockout.Duration != 2*time.Minute {
+		t.Errorf("auth limiting = %d / %v, want 25 / 2m", c.Auth.MaxAttempts, c.Auth.Lockout)
 	}
 }
 
@@ -171,6 +176,8 @@ func TestValidate(t *testing.T) {
 		{"zero probe concurrency", func(c *Config) { c.Probe.Concurrency = 0 }, "probe"},
 		{"negative hls cap", func(c *Config) { c.Proxy.HLSMaxHeight = -1 }, "hls_max_height"},
 		{"zero match providers", func(c *Config) { c.Match.MinProviders = 0 }, "min_providers"},
+		{"negative attempts", func(c *Config) { c.Auth.MaxAttempts = -1 }, "max_attempts"},
+		{"limiting without lockout", func(c *Config) { c.Auth.Lockout.Duration = 0 }, "lockout"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

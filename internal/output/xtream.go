@@ -103,14 +103,16 @@ type xtreamTableListing struct {
 // Credentials may come in the query or a POSTed form.
 func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
 	user, pass := r.FormValue("username"), r.FormValue("password")
-	u, err := h.Access.Customers.ByPassword(r.Context(), user, pass)
+	u, err := h.authPassword(r, user, pass)
 	if err != nil {
-		if !errors.Is(err, auth.ErrUnauthorized) {
-			h.authFail(w, err)
+		var locked *auth.LockedError
+		if errors.As(err, &locked) || errors.Is(err, auth.ErrUnauthorized) {
+			// Panels answer bad credentials (and throttling) with auth 0,
+			// not an HTTP error.
+			writeXtream(w, map[string]any{"user_info": map[string]int{"auth": 0}})
 			return
 		}
-		// Panels answer bad credentials with auth 0, not an HTTP error.
-		writeXtream(w, map[string]any{"user_info": map[string]int{"auth": 0}})
+		h.authFail(w, err)
 		return
 	}
 

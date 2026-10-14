@@ -109,6 +109,10 @@ type Config struct {
 	} `yaml:"probe"`
 	Auth struct {
 		SessionTTL Duration `yaml:"session_ttl"` // admin browser session lifetime
+		// MaxAttempts failed password attempts (per IP and per username)
+		// before a lockout; 0 disables rate limiting.
+		MaxAttempts int      `yaml:"max_attempts"`
+		Lockout     Duration `yaml:"lockout"` // how long a lockout lasts
 	} `yaml:"auth"`
 	// Admin bootstraps the first admin user when none exists. Never logged.
 	Admin struct {
@@ -150,6 +154,8 @@ func Defaults() Config {
 	c.Probe.Sample = Duration{3 * time.Second}
 	c.Probe.Concurrency = 2
 	c.Auth.SessionTTL = Duration{7 * 24 * time.Hour}
+	c.Auth.MaxAttempts = 10
+	c.Auth.Lockout = Duration{5 * time.Minute}
 	return c
 }
 
@@ -265,6 +271,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_REFRESH_INTERVAL", &c.Refresh.Interval),
 		dur("MMP_REFRESH_EPG_INTERVAL", &c.Refresh.EPGInterval),
 		dur("MMP_AUTH_SESSION_TTL", &c.Auth.SessionTTL),
+		dur("MMP_AUTH_LOCKOUT", &c.Auth.Lockout),
+		intv("MMP_AUTH_MAX_ATTEMPTS", &c.Auth.MaxAttempts),
 		intv("MMP_PROXY_BUFFER_SIZE_MB", &c.Proxy.BufferSizeMB),
 		intv("MMP_PROXY_LOW_BITRATE_KBPS", &c.Proxy.LowBitrateKbps),
 		floatv("MMP_PROXY_MAX_CC_ERROR_RATE", &c.Proxy.MaxCCErrorRate),
@@ -309,6 +317,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.SessionTTL.Duration <= 0 {
 		return errors.New("config: auth.session_ttl must be > 0")
+	}
+	if c.Auth.MaxAttempts < 0 || (c.Auth.MaxAttempts > 0 && c.Auth.Lockout.Duration <= 0) {
+		return errors.New("config: auth.max_attempts must be >= 0 and auth.lockout > 0 when limiting")
 	}
 	if c.DB.MaxConns < 1 {
 		return errors.New("config: db.max_conns must be >= 1")

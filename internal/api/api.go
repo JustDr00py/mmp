@@ -27,6 +27,8 @@ type Env struct {
 	Streams StreamAttacher
 	// Auth guards every route but login. Nil disables auth (unit tests).
 	Auth *auth.Authenticator
+	// LoginLimit locks out repeated login failures (nil = no limiting).
+	LoginLimit *auth.Limiter
 	// InTx runs fn against a transactional Store. Nil runs fn directly on
 	// Store (unit tests with in-memory fakes).
 	InTx func(ctx context.Context, fn func(Store) error) error

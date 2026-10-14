@@ -912,6 +912,36 @@ func TestAdminAuth(t *testing.T) {
 	}
 }
 
+func TestAdminLoginLockout(t *testing.T) {
+	env := newAPITestEnv(t)
+	ctx := context.Background()
+	q := env.Store.(*db.Queries)
+	env.Auth = auth.NewAuthenticator(q, nil, time.Hour, false)
+	env.LoginLimit = auth.NewLimiter(3, time.Minute)
+	if err := auth.EnsureAdmin(ctx, q, slog.New(slog.DiscardHandler), "root", "root-pw1"); err != nil {
+		t.Fatal(err)
+	}
+	h := apiServer(env)
+
+	bad := map[string]any{"username": "root", "password": "wrong-pw"}
+	for range 3 {
+		if code, m, _ := call(t, h, http.MethodPost, "/api/v1/auth/login", bad); code != http.StatusUnauthorized || m["error"] != "invalid credentials" {
+			t.Fatalf("attempt = %d %v", code, m)
+		}
+	}
+	// The correct password is refused while locked: 429 + Retry-After.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"username":"root","password":"root-pw1"}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("locked login = %d Retry-After=%q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if n, _ := q.DeleteExpiredSessions(ctx); n != 0 {
+		t.Errorf("locked login created %d sessions", n)
+	}
+}
+
 func mustURL(t *testing.T, s string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(s)

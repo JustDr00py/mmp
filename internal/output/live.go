@@ -21,7 +21,7 @@ type StreamAttacher interface {
 
 // liveXtream is /live/{user}/{pass}/{id}.ts, the Xtream stream URL.
 func (h *Handlers) liveXtream(w http.ResponseWriter, r *http.Request) {
-	u, err := h.Access.Customers.ByPassword(r.Context(), chi.URLParam(r, "user"), chi.URLParam(r, "pass"))
+	u, err := h.authPassword(r, chi.URLParam(r, "user"), chi.URLParam(r, "pass"))
 	if err != nil {
 		h.authFail(w, err)
 		return
