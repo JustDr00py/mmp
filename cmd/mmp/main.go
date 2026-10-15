@@ -107,7 +107,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			StallTimeout:   pc.StallTimeout.Duration,
 			LowBitrateKbps: pc.LowBitrateKbps,
 			MaxCCErrorRate: pc.MaxCCErrorRate,
-			Window:         5 * time.Second,
+			Window:         max(pc.HealthWindow.Duration, pc.StallTimeout.Duration),
 		},
 		MaxRetryWindow: pc.MaxRetryWindow.Duration,
 		Log:            log,

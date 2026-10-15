@@ -327,7 +327,21 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 		batch = batch[:0]
 		return nil
 	}
+	// Provider guides repeat programmes (same channel and start) and carry
+	// zero-length ones; either would fail the whole COPY, so skip them.
+	type progKey struct {
+		channel string
+		start   int64
+	}
+	seen := map[progKey]struct{}{}
+	skipped := 0
 	err = epg.Parse(resp.Body, func(pr epg.Programme) error {
+		k := progKey{pr.Channel, pr.Start.UnixNano()}
+		if _, dup := seen[k]; dup || !pr.Stop.After(pr.Start) {
+			skipped++
+			return nil
+		}
+		seen[k] = struct{}{}
 		batch = append(batch, db.InsertEpgProgrammesParams{
 			EpgSourceID:  source.ID,
 			ChannelTvgID: pr.Channel,
@@ -348,6 +362,9 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 	if err := flush(); err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: %w", p.ID, err)
+	}
+	if skipped > 0 {
+		r.log.Info("epg: skipped duplicate or empty programmes", "provider_id", p.ID, "skipped", skipped)
 	}
 	if err := q.MarkEpgSourceRefreshed(ctx, source.ID); err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: mark: %w", p.ID, err)

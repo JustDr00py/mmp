@@ -26,8 +26,8 @@ func TestLoadDefaults(t *testing.T) {
 	if c.Listen != ":8080" {
 		t.Errorf("listen = %q, want :8080", c.Listen)
 	}
-	if c.Proxy.StallTimeout.Duration != 5*time.Second {
-		t.Errorf("stall_timeout = %v, want 5s", c.Proxy.StallTimeout)
+	if c.Proxy.StallTimeout.Duration != 12*time.Second || c.Proxy.HealthWindow.Duration != 15*time.Second {
+		t.Errorf("stall_timeout / health_window = %v / %v, want 12s / 15s", c.Proxy.StallTimeout, c.Proxy.HealthWindow)
 	}
 	if c.Proxy.IdleGrace.Duration != 10*time.Second {
 		t.Errorf("idle_grace = %v, want 10s", c.Proxy.IdleGrace)
@@ -50,7 +50,7 @@ base_url: http://tv.example.com
 log: {level: debug, format: json}
 db: {dsn: "postgres://u:p@db:5432/x?sslmode=disable", max_conns: 3}
 proxy:
-  stall_timeout: 12s
+  stall_timeout: 20s
   idle_grace: 1m
   buffer_size_mb: 64
 `)
@@ -70,8 +70,8 @@ proxy:
 	if c.DB.MaxConns != 3 {
 		t.Errorf("max_conns = %d", c.DB.MaxConns)
 	}
-	if c.Proxy.StallTimeout.Duration != 12*time.Second {
-		t.Errorf("stall_timeout = %v, want 12s", c.Proxy.StallTimeout)
+	if c.Proxy.StallTimeout.Duration != 20*time.Second {
+		t.Errorf("stall_timeout = %v, want 20s", c.Proxy.StallTimeout)
 	}
 	if c.Proxy.IdleGrace.Duration != time.Minute {
 		t.Errorf("idle_grace = %v, want 1m", c.Proxy.IdleGrace)
@@ -174,6 +174,7 @@ func TestValidate(t *testing.T) {
 		{"cc rate too big", func(c *Config) { c.Proxy.MaxCCErrorRate = 2 }, "cc_error_rate"},
 		{"refresh interval too short", func(c *Config) { c.Refresh.Interval = Duration{10 * time.Second} }, "refresh.interval"},
 		{"disable pct too big", func(c *Config) { c.Refresh.MaxDisablePct = 101 }, "max_disable_pct"},
+		{"zero health window", func(c *Config) { c.Proxy.HealthWindow = Duration{} }, "health_window"},
 		{"tiny hls window", func(c *Config) { c.HLS.Window = 1 }, "hls"},
 		{"zero probe concurrency", func(c *Config) { c.Probe.Concurrency = 0 }, "probe"},
 		{"negative hls cap", func(c *Config) { c.Proxy.HLSMaxHeight = -1 }, "hls_max_height"},

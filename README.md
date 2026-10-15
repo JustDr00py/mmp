@@ -200,7 +200,8 @@ admin:                        # only used to create the first admin
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
-| `proxy.stall_timeout` | `MMP_PROXY_STALL_TIMEOUT` | `5s` | no stream data for this long → fail over |
+| `proxy.stall_timeout` | `MMP_PROXY_STALL_TIMEOUT` | `12s` | no stream data for this long → fail over. Many providers deliver in bursts with several-second gaps; too short a value makes working streams fail over again and again |
+| `proxy.health_window` | `MMP_PROXY_HEALTH_WINDOW` | `15s` | span the bitrate and corruption checks look at (at least `stall_timeout`) |
 | `proxy.connect_timeout` | `MMP_PROXY_CONNECT_TIMEOUT` | `7s` | time allowed to connect to a provider and get headers |
 | `proxy.low_bitrate_kbps` | `MMP_PROXY_LOW_BITRATE_KBPS` | `20` | fail over below this bitrate; `0` disables the check |
 | `proxy.max_cc_error_rate` | `MMP_PROXY_MAX_CC_ERROR_RATE` | `0.05` | fail over above this share of corrupted (continuity-error) packets |
@@ -350,7 +351,7 @@ uses one of their connections and one of the provider's.
 |---|---|
 | Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the Dashboard's recent events (open failures, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
-| A channel keeps switching providers | Dashboard events show why (stall, low bitrate, corruption); tune `proxy.*` thresholds or the failover order |
+| A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps. `eof` right after a switch can be the provider kicking a connection over its limit |
 | Channel shows no guide | Guide page → *Only channels without a guide*; set the channel's tvg-id to the guide's channel id; check the source downloaded |
 | "refresh refused: would disable …" | the provider returned far fewer streams than before (often temporary). Retry later, or use *Disable anyway* if the change is real |
 | Refresh fails with "connection refused" / timeout for a provider on the same machine | inside the container, `localhost` is the container itself: use the host's LAN IP in the provider URL |

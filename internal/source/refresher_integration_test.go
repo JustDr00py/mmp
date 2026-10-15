@@ -289,6 +289,29 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if src.LastRefreshedAt == nil {
 		t.Error("epg source last_refreshed_at not set")
 	}
+
+	// Real guides repeat programmes (here more than one COPY batch apart)
+	// and carry zero-length ones: both are skipped, the rest imports.
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><tv>`)
+	dup := `<programme start="20261013200000 +0000" stop="20261013210000 +0000" channel="us.abc"><title>Dup</title></programme>`
+	b.WriteString(dup)
+	start := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+	for i := range programmeChunk + 10 {
+		st := start.Add(time.Duration(i) * time.Minute)
+		fmt.Fprintf(&b, `<programme start="%s" stop="%s" channel="us.nbc"><title>P%d</title></programme>`,
+			st.Format("20060102150405 -0700"), st.Add(time.Minute).Format("20060102150405 -0700"), i)
+	}
+	b.WriteString(dup) // a repeat in a later batch
+	b.WriteString(`<programme start="20261015000000 +0000" stop="20261015000000 +0000" channel="us.abc"><title>Empty</title></programme>`)
+	b.WriteString(`</tv>`)
+	guide.Store(b.String())
+	if _, err := ref.RefreshEPG(ctx, p); err != nil {
+		t.Fatalf("epg refresh with duplicates: %v", err)
+	}
+	if n, _ := q.CountEpgProgrammes(ctx, src.ID); n != int64(programmeChunk+11) {
+		t.Errorf("programmes = %d, want %d (duplicate and empty skipped)", n, programmeChunk+11)
+	}
 }
 
 // playlist builds an M3U with streams n0..n(count-1).

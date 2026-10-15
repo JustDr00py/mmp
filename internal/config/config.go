@@ -66,6 +66,10 @@ type Config struct {
 		BufferSizeMB   int      `yaml:"buffer_size_mb"`    // ring buffer per session
 		LowBitrateKbps int      `yaml:"low_bitrate_kbps"`  // 0 disables the low-bitrate check
 		MaxCCErrorRate float64  `yaml:"max_cc_error_rate"` // TS continuity-error fraction per window
+		// HealthWindow is the span the bitrate and continuity checks look
+		// at. Many providers deliver in multi-second bursts, so it must be
+		// longer than their gaps; stall_timeout is used if it is longer.
+		HealthWindow Duration `yaml:"health_window"`
 		// HLS master playlists: the best variant within these caps (0 = no cap).
 		HLSMaxBandwidthKbps int `yaml:"hls_max_bandwidth_kbps"`
 		HLSMaxHeight        int `yaml:"hls_max_height"`
@@ -141,7 +145,10 @@ func Defaults() Config {
 	c.DB.MaxConns = 8
 	c.HTTP.ReadHeaderTimeout = Duration{10 * time.Second}
 	c.HTTP.ShutdownTimeout = Duration{15 * time.Second}
-	c.Proxy.StallTimeout = Duration{5 * time.Second}
+	// Real panels often deliver in bursts with 4-7s gaps (restreamed HLS);
+	// a shorter stall timeout fails over working streams again and again.
+	c.Proxy.StallTimeout = Duration{12 * time.Second}
+	c.Proxy.HealthWindow = Duration{15 * time.Second}
 	c.Proxy.ConnectTimeout = Duration{7 * time.Second}
 	c.Proxy.IdleGrace = Duration{10 * time.Second}
 	c.Proxy.MaxRetryWindow = Duration{30 * time.Second}
@@ -275,6 +282,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_HTTP_READ_HEADER_TIMEOUT", &c.HTTP.ReadHeaderTimeout),
 		dur("MMP_HTTP_SHUTDOWN_TIMEOUT", &c.HTTP.ShutdownTimeout),
 		dur("MMP_PROXY_STALL_TIMEOUT", &c.Proxy.StallTimeout),
+		dur("MMP_PROXY_HEALTH_WINDOW", &c.Proxy.HealthWindow),
 		dur("MMP_PROXY_CONNECT_TIMEOUT", &c.Proxy.ConnectTimeout),
 		dur("MMP_PROXY_IDLE_GRACE", &c.Proxy.IdleGrace),
 		dur("MMP_PROXY_MAX_RETRY_WINDOW", &c.Proxy.MaxRetryWindow),
@@ -354,6 +362,9 @@ func (c *Config) Validate() error {
 		p.IdleGrace.Duration < 0 || p.MaxRetryWindow.Duration <= 0 ||
 		p.CooldownBase.Duration <= 0 || p.CooldownMax.Duration < p.CooldownBase.Duration {
 		return errors.New("config: proxy timeouts are inconsistent (stall/connect/retry/cooldowns must be > 0; cooldown_max >= cooldown_base)")
+	}
+	if p.HealthWindow.Duration <= 0 {
+		return errors.New("config: proxy.health_window must be > 0")
 	}
 	if p.BufferSizeMB < 1 {
 		return errors.New("config: proxy.buffer_size_mb must be >= 1")
