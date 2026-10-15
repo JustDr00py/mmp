@@ -95,6 +95,11 @@ type Config struct {
 		Window  int      `yaml:"window"`       // segments in the playlist
 		Idle    Duration `yaml:"idle_timeout"` // client silent this long has left (frees its slot)
 	} `yaml:"hls"`
+	// VOD tunes movie/series pass-through.
+	VOD struct {
+		InfoTTL    Duration `yaml:"info_ttl"`    // re-fetch a movie's get_vod_info after this
+		EpisodeTTL Duration `yaml:"episode_ttl"` // re-fetch a series' episodes after this
+	} `yaml:"vod"`
 	// Metrics is the Prometheus endpoint (/metrics).
 	Metrics struct {
 		Enabled bool   `yaml:"enabled"`
@@ -149,6 +154,8 @@ func Defaults() Config {
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Refresh.MaxDisablePct = 80
 	c.Match.MinProviders = 2
+	c.VOD.InfoTTL = Duration{24 * time.Hour}
+	c.VOD.EpisodeTTL = Duration{6 * time.Hour}
 	c.Metrics.Enabled = true
 	c.HLS.Enabled = true
 	c.HLS.Segment = Duration{2 * time.Second}
@@ -286,6 +293,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_PROXY_SORT_BY_HEALTH", &c.Proxy.SortByHealth),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		dur("MMP_VOD_INFO_TTL", &c.VOD.InfoTTL),
+		dur("MMP_VOD_EPISODE_TTL", &c.VOD.EpisodeTTL),
 		boolv("MMP_METRICS_ENABLED", &c.Metrics.Enabled),
 		boolv("MMP_HLS_ENABLED", &c.HLS.Enabled),
 		dur("MMP_HLS_SEGMENT", &c.HLS.Segment),
@@ -366,6 +375,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Refresh.Interval.Duration < time.Minute || c.Refresh.EPGInterval.Duration < time.Minute {
 		return errors.New("config: refresh.interval and refresh.epg_interval must be at least 1m")
+	}
+	if c.VOD.InfoTTL.Duration < 0 || c.VOD.EpisodeTTL.Duration < 0 {
+		return errors.New("config: vod.info_ttl and vod.episode_ttl must be >= 0")
 	}
 	if c.Refresh.MaxDisablePct < 0 || c.Refresh.MaxDisablePct > 100 {
 		return errors.New("config: refresh.max_disable_pct must be within [0,100]")

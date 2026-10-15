@@ -1,0 +1,12 @@
+[
+  {
+    "category_id": "1",
+    "category_name": "Action",
+    "parent_id": 0
+  },
+  {
+    "category_id": "2",
+    "category_name": "Kids & <Family>",
+    "parent_id": 0
+  }
+]

@@ -245,3 +245,18 @@ func (c *Client) apiURLWith(action string, extra url.Values) string {
 	}
 	return u
 }
+
+// VODInfo fetches get_vod_info for one movie and returns its "info" block
+// (an object; nil when the panel has none).
+func (c *Client) VODInfo(ctx context.Context, streamID string) (json.RawMessage, error) {
+	var out struct {
+		Info json.RawMessage `json:"info"`
+	}
+	if err := c.get(ctx, c.apiURLWith("get_vod_info", url.Values{"vod_id": {streamID}}), &out); err != nil {
+		return nil, err
+	}
+	if b := bytes.TrimSpace(out.Info); len(b) > 0 && b[0] == '{' {
+		return out.Info, nil
+	}
+	return nil, nil
+}

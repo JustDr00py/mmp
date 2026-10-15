@@ -126,8 +126,10 @@ func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	case "get_live_categories", "get_live_streams", "get_short_epg", "get_simple_data_table":
 	default:
-		// VOD, series, and anything unknown: empty, as on a live-only panel.
-		writeXtream(w, []any{})
+		if h.serveVOD(w, r, u, action) {
+			return
+		}
+		writeXtream(w, []any{}) // unknown action: empty, as panels answer
 		return
 	}
 

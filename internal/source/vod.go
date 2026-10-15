@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -296,4 +297,60 @@ func (r *Refresher) fetchEpisodes(ctx context.Context, p db.Provider, s db.Serie
 		return nil, err
 	}
 	return db.New(r.pool).ListSeriesEpisodes(ctx, s.ID)
+}
+
+// MovieInfo returns a movie's panel info block, fetching get_vod_info when
+// it was never fetched or is older than ttl. On a panel error the cached
+// block (possibly nil) is returned with the error logged.
+func (r *Refresher) MovieInfo(ctx context.Context, itemID int64, ttl time.Duration) (json.RawMessage, error) {
+	q := db.New(r.pool)
+	item, err := q.GetVODItem(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if item.InfoFetchedAt != nil && time.Since(*item.InfoFetchedAt) < ttl {
+		return item.Info, nil
+	}
+	p, err := q.GetProvider(ctx, item.ProviderID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Type != "xtream" {
+		return item.Info, nil
+	}
+	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	if err != nil {
+		return item.Info, err
+	}
+	info, err := client.VODInfo(ctx, item.ExternalID)
+	if err != nil {
+		r.log.Warn("movie info: panel fetch failed, serving cached", "vod_item_id", item.ID, "err", err)
+		return item.Info, nil
+	}
+	if err := q.SetVODItemInfo(ctx, db.SetVODItemInfoParams{ID: item.ID, Info: info}); err != nil {
+		r.log.Warn("movie info: cache write failed", "vod_item_id", item.ID, "err", err)
+	}
+	return info, nil
+}
+
+// SeriesEpisodesByID is SeriesEpisodes for a series id; it also returns
+// the series row (with its cached info block) as stored after the fetch.
+func (r *Refresher) SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error) {
+	q := db.New(r.pool)
+	s, err := q.GetSeries(ctx, seriesID)
+	if err != nil {
+		return s, nil, err
+	}
+	p, err := q.GetProvider(ctx, s.ProviderID)
+	if err != nil {
+		return s, nil, err
+	}
+	eps, err := r.SeriesEpisodes(ctx, p, s, ttl)
+	if err != nil {
+		return s, nil, err
+	}
+	if fresh, err := q.GetSeries(ctx, seriesID); err == nil {
+		s = fresh
+	}
+	return s, eps, nil
 }

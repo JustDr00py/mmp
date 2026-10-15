@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,13 +22,14 @@ import (
 // fakeVODPanel serves a mutable movie/series catalog the way real panels
 // do (mixed string/number types, duplicate ids).
 type fakeVODPanel struct {
-	mu        sync.Mutex
-	movies    []map[string]any
-	shows     []map[string]any
-	episodes  map[string]any // series_id -> episodes payload
-	infoHits  atomic.Int32
-	infoFails atomic.Bool
-	srv       *httptest.Server
+	mu          sync.Mutex
+	movies      []map[string]any
+	shows       []map[string]any
+	episodes    map[string]any // series_id -> episodes payload
+	infoHits    atomic.Int32
+	vodInfoHits atomic.Int32
+	infoFails   atomic.Bool
+	srv         *httptest.Server
 }
 
 func newFakeVODPanel(t *testing.T) *fakeVODPanel {
@@ -47,6 +49,14 @@ func newFakeVODPanel(t *testing.T) *fakeVODPanel {
 			out = f.movies
 		case "get_series":
 			out = f.shows
+		case "get_vod_info":
+			f.vodInfoHits.Add(1)
+			if f.infoFails.Load() {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			out = map[string]any{"info": map[string]any{"plot": "Movie plot " + r.URL.Query().Get("vod_id"), "duration_secs": 5400},
+				"movie_data": map[string]any{"stream_id": r.URL.Query().Get("vod_id")}}
 		case "get_series_info":
 			f.infoHits.Add(1)
 			if f.infoFails.Load() {
@@ -194,6 +204,23 @@ func TestRefreshVOD(t *testing.T) {
 	if show, _ = q.GetSeries(ctx, showID); show.EpisodesFetchedAt != nil {
 		t.Error("last_modified change did not invalidate the episode cache")
 	}
+
+	// Movie info: fetched once, cached within the TTL, served from cache
+	// when the panel fails.
+	var movieID int64
+	w.pool.QueryRow(ctx, `SELECT id FROM vod_items WHERE provider_id=$1 AND external_id='110'`, p.ID).Scan(&movieID)
+	info, err := ref.MovieInfo(ctx, movieID, time.Hour)
+	if err != nil || !strings.Contains(string(info), "Movie plot 110") || panel.vodInfoHits.Load() != 1 {
+		t.Fatalf("movie info = %s, %v (hits %d)", info, err, panel.vodInfoHits.Load())
+	}
+	if _, err := ref.MovieInfo(ctx, movieID, time.Hour); err != nil || panel.vodInfoHits.Load() != 1 {
+		t.Errorf("within TTL refetched: hits %d", panel.vodInfoHits.Load())
+	}
+	panel.infoFails.Store(true)
+	if info, err := ref.MovieInfo(ctx, movieID, 0); err != nil || !strings.Contains(string(info), "Movie plot 110") || panel.vodInfoHits.Load() != 2 {
+		t.Errorf("panel down: %s, %v (hits %d)", info, err, panel.vodInfoHits.Load())
+	}
+	panel.infoFails.Store(false)
 
 	// Scheduled refreshes import VOD for vod_enabled panels, even one
 	// without live channels (its live refresh fails).

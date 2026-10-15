@@ -1,0 +1,82 @@
+{
+  "episodes": {
+    "1": [
+      {
+        "id": "701",
+        "episode_num": 1,
+        "title": "Pilot",
+        "container_extension": "mkv",
+        "info": {
+          "duration_secs": 2700,
+          "duration": "00:45:00",
+          "plot": "First."
+        },
+        "custom_sid": "",
+        "added": "1700000100",
+        "season": 1,
+        "direct_source": ""
+      },
+      {
+        "id": "702",
+        "episode_num": 2,
+        "title": "Second",
+        "container_extension": "mkv",
+        "info": {
+          "duration_secs": 2650,
+          "duration": "00:44:10"
+        },
+        "custom_sid": "",
+        "added": "0",
+        "season": 1,
+        "direct_source": ""
+      }
+    ],
+    "2": [
+      {
+        "id": "801",
+        "episode_num": 1,
+        "title": "Return",
+        "container_extension": "mp4",
+        "info": {
+          "duration_secs": 3000,
+          "duration": "00:50:00",
+          "movie_image": "http://img.example/s2e1.jpg"
+        },
+        "custom_sid": "",
+        "added": "0",
+        "season": 2,
+        "direct_source": ""
+      }
+    ]
+  },
+  "info": {
+    "backdrop_path": [],
+    "cast": "A, B",
+    "category_id": "5",
+    "cover": "http://img.example/show.jpg",
+    "director": "D",
+    "episode_run_time": "45",
+    "genre": "Drama",
+    "last_modified": "1700000500",
+    "name": "The Show",
+    "plot": "Panel plot",
+    "rating": "8",
+    "rating_5based": 4,
+    "releaseDate": "2020-01-01",
+    "youtube_trailer": "abc"
+  },
+  "seasons": [
+    {
+      "season_number": 1,
+      "name": "Season 1",
+      "episode_count": 2,
+      "cover": "http://img.example/show.jpg"
+    },
+    {
+      "season_number": 2,
+      "name": "Season 2",
+      "episode_count": 1,
+      "cover": "http://img.example/show.jpg"
+    }
+  ]
+}

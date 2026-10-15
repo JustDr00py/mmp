@@ -1,0 +1,24 @@
+{
+  "info": {
+    "backdrop_path": [
+      "http://img.example/bd.jpg"
+    ],
+    "duration": "02:12:00",
+    "duration_secs": 7920,
+    "genre": "Action",
+    "movie_image": "http://img.example/dh.jpg",
+    "name": "Die Hard",
+    "plot": "An officer...",
+    "rating": "7.5",
+    "tmdb_id": "562"
+  },
+  "movie_data": {
+    "stream_id": 101,
+    "name": "Die Hard",
+    "added": "1700000000",
+    "category_id": "1",
+    "container_extension": "mkv",
+    "custom_sid": "",
+    "direct_source": ""
+  }
+}

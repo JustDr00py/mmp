@@ -237,3 +237,9 @@ WHERE e.id = sqlc.arg('id')
         SELECT 1 FROM bouquet_vod_categories bv
         JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
         WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')));
+
+-- name: GetVODItem :one
+SELECT * FROM vod_items WHERE id = $1;
+
+-- name: SetVODItemInfo :exec
+UPDATE vod_items SET info = $2, info_fetched_at = now() WHERE id = $1;

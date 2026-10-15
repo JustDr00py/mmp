@@ -1,0 +1,20 @@
+[
+  {
+    "num": 1,
+    "name": "Die Hard",
+    "stream_type": "movie",
+    "stream_id": 101,
+    "stream_icon": "http://img.example/dh.jpg",
+    "rating": "7.5",
+    "rating_5based": 3.8,
+    "added": "1700000000",
+    "is_adult": "0",
+    "category_id": "1",
+    "category_ids": [
+      1
+    ],
+    "container_extension": "mkv",
+    "custom_sid": "",
+    "direct_source": ""
+  }
+]

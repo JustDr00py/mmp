@@ -33,8 +33,9 @@ type Handlers struct {
 	Access  *Access
 	Store   Store
 	Streams StreamAttacher
-	HLS     *HLS   // nil: .m3u8 stream URLs are not served
-	BaseURL string // no trailing slash
+	HLS     *HLS      // nil: .m3u8 stream URLs are not served
+	VOD     VODSource // nil: movie/series actions answer empty
+	BaseURL string    // no trailing slash
 	Log     *slog.Logger
 	Now     func() time.Time // guide window clock; nil = time.Now
 	// Limit locks out repeated password failures (nil = no limiting).

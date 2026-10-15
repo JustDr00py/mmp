@@ -304,6 +304,33 @@ func (q *Queries) GetUserVODItem(ctx context.Context, arg GetUserVODItemParams) 
 	return i, err
 }
 
+const getVODItem = `-- name: GetVODItem :one
+SELECT id, provider_id, external_id, name, category_external_id, icon, rating, container_extension, tmdb_id, added_at, info, info_fetched_at, disabled, last_seen, created_at FROM vod_items WHERE id = $1
+`
+
+func (q *Queries) GetVODItem(ctx context.Context, id int64) (VodItem, error) {
+	row := q.db.QueryRow(ctx, getVODItem, id)
+	var i VodItem
+	err := row.Scan(
+		&i.ID,
+		&i.ProviderID,
+		&i.ExternalID,
+		&i.Name,
+		&i.CategoryExternalID,
+		&i.Icon,
+		&i.Rating,
+		&i.ContainerExtension,
+		&i.TmdbID,
+		&i.AddedAt,
+		&i.Info,
+		&i.InfoFetchedAt,
+		&i.Disabled,
+		&i.LastSeen,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listBouquetVODCategories = `-- name: ListBouquetVODCategories :many
 SELECT c.id, c.provider_id, c.kind, c.name, c.disabled
 FROM bouquet_vod_categories b
@@ -814,6 +841,20 @@ type SetProviderVODEnabledParams struct {
 
 func (q *Queries) SetProviderVODEnabled(ctx context.Context, arg SetProviderVODEnabledParams) error {
 	_, err := q.db.Exec(ctx, setProviderVODEnabled, arg.ID, arg.VodEnabled)
+	return err
+}
+
+const setVODItemInfo = `-- name: SetVODItemInfo :exec
+UPDATE vod_items SET info = $2, info_fetched_at = now() WHERE id = $1
+`
+
+type SetVODItemInfoParams struct {
+	ID   int64  `json:"id"`
+	Info []byte `json:"info"`
+}
+
+func (q *Queries) SetVODItemInfo(ctx context.Context, arg SetVODItemInfoParams) error {
+	_, err := q.db.Exec(ctx, setVODItemInfo, arg.ID, arg.Info)
 	return err
 }
 

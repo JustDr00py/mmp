@@ -1,0 +1,23 @@
+[
+  {
+    "num": 1,
+    "name": "The Show",
+    "series_id": 7,
+    "cover": "http://img.example/show.jpg",
+    "plot": "A plot.",
+    "cast": "A, B",
+    "director": "D",
+    "genre": "Drama",
+    "releaseDate": "2020-01-01",
+    "last_modified": "1700000500",
+    "rating": "8",
+    "rating_5based": 4,
+    "backdrop_path": [],
+    "youtube_trailer": "",
+    "episode_run_time": "",
+    "category_id": "5",
+    "category_ids": [
+      5
+    ]
+  }
+]
