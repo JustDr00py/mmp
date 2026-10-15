@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,11 @@ import (
 
 // fakeVOD: categories 1 Action and 2 Kids (movies), 5 Drama (series).
 // Alice (user 1) is granted Action and Drama; admins see everything.
-type fakeVOD struct{ infoCalls int }
+type fakeVOD struct {
+	infoCalls int
+	panelURL  string
+	maxConns  int32
+}
 
 func f32(v float32) *float32 { return &v }
 func tp(u int64) *time.Time  { t := time.Unix(u, 0); return &t }
@@ -65,7 +70,7 @@ func (f *fakeVOD) ListUserSeries(_ context.Context, a db.ListUserSeriesParams) (
 func (f *fakeVOD) GetUserVODItem(_ context.Context, a db.GetUserVODItemParams) (db.GetUserVODItemRow, error) {
 	for _, m := range movies {
 		if m.ID == a.ID && granted(a.UserID, a.IsAdmin, m.CategoryID) {
-			return db.GetUserVODItemRow{ID: m.ID, Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
+			return db.GetUserVODItemRow{ID: m.ID, ProviderID: 1, ExternalID: strconv.FormatInt(m.ID-90, 10), Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
 				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID}, nil
 		}
 	}
@@ -83,8 +88,17 @@ func (f *fakeVOD) GetUserSeries(_ context.Context, a db.GetUserSeriesParams) (db
 		Genre: show.Genre, ReleaseDate: show.ReleaseDate, Rating: show.Rating, LastModified: show.LastModified, CategoryID: show.CategoryID}, nil
 }
 
-func (f *fakeVOD) GetUserEpisode(context.Context, db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error) {
+func (f *fakeVOD) GetUserEpisode(_ context.Context, a db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error) {
+	if a.ID == 701 && granted(a.UserID, a.IsAdmin, 5) {
+		return db.GetUserEpisodeRow{ID: 701, ExternalID: "7001", ContainerExtension: "mkv", SeriesID: 7, ProviderID: 1}, nil
+	}
 	return db.GetUserEpisodeRow{}, pgx.ErrNoRows
+}
+
+// GetProvider is the panel behind every item: f.panelURL (set by playback
+// tests), allowing f.maxConns connections.
+func (f *fakeVOD) GetProvider(_ context.Context, id int64) (db.Provider, error) {
+	return db.Provider{ID: id, Type: "xtream", Url: f.panelURL, Username: "puser", Password: "ppass", MaxConnections: f.maxConns, Enabled: true}, nil
 }
 
 // MovieInfo is a panel info block, including a provider playback URL that

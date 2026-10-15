@@ -170,6 +170,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
 	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log,
 		Limit: loginLimit}
+	outputs.Slots = capacity // VOD playback shares provider slots with live sessions
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
 		InfoTTL: cfg.VOD.InfoTTL.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration}
 	if hc := cfg.HLS; hc.Enabled {

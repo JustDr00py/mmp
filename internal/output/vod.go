@@ -28,6 +28,7 @@ type VODSource interface {
 	GetUserVODItem(ctx context.Context, arg db.GetUserVODItemParams) (db.GetUserVODItemRow, error)
 	GetUserSeries(ctx context.Context, arg db.GetUserSeriesParams) (db.GetUserSeriesRow, error)
 	GetUserEpisode(ctx context.Context, arg db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error)
+	GetProvider(ctx context.Context, id int64) (db.Provider, error)
 	// MovieInfo is the panel's get_vod_info "info" block (cached).
 	MovieInfo(ctx context.Context, itemID int64) (json.RawMessage, error)
 	// SeriesEpisodes loads a series' episodes (cached) with its info block.

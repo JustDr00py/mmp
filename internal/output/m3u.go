@@ -17,6 +17,7 @@ import (
 
 	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/proxy"
 )
 
 // Store is what the customer outputs read (satisfied by *db.Queries).
@@ -35,9 +36,15 @@ type Handlers struct {
 	Streams StreamAttacher
 	HLS     *HLS      // nil: .m3u8 stream URLs are not served
 	VOD     VODSource // nil: movie/series actions answer empty
-	BaseURL string    // no trailing slash
-	Log     *slog.Logger
-	Now     func() time.Time // guide window clock; nil = time.Now
+	// Slots enforces provider connection limits for VOD playback (shared
+	// with live sessions); nil = unenforced (tests).
+	Slots *proxy.Capacity
+	// VODClient fetches movies/episodes; nil = a default client.
+	VODClient *http.Client
+	vodLeases vodLeases
+	BaseURL   string // no trailing slash
+	Log       *slog.Logger
+	Now       func() time.Time // guide window clock; nil = time.Now
 	// Limit locks out repeated password failures (nil = no limiting).
 	Limit *auth.Limiter
 }
@@ -55,6 +62,7 @@ func (h *Handlers) Mount(r chi.Router) {
 	if h.HLS != nil {
 		h.HLS.Mount(r)
 	}
+	h.mountVOD(r)
 }
 
 // Channel is one playable channel as customers see it.
