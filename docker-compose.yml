@@ -30,8 +30,8 @@ services:
       MMP_DB_DSN: postgres://mmp:mmp@postgres:5432/mmp?sslmode=disable
       MMP_BASE_URL: http://localhost:8080
       # Bootstrap the first admin on first start:
-      # MMP_ADMIN_USERNAME: admin
-      # MMP_ADMIN_PASSWORD: change-me
+      MMP_ADMIN_USERNAME: sysadmin
+      MMP_ADMIN_PASSWORD: change-me
     ports:
       - "8080:8080"
     healthcheck:

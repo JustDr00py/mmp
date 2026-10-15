@@ -461,3 +461,71 @@ func TestCooldownsBackoff(t *testing.T) {
 		t.Error("reset did not clear history")
 	}
 }
+
+// TestFailoverTiming (PLAN verification): the viewer keeps receiving, and
+// B takes over within stall_timeout + ε of A stalling, or within ε when A
+// fails outright or has no free slot.
+func TestFailoverTiming(t *testing.T) {
+	const stall = 300 * time.Millisecond
+	const eps = 700 * time.Millisecond
+	for _, tc := range []struct {
+		name, modeA string
+		holdSlot    bool
+		minGap      time.Duration // lower bound on the A→B gap (stall must actually be detected)
+		maxGap      time.Duration
+	}{
+		{"stall", "stall", false, stall * 8 / 10, stall + eps},
+		{"eof", "eof", false, 0, eps},
+		{"503", "503", false, 0, eps},
+		{"slot full", "ok", true, 0, eps},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newFakeProvider(t, 'A', tc.modeA, 400)
+			b := newFakeProvider(t, 'B', "ok", 0)
+			start := time.Now()
+			h := startSession(t, []Candidate{
+				{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL + "/1.ts"},
+				{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+			}, func(cfg *SessionConfig) {
+				cfg.Thresholds.StallTimeout = stall
+				if tc.holdSlot {
+					cfg.Capacity.TryAcquire(1, 1)
+				}
+			})
+			var lastA, firstB time.Time
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			buf := make([]byte, TSPacketSize)
+			for firstB.IsZero() {
+				if _, err := io.ReadFull(readerCtx{ctx, h.viewer}, buf); err != nil {
+					t.Fatalf("viewer stream broke: %v", err)
+				}
+				switch tagOf(buf) {
+				case 'A':
+					lastA = time.Now()
+				case 'B':
+					firstB = time.Now()
+				}
+			}
+			from := lastA
+			if from.IsZero() { // A never played: measure from session start
+				from = start
+			}
+			if gap := firstB.Sub(from); gap < tc.minGap || gap > tc.maxGap {
+				t.Errorf("A→B gap %v, want within [%v, %v]", gap, tc.minGap, tc.maxGap)
+			}
+			// And the viewer keeps receiving B afterwards on the same reader.
+			if _, err := h.watch(t, 3*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+				t.Errorf("viewer stopped after the switch: %v", err)
+			}
+		})
+	}
+}
+
+// readerCtx adapts a ring Reader to io.Reader for io.ReadFull.
+type readerCtx struct {
+	ctx context.Context
+	rd  *Reader
+}
+
+func (r readerCtx) Read(p []byte) (int, error) { return r.rd.Read(r.ctx, p) }
