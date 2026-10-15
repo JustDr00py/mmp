@@ -205,3 +205,46 @@ func TestVODDecodesAsPanel(t *testing.T) {
 		t.Errorf("vod info = %s %v", vi, err)
 	}
 }
+
+func (f *fakeVOD) ListUserCachedEpisodes(_ context.Context, a db.ListUserCachedEpisodesParams) ([]db.ListUserCachedEpisodesRow, error) {
+	if !granted(a.UserID, a.IsAdmin, 5) {
+		return nil, nil
+	}
+	return []db.ListUserCachedEpisodesRow{
+		{ID: 701, Season: 1, EpisodeNum: 1, Title: "Pilot", ContainerExtension: "mkv", SeriesID: 7, SeriesName: "The Show", Cover: "http://img.example/show.jpg"},
+		{ID: 702, Season: 1, EpisodeNum: 2, Title: "Evil\n#EXTINF:-1,Injected", ContainerExtension: "mkv", SeriesID: 7, SeriesName: "The Show"},
+	}, nil
+}
+
+func TestPlaylistVODEntries(t *testing.T) {
+	h, _ := newVODHandlers(t)
+	const q = "/get.php?username=alice&password=alice-pw1&type=m3u_plus"
+
+	_, _, plain := get(t, h, q)
+	if strings.Contains(plain, "/movie/") || strings.Contains(plain, "/series/") {
+		t.Errorf("VOD entries without the flag:\n%s", plain)
+	}
+
+	_, _, withVOD := get(t, h, q+"&vod=1")
+	wantMovie := `#EXTINF:-1 tvg-name="Die Hard" tvg-logo="http://img.example/dh.jpg" group-title="Movies: Action",Die Hard` + "\n" +
+		testBase + "/movie/alice/alice-pw1/101.mkv\n"
+	if !strings.Contains(withVOD, wantMovie) || strings.Contains(withVOD, "Cars") || strings.Contains(withVOD, "/series/") {
+		t.Errorf("vod=1 playlist:\n%s", withVOD)
+	}
+	if !strings.HasPrefix(withVOD, plain[:strings.Index(plain, "\n")]) || !strings.Contains(withVOD, "/live/alice/alice-pw1/10.ts") {
+		t.Errorf("channels missing from the vod playlist:\n%s", withVOD)
+	}
+
+	_, _, withSeries := get(t, h, q+"&series=1")
+	if !strings.Contains(withSeries, `group-title="Series: The Show",The Show S01E01 Pilot`+"\n"+testBase+"/series/alice/alice-pw1/701.mkv\n") {
+		t.Errorf("series=1 playlist:\n%s", withSeries)
+	}
+	if strings.Contains(withSeries, "\n#EXTINF:-1,Injected") {
+		t.Error("an episode title injected a playlist line")
+	}
+
+	_, _, token := get(t, h, "/playlist/tok-alice.m3u?vod=1&series=1")
+	if !strings.Contains(token, testBase+"/t/tok-alice/movie/101.mkv\n") || !strings.Contains(token, testBase+"/t/tok-alice/series/702.mkv\n") {
+		t.Errorf("token playlist:\n%s", token)
+	}
+}

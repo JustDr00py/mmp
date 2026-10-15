@@ -168,7 +168,18 @@ func (h *Handlers) getPHP(w http.ResponseWriter, r *http.Request) {
 	}
 	plus := q.Get("type") != "m3u" // m3u_plus is the default
 	epg := h.BaseURL + "/xmltv.php?username=" + url.QueryEscape(user) + "&password=" + url.QueryEscape(pass)
-	h.servePlaylist(w, r, u, plus, h.xtreamStreamURL(user, pass, h.streamExt(q.Get("output"))), epg)
+	vodBase := h.BaseURL + "/"
+	vod := h.playlistVOD(r, vodBase)
+	if vod != nil { // Xtream form: /movie/<user>/<pass>/<id>.<ext>
+		up := url.PathEscape(user) + "/" + url.PathEscape(pass) + "/"
+		vod.movie = func(id int64, ext string) string {
+			return vodBase + "movie/" + up + strconv.FormatInt(id, 10) + "." + ext
+		}
+		vod.episode = func(id int64, ext string) string {
+			return vodBase + "series/" + up + strconv.FormatInt(id, 10) + "." + ext
+		}
+	}
+	h.servePlaylist(w, r, u, plus, h.xtreamStreamURL(user, pass, h.streamExt(q.Get("output"))), epg, vod)
 }
 
 // tokenPlaylist is /playlist/{token}.m3u (always m3u_plus).
@@ -180,10 +191,30 @@ func (h *Handlers) tokenPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	epg := h.BaseURL + "/epg/" + url.PathEscape(token) + ".xml"
-	h.servePlaylist(w, r, u, true, h.tokenStreamURL(token), epg)
+	h.servePlaylist(w, r, u, true, h.tokenStreamURL(token), epg, h.playlistVOD(r, h.BaseURL+"/t/"+url.PathEscape(token)+"/"))
 }
 
-func (h *Handlers) servePlaylist(w http.ResponseWriter, r *http.Request, u db.User, plus bool, streamURL func(int64) string, epgURL string) {
+// vodURLs builds movie and episode URLs for a playlist (Xtream or token
+// form); a nil vodURLs means the playlist has no VOD entries.
+type vodURLs struct {
+	movies, series bool
+	movie, episode func(id int64, ext string) string
+}
+
+// playlistVOD reads the opt-in flags: &vod=1 adds movies, &series=1 adds
+// episodes. Most M3U players expect live channels only, hence off.
+func (h *Handlers) playlistVOD(r *http.Request, base string) *vodURLs {
+	q := r.URL.Query()
+	v := &vodURLs{movies: q.Get("vod") == "1", series: q.Get("series") == "1"}
+	if h.VOD == nil || (!v.movies && !v.series) {
+		return nil
+	}
+	v.movie = func(id int64, ext string) string { return base + "movie/" + strconv.FormatInt(id, 10) + "." + ext }
+	v.episode = func(id int64, ext string) string { return base + "series/" + strconv.FormatInt(id, 10) + "." + ext }
+	return v
+}
+
+func (h *Handlers) servePlaylist(w http.ResponseWriter, r *http.Request, u db.User, plus bool, streamURL func(int64) string, epgURL string, vod *vodURLs) {
 	chans, err := h.channelsFor(r.Context(), u)
 	if err != nil {
 		h.Log.Error("output: list channels", "user_id", u.ID, "err", err)
@@ -195,7 +226,60 @@ func (h *Handlers) servePlaylist(w http.ResponseWriter, r *http.Request, u db.Us
 	w.Header().Set("Cache-Control", "no-store")
 	if err := WriteM3U(w, chans, plus, streamURL, epgURL); err != nil {
 		h.Log.Warn("output: write playlist", "user_id", u.ID, "err", err)
+		return
 	}
+	if vod != nil {
+		if err := h.writeVODEntries(r.Context(), w, u, plus, vod); err != nil {
+			h.Log.Warn("output: write playlist vod", "user_id", u.ID, "err", err)
+		}
+	}
+}
+
+// writeVODEntries appends movies (group "Movies: <category>") and cached
+// episodes (group "Series: <show>") after the channels.
+func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, plus bool, v *vodURLs) error {
+	admin := u.Role == auth.RoleAdmin
+	bw := bufio.NewWriter(w)
+	entry := func(name, logo, group, url string) {
+		if plus {
+			fmt.Fprintf(bw, "#EXTINF:-1 tvg-name=\"%s\" tvg-logo=\"%s\" group-title=\"%s\",%s\n", attr(name), attr(logo), attr(group), line(name))
+		} else {
+			fmt.Fprintf(bw, "#EXTINF:-1,%s\n", line(name))
+		}
+		bw.WriteString(url)
+		bw.WriteByte('\n')
+	}
+	if v.movies {
+		cats, err := h.VOD.ListUserVODCategories(ctx, db.ListUserVODCategoriesParams{Kind: "movie", UserID: u.ID, IsAdmin: admin})
+		if err != nil {
+			return err
+		}
+		catName := map[int64]string{}
+		for _, c := range cats {
+			catName[c.ID] = c.Name
+		}
+		movies, err := h.VOD.ListUserVODItems(ctx, db.ListUserVODItemsParams{UserID: u.ID, IsAdmin: admin})
+		if err != nil {
+			return err
+		}
+		for _, m := range movies {
+			entry(m.Name, m.Icon, "Movies: "+catName[m.CategoryID], v.movie(m.ID, m.ContainerExtension))
+		}
+	}
+	if v.series {
+		eps, err := h.VOD.ListUserCachedEpisodes(ctx, db.ListUserCachedEpisodesParams{UserID: u.ID, IsAdmin: admin})
+		if err != nil {
+			return err
+		}
+		for _, e := range eps {
+			name := fmt.Sprintf("%s S%02dE%02d", e.SeriesName, e.Season, e.EpisodeNum)
+			if e.Title != "" {
+				name += " " + e.Title
+			}
+			entry(name, e.Cover, "Series: "+e.SeriesName, v.episode(e.ID, e.ContainerExtension))
+		}
+	}
+	return bw.Flush()
 }
 
 // WriteM3U renders an extended M3U. plus adds tvg-* and group-title

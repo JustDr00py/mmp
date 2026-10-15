@@ -180,6 +180,18 @@ func TestRefreshVOD(t *testing.T) {
 	if _, err := ref.SeriesEpisodes(ctx, p, show, time.Hour); err != nil || panel.infoHits.Load() != 1 {
 		t.Errorf("within TTL: hits = %d, %v", panel.infoHits.Load(), err)
 	}
+	// Playlists list cached episodes of visible series (vod_enabled only).
+	if eps, _ := q.ListUserCachedEpisodes(ctx, db.ListUserCachedEpisodesParams{IsAdmin: true}); len(eps) != 0 {
+		t.Errorf("cached episodes listed while VOD is off: %d", len(eps))
+	}
+	q.SetProviderVODEnabled(ctx, db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: true})
+	if eps, _ := q.ListUserCachedEpisodes(ctx, db.ListUserCachedEpisodesParams{IsAdmin: true}); len(eps) != 2 || eps[0].SeriesName != "Show A" {
+		t.Errorf("cached episodes = %+v", eps)
+	}
+	if eps, _ := q.ListUserCachedEpisodes(ctx, db.ListUserCachedEpisodesParams{UserID: 999}); len(eps) != 0 {
+		t.Errorf("a user without bouquets sees %d episodes", len(eps))
+	}
+
 	// Expired + an episode removed upstream: refetched, the episode goes.
 	panel.mu.Lock()
 	panel.episodes["7"] = map[string]any{"1": []any{map[string]any{"id": "701", "episode_num": 1, "title": "Pilot"}}}

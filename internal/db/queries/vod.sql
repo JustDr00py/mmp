@@ -243,3 +243,19 @@ SELECT * FROM vod_items WHERE id = $1;
 
 -- name: SetVODItemInfo :exec
 UPDATE vod_items SET info = $2, info_fetched_at = now() WHERE id = $1;
+
+-- name: ListUserCachedEpisodes :many
+-- Episodes of the user's visible series whose episode lists are already
+-- loaded (series load lazily; playlists do not trigger panel calls).
+SELECT e.id, e.season, e.episode_num, e.title, e.container_extension, s.id AS series_id,
+       s.name AS series_name, s.cover
+FROM series_episodes e
+JOIN series s ON s.id = e.series_id AND NOT s.disabled AND s.episodes_fetched_at IS NOT NULL
+JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
+                     AND c.external_id = s.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = s.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id'))
+ORDER BY s.name, s.id, e.season, e.episode_num, e.id;

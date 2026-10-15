@@ -9,6 +9,7 @@ stalls, errors or degrades, MMP switches to the next one **without dropping the 
 - Works with any IPTV player: M3U + XMLTV (VLC, Kodi, Plex, Jellyfin) and an Xtream Codes compatible API
   (IPTV Smarters, TiviMate, XCIPTV…). MPEG-TS and HLS output.
 - Customer accounts with connection limits, expiry dates and per-user channel sets ("bouquets").
+- Movies and series from Xtream providers, passed through to Xtream apps with seeking (opt-in per provider).
 - Web admin UI with a live dashboard, Prometheus metrics, and a REST API.
 - Single static binary; Postgres is the only dependency (ffmpeg optional).
 
@@ -237,6 +238,13 @@ because each probe uses one of the provider's connections.
 | `probe.ffprobe` | `MMP_PROBE_FFPROBE` | `false` | also require ffprobe to find audio or video (needs ffmpeg) |
 | `probe.ffprobe_path` | `MMP_PROBE_FFPROBE_PATH` | `ffprobe` on `PATH` | |
 
+### Movies and series
+
+| Key | Env | Default | Meaning |
+|---|---|---|---|
+| `vod.info_ttl` | `MMP_VOD_INFO_TTL` | `24h` | re-fetch a movie's details from the panel after this |
+| `vod.episode_ttl` | `MMP_VOD_EPISODE_TTL` | `6h` | re-fetch a series' episode list after this |
+
 ### Security and monitoring
 
 | Key | Env | Default | Meaning |
@@ -266,6 +274,10 @@ failover works the same. This needs ffmpeg installed (`mmp-ffmpeg` image).
 | `<base>/playlist/<token>.m3u` · `<base>/epg/<token>.xml` | the same without the password (token from the user page) |
 | `<base>/live/U/P/<id>.ts` · `<base>/t/<token>/<id>.ts` | a channel as MPEG-TS |
 | `<base>/live/U/P/<id>.m3u8` · `<base>/t/<token>/<id>.m3u8` | a channel as HLS |
+| `<base>/movie/U/P/<id>.<ext>` · `<base>/t/<token>/movie/<id>.<ext>` | a movie (seekable) |
+| `<base>/series/U/P/<id>.<ext>` · `<base>/t/<token>/series/<id>.<ext>` | a series episode (seekable) |
+
+Playlists include movies with `&vod=1` and series episodes with `&series=1` (on `get.php` and token playlists). Series load their episodes lazily, so a playlist lists the episodes of shows that were already opened in an Xtream app or the admin UI.
 
 ## Admin API
 
@@ -282,6 +294,12 @@ curl -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/channels
 Notable endpoints: `POST /providers/{id}/refresh` (`?force=1` to apply a refresh the
 `max_disable_pct` guard refused), `GET /match/proposals`, `POST /match/apply`,
 `PUT /channels/{id}/streams/order`, `POST /users/{id}/rotate-token`.
+
+Movies and series: set `"vod_enabled": true` on an Xtream provider (`PUT /providers/{id}`), import with
+`POST /providers/{id}/vod/refresh` (also runs on the provider's schedule), browse with
+`GET /vod/categories?kind=movie|series`, `GET /vod/movies`, `GET /vod/series`, and grant categories with
+`POST /bouquets/{id}/vod-categories` (`{"category_ids": [...]}`). Each movie or episode a customer plays
+uses one of their connections and one of the provider's.
 
 ## Monitoring
 

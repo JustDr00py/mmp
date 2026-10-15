@@ -480,6 +480,68 @@ func (q *Queries) ListSeriesEpisodes(ctx context.Context, seriesID int64) ([]Ser
 	return items, nil
 }
 
+const listUserCachedEpisodes = `-- name: ListUserCachedEpisodes :many
+SELECT e.id, e.season, e.episode_num, e.title, e.container_extension, s.id AS series_id,
+       s.name AS series_name, s.cover
+FROM series_episodes e
+JOIN series s ON s.id = e.series_id AND NOT s.disabled AND s.episodes_fetched_at IS NOT NULL
+JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
+                     AND c.external_id = s.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = s.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE $1::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = $2)
+ORDER BY s.name, s.id, e.season, e.episode_num, e.id
+`
+
+type ListUserCachedEpisodesParams struct {
+	IsAdmin bool  `json:"is_admin"`
+	UserID  int64 `json:"user_id"`
+}
+
+type ListUserCachedEpisodesRow struct {
+	ID                 int64  `json:"id"`
+	Season             int32  `json:"season"`
+	EpisodeNum         int32  `json:"episode_num"`
+	Title              string `json:"title"`
+	ContainerExtension string `json:"container_extension"`
+	SeriesID           int64  `json:"series_id"`
+	SeriesName         string `json:"series_name"`
+	Cover              string `json:"cover"`
+}
+
+// Episodes of the user's visible series whose episode lists are already
+// loaded (series load lazily; playlists do not trigger panel calls).
+func (q *Queries) ListUserCachedEpisodes(ctx context.Context, arg ListUserCachedEpisodesParams) ([]ListUserCachedEpisodesRow, error) {
+	rows, err := q.db.Query(ctx, listUserCachedEpisodes, arg.IsAdmin, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserCachedEpisodesRow
+	for rows.Next() {
+		var i ListUserCachedEpisodesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Season,
+			&i.EpisodeNum,
+			&i.Title,
+			&i.ContainerExtension,
+			&i.SeriesID,
+			&i.SeriesName,
+			&i.Cover,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserSeries = `-- name: ListUserSeries :many
 SELECT s.id, s.name, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating,
        s.last_modified, c.id AS category_id
