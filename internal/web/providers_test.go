@@ -159,7 +159,32 @@ type fakeRefresher struct {
 	calls          []int64
 	forced         []bool
 	err            error
-	refuseUnforced bool // answer like the disable threshold unless forced
+	refuseUnforced bool        // answer like the disable threshold unless forced
+	store          *db.Queries // backs SeriesEpisodesByID in Postgres tests
+}
+
+func (f *fakeRefresher) RefreshVOD(_ context.Context, p db.Provider, force bool) (source.VODResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, p.ID)
+	f.forced = append(f.forced, force)
+	if f.err != nil {
+		return source.VODResult{}, f.err
+	}
+	return source.VODResult{Movies: 321, Series: 12}, nil
+}
+
+// SeriesEpisodesByID: the series and episodes the test stored in f.store.
+func (f *fakeRefresher) SeriesEpisodesByID(ctx context.Context, id int64, _ time.Duration) (db.Series, []db.SeriesEpisode, error) {
+	if f.store == nil {
+		return db.Series{}, nil, pgx.ErrNoRows
+	}
+	s, err := f.store.GetSeries(ctx, id)
+	if err != nil {
+		return s, nil, err
+	}
+	eps, err := f.store.ListSeriesEpisodes(ctx, id)
+	return s, eps, err
 }
 
 func (f *fakeRefresher) RefreshEPG(_ context.Context, p db.Provider) (int, error) {

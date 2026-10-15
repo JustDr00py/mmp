@@ -1,0 +1,16 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/vod?kind=series">Series</a> /</p>
+<div class="head"><h1>{{.Title}}</h1>{{with $d.Fetched}}<span class="muted">episodes loaded {{.}}</span>{{end}}</div>
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with $d.Series.Plot}}<p>{{.}}</p>{{end}}
+{{if $d.Seasons}}
+{{range $d.Seasons}}
+<h2>Season {{.Number}}</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th class="num">#</th><th>Title</th><th class="num">Length</th><th>Format</th></tr></thead>
+  <tbody>{{range .Episodes}}<tr><td class="num">{{.EpisodeNum}}</td><td>{{.Title}}</td><td class="num">{{if .DurationSecs}}{{.DurationSecs}}s{{end}}</td><td class="mono">{{.ContainerExtension}}</td></tr>{{end}}</tbody>
+</table></div>
+{{end}}
+{{else if not $d.Error}}<div class="card empty"><p>The provider lists no episodes for this series.</p></div>{{end}}
+{{end}}

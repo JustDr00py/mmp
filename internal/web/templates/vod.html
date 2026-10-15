@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>Movies &amp; series</h1></div>
+<p class="muted">Imported from Xtream providers with “Import movies &amp; series” turned on. Customers see the categories granted in their
+  <a href="/admin/bouquets">bouquets</a>; each title they play uses one of their connections and one of the provider's.</p>
+<nav class="tabs">
+  <a href="/admin/vod?kind=movie"{{if eq $d.Kind "movie"}} aria-current="page"{{end}}>Movies</a>
+  <a href="/admin/vod?kind=series"{{if eq $d.Kind "series"}} aria-current="page"{{end}}>Series</a>
+</nav>
+<form class="search row" method="get" action="/admin/vod" hx-get="/admin/vod" hx-target="#vod-list" hx-swap="outerHTML" hx-push-url="true"
+  hx-trigger="input changed delay:300ms from:input, change from:select, submit">
+  <input type="hidden" name="kind" value="{{$d.Kind}}">
+  <input type="search" name="q" value="{{$d.Query}}" placeholder="Search titles" aria-label="Search titles">
+  <select name="category" aria-label="Category">
+    <option value="0">All categories</option>
+    {{range $d.Categories}}<option value="{{.ID}}"{{if eq .ID $d.CategoryID}} selected{{end}}>{{.Name}} ({{.Items}}) · {{.ProviderName}}</option>{{end}}
+  </select>
+</form>
+{{template "vod-list" $d}}
+{{end}}
+
+{{define "vod-list"}}
+<div id="vod-list">
+{{if .Rows}}
+<div class="table-wrap"><table>
+  <thead><tr><th>Title</th><th class="num">Rating</th><th>{{if eq .Kind "movie"}}Format{{else}}Released{{end}}</th><th></th></tr></thead>
+  <tbody>{{range .Rows}}
+  <tr{{if .Disabled}} class="dim"{{end}}>
+    <td>{{if .Image}}<img class="logo" src="{{.Image}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}{{if .Series}}<a href="/admin/vod/series/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+    <td class="num">{{with .Rating}}{{.}}{{end}}</td>
+    <td class="mono">{{.Extra}}</td>
+    <td>{{if .Disabled}}<span class="pill off">gone</span>{{end}}</td>
+  </tr>{{end}}</tbody>
+</table></div>
+<nav class="pager">
+  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&category={{.CategoryID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&category={{.CategoryID}}&offset={{.NextOffset}}">Next →</a>{{end}}
+</nav>
+{{else if or .Query .CategoryID}}<div class="card empty"><p>Nothing matches.</p></div>
+{{else}}<div class="card empty"><p>No {{if eq .Kind "movie"}}movies{{else}}series{{end}} imported yet.</p>
+  <p class="muted">Edit an Xtream provider, tick “Import movies &amp; series”, then use “Import catalog” on the providers page.</p></div>{{end}}
+</div>
+{{end}}

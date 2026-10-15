@@ -99,6 +99,14 @@ type Store interface {
 	AddGroupToBouquet(ctx context.Context, arg db.AddGroupToBouquetParams) (int64, error)
 	RemoveChannelsFromBouquet(ctx context.Context, arg db.RemoveChannelsFromBouquetParams) (int64, error)
 
+	SetProviderVODEnabled(ctx context.Context, arg db.SetProviderVODEnabledParams) error
+	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
+	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
+	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)
+	AddVODCategoriesToBouquet(ctx context.Context, arg db.AddVODCategoriesToBouquetParams) (int64, error)
+	RemoveVODCategoryFromBouquet(ctx context.Context, arg db.RemoveVODCategoryFromBouquetParams) (int64, error)
+	ListBouquetVODCategories(ctx context.Context, bouquetID int64) ([]db.ListBouquetVODCategoriesRow, error)
+
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
 
@@ -118,6 +126,8 @@ type Matcher interface {
 type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
 	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
+	RefreshVOD(ctx context.Context, p db.Provider, force bool) (source.VODResult, error)
+	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
 
 // Deps are the UI's collaborators.
@@ -138,6 +148,8 @@ type Deps struct {
 	// DefaultRefresh pre-fills a new provider's refresh interval
 	// (refresh.interval); 0 means 6h.
 	DefaultRefresh time.Duration
+	// EpisodeTTL is how long a series' episode list is reused (vod.episode_ttl).
+	EpisodeTTL time.Duration
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
@@ -163,6 +175,7 @@ var nav = []navItem{
 	{Prefix + "/providers", "Providers"},
 	{Prefix + "/channels", "Channels"},
 	{Prefix + "/bouquets", "Bouquets"},
+	{Prefix + "/vod", "Movies & Series"},
 	{Prefix + "/match", "Match"},
 	{Prefix + "/users", "Users"},
 	{Prefix + "/epg", "Guide"},
@@ -170,7 +183,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -272,6 +285,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountBouquets(r)
 			ui.mountEPG(r)
 			ui.mountProfiles(r)
+			ui.mountVOD(r)
 		})
 	})
 }

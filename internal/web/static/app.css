@@ -150,3 +150,9 @@ ul.slots li { background: var(--card); border: 1px solid var(--line); border-rad
 .bar { height: 6px; background: var(--off-bg); border-radius: 3px; margin-top: .4rem; overflow: hidden; }
 .bar .fill { display: block; height: 100%; width: 0; background: var(--accent); }
 .bar .fill.full { background: var(--warn-fg); }
+.tabs { display: flex; gap: 1rem; margin: .5rem 0 1rem; border-bottom: 1px solid var(--line); }
+.tabs a { padding: .4rem 0; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.tabs a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--accent); }
+.vod-cats { margin-bottom: 1.5rem; }
+.vod-cats .pick-list li.row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.vod-add { margin-top: .75rem; }

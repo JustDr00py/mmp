@@ -42,7 +42,8 @@ type providerRow struct {
 	db.Provider
 	Streams, Active, Cooling int64
 	SlotsInUse               int
-	Refresh                  *refreshData // outcome of a refresh just run from this row
+	Refresh                  *refreshData    // outcome of a refresh just run from this row
+	VODRefresh               *vodRefreshData // outcome of a catalog import just run from this row
 }
 
 // flashes are the fixed messages ?msg= may select: never reflected text.
@@ -103,6 +104,7 @@ type providerForm struct {
 	MaxConnections, RefreshMinutes    string
 	Priority                          string
 	MaxDisablePct                     string // blank = server default
+	VODEnabled                        bool
 	Enabled                           bool
 	HasPassword                       bool
 	Error                             string
@@ -113,7 +115,7 @@ func formFromProvider(p db.Provider) providerForm {
 		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username, EPGURL: p.EpgUrl,
 		UserAgent: p.UserAgent, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
 		RefreshMinutes: strconv.Itoa(int(p.RefreshIntervalSecs / 60)), Priority: strconv.Itoa(int(p.Priority)),
-		Enabled: p.Enabled, HasPassword: p.Password != "",
+		Enabled: p.Enabled, HasPassword: p.Password != "", VODEnabled: p.VodEnabled,
 	}
 	if p.RefreshMaxDisablePct != nil {
 		f.MaxDisablePct = strconv.Itoa(int(*p.RefreshMaxDisablePct))
@@ -148,7 +150,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 		Name: trim("name"), Type: trim("type"), URL: trim("url"), Username: trim("username"),
 		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
-		Enabled: f.Get("enabled") == "on",
+		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
 	}
 	num := func(s, field string, def int) (int32, error) {
 		if s == "" {
@@ -220,6 +222,12 @@ func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "create provider", err)
 		return
 	}
+	if form.VODEnabled && created.Type == "xtream" {
+		if err := ui.Store.SetProviderVODEnabled(r.Context(), db.SetProviderVODEnabledParams{ID: created.ID, VodEnabled: true}); err != nil {
+			ui.fail(w, "enable vod", err)
+			return
+		}
+	}
 	ui.Log.Info("web: provider created", "provider_id", created.ID)
 	ui.redirect(w, r, Prefix+"/providers?msg=created")
 }
@@ -277,6 +285,13 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		ui.fail(w, "update provider", err)
 		return
+	}
+	// Movies & series only exist on Xtream panels.
+	if vod := form.VODEnabled && p.typ == "xtream"; vod != cur.VodEnabled {
+		if err := ui.Store.SetProviderVODEnabled(r.Context(), db.SetProviderVODEnabledParams{ID: cur.ID, VodEnabled: vod}); err != nil {
+			ui.fail(w, "set vod", err)
+			return
+		}
 	}
 	ui.Log.Info("web: provider updated", "provider_id", cur.ID)
 	ui.redirect(w, r, Prefix+"/providers?msg=saved")

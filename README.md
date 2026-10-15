@@ -124,6 +124,14 @@ ffprobe "http://<host>:8080/live/<username>/<password>/<channel-id>.ts"
 Watch it on the **Dashboard**: the channel appears with the provider it plays from. If you stop that
 provider, the dashboard shows the failover while the player keeps playing.
 
+### Movies and series (optional, Xtream providers)
+
+Edit an Xtream provider, tick **Import movies & series**, save, and press **Import catalog** on its row.
+Browse the result under **Movies & Series**; opening a series loads its episodes from the provider. Then, on
+a bouquet's page, add movie and series categories under **Movie & series categories**. Customers with that
+bouquet see them in Xtream apps (and in M3U playlists with `&vod=1` / `&series=1`) and can seek while
+watching. Each title playing uses one of the customer's connections and one of the provider's.
+
 ## Running from source
 
 Requirements: Go 1.26+ and PostgreSQL (tested with 17, which the compose file uses).

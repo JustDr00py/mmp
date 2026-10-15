@@ -15,6 +15,24 @@
 </form>
 {{template "bouquet-editor" $d.Editor}}
 
+<section id="vod" class="vod-cats">
+  <h2>Movie &amp; series categories</h2>
+  {{if $d.VOD.Granted}}
+  <ul class="pick-list">{{range $d.VOD.Granted}}
+    <li class="row"><span class="what">{{.Name}} <span class="sub">{{if eq .Kind "movie"}}movies{{else}}series{{end}}{{if .Disabled}} · gone from the provider{{end}}</span></span>
+      <form method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/vod-categories/{{.ID}}/remove"><button type="submit" class="small secondary">Remove</button></form></li>
+  {{end}}</ul>
+  {{else}}<p class="muted">No movie or series categories: customers with this bouquet see no movies or series.</p>{{end}}
+  {{if $d.VOD.Available}}
+  <form method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/vod-categories" class="vod-add">
+    <div class="pane-head"><span class="muted">Add categories</span><label class="check small"><input type="checkbox" data-check-all="category"> all</label><button type="submit" class="small">Add selected</button></div>
+    <ul class="pick-list">{{range $d.VOD.Available}}
+      <li><label class="check"><input type="checkbox" name="category" value="{{.ID}}"> {{.Name}} <span class="sub">{{if eq .Kind "movie"}}movies{{else}}series{{end}} · {{.Items}} titles · {{.ProviderName}}</span></label></li>
+    {{end}}</ul>
+  </form>
+  {{end}}
+</section>
+
 <div class="split">
   <section>
     <h2>Add a whole group</h2>

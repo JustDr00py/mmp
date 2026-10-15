@@ -208,6 +208,7 @@ func (ui *UI) editor(r *http.Request, bouquetID int64, q string, gid int64) (bou
 }
 
 type bouquetPageData struct {
+	VOD     bouquetVOD
 	Bouquet db.Bouquet
 	Editor  bouquetEditor
 	Users   int64
@@ -234,6 +235,10 @@ func (ui *UI) renderBouquet(w http.ResponseWriter, r *http.Request, status int, 
 		}
 	}
 	d.Bouquet, d.Editor = b, ed
+	if d.VOD, err = ui.bouquetVODData(r, b.ID); err != nil {
+		ui.fail(w, "bouquet vod", err)
+		return
+	}
 	if d.Name == "" && d.Error == "" {
 		d.Name, d.Sort = b.Name, strconv.Itoa(int(b.SortOrder))
 	}
