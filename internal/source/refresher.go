@@ -387,6 +387,14 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 		if _, err := r.RefreshProvider(ctx, p, false); err != nil { // scheduled: never force
 			r.log.Error("refresher: refresh failed", "provider_id", p.ID, "err", err.Error())
 		}
+		// The catalogs are independent of the live list: a VOD-only panel
+		// (no live channels, so the live refresh fails) still gets its
+		// movies and series.
+		if p.VodEnabled && p.Type == "xtream" {
+			if _, err := r.RefreshVOD(ctx, p, false); err != nil {
+				r.log.Error("refresher: vod refresh failed", "provider_id", p.ID, "err", err.Error())
+			}
+		}
 	}
 	epgDue, err := q.ListProvidersDueForEpg(ctx, epgInterval.Seconds())
 	if err != nil {

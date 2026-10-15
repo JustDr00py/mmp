@@ -120,6 +120,8 @@ type Provider struct {
 	UpdatedAt            time.Time  `json:"updated_at"`
 	LastRefreshedAt      *time.Time `json:"last_refreshed_at"`
 	RefreshMaxDisablePct *int32     `json:"refresh_max_disable_pct"`
+	VodEnabled           bool       `json:"vod_enabled"`
+	VodRefreshedAt       *time.Time `json:"vod_refreshed_at"`
 }
 
 type ProviderStream struct {
@@ -138,6 +140,41 @@ type ProviderStream struct {
 	Disabled      bool       `json:"disabled"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastProbedAt  *time.Time `json:"last_probed_at"`
+}
+
+type Series struct {
+	ID                 int64      `json:"id"`
+	ProviderID         int64      `json:"provider_id"`
+	ExternalID         string     `json:"external_id"`
+	Name               string     `json:"name"`
+	CategoryExternalID string     `json:"category_external_id"`
+	Cover              string     `json:"cover"`
+	Plot               string     `json:"plot"`
+	Cast               string     `json:"cast"`
+	Director           string     `json:"director"`
+	Genre              string     `json:"genre"`
+	ReleaseDate        string     `json:"release_date"`
+	Rating             *float32   `json:"rating"`
+	LastModified       *time.Time `json:"last_modified"`
+	Info               []byte     `json:"info"`
+	EpisodesFetchedAt  *time.Time `json:"episodes_fetched_at"`
+	Disabled           bool       `json:"disabled"`
+	LastSeen           time.Time  `json:"last_seen"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+
+type SeriesEpisode struct {
+	ID                 int64      `json:"id"`
+	SeriesID           int64      `json:"series_id"`
+	ExternalID         string     `json:"external_id"`
+	Season             int32      `json:"season"`
+	EpisodeNum         int32      `json:"episode_num"`
+	Title              string     `json:"title"`
+	ContainerExtension string     `json:"container_extension"`
+	Plot               string     `json:"plot"`
+	DurationSecs       int32      `json:"duration_secs"`
+	Image              string     `json:"image"`
+	AddedAt            *time.Time `json:"added_at"`
 }
 
 type StreamProfile struct {
@@ -164,4 +201,32 @@ type User struct {
 type UserBouquet struct {
 	UserID    int64 `json:"user_id"`
 	BouquetID int64 `json:"bouquet_id"`
+}
+
+type VodCategory struct {
+	ID         int64     `json:"id"`
+	ProviderID int64     `json:"provider_id"`
+	Kind       string    `json:"kind"`
+	ExternalID string    `json:"external_id"`
+	Name       string    `json:"name"`
+	Disabled   bool      `json:"disabled"`
+	LastSeen   time.Time `json:"last_seen"`
+}
+
+type VodItem struct {
+	ID                 int64      `json:"id"`
+	ProviderID         int64      `json:"provider_id"`
+	ExternalID         string     `json:"external_id"`
+	Name               string     `json:"name"`
+	CategoryExternalID string     `json:"category_external_id"`
+	Icon               string     `json:"icon"`
+	Rating             *float32   `json:"rating"`
+	ContainerExtension string     `json:"container_extension"`
+	TmdbID             string     `json:"tmdb_id"`
+	AddedAt            *time.Time `json:"added_at"`
+	Info               []byte     `json:"info"`
+	InfoFetchedAt      *time.Time `json:"info_fetched_at"`
+	Disabled           bool       `json:"disabled"`
+	LastSeen           time.Time  `json:"last_seen"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
