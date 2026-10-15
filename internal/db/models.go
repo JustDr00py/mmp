@@ -36,6 +36,11 @@ type BouquetChannel struct {
 	ChannelID int64 `json:"channel_id"`
 }
 
+type BouquetVodCategory struct {
+	BouquetID     int64 `json:"bouquet_id"`
+	VodCategoryID int64 `json:"vod_category_id"`
+}
+
 type Channel struct {
 	ID              int64     `json:"id"`
 	Number          *int32    `json:"number"`

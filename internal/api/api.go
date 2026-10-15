@@ -109,6 +109,14 @@ type Store interface {
 	ListAPITokens(ctx context.Context) ([]db.ListAPITokensRow, error)
 	DeleteAPIToken(ctx context.Context, id int64) (int64, error)
 
+	SetProviderVODEnabled(ctx context.Context, arg db.SetProviderVODEnabledParams) error
+	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
+	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
+	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)
+	AddVODCategoriesToBouquet(ctx context.Context, arg db.AddVODCategoriesToBouquetParams) (int64, error)
+	RemoveVODCategoryFromBouquet(ctx context.Context, arg db.RemoveVODCategoryFromBouquetParams) (int64, error)
+	ListBouquetVODCategories(ctx context.Context, bouquetID int64) ([]db.ListBouquetVODCategoriesRow, error)
+
 	CreateStreamProfile(ctx context.Context, arg db.CreateStreamProfileParams) (db.StreamProfile, error)
 	GetStreamProfile(ctx context.Context, id int64) (db.StreamProfile, error)
 	ListStreamProfiles(ctx context.Context) ([]db.StreamProfile, error)
@@ -119,6 +127,7 @@ type Store interface {
 // Refresher is the on-demand refresh surface (satisfied by *source.Refresher).
 type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
+	RefreshVOD(ctx context.Context, p db.Provider, force bool) (source.VODResult, error)
 }
 
 // Matcher proposes and applies cross-provider channel groupings
@@ -142,6 +151,7 @@ func Mount(r chi.Router, env *Env) {
 		MountMatch(r, env)
 		MountUsers(r, env)
 		MountProfiles(r, env)
+		MountVOD(r, env)
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -28,6 +29,9 @@ type providerJSON struct {
 	Enabled             bool   `json:"enabled"`
 	// Per-provider override of the refresh disable threshold; nil = default.
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct,omitempty"`
+	// VODEnabled imports the provider's movies and series (Xtream only).
+	VODEnabled     bool       `json:"vod_enabled"`
+	VODRefreshedAt *time.Time `json:"vod_refreshed_at,omitempty"`
 }
 
 func toJSON(p db.Provider) providerJSON {
@@ -36,6 +40,7 @@ func toJSON(p db.Provider) providerJSON {
 		EPGURL: p.EpgUrl, MaxConnections: p.MaxConnections, UserAgent: p.UserAgent,
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
 		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
+		VODEnabled:           p.VodEnabled, VODRefreshedAt: p.VodRefreshedAt,
 	}
 }
 
@@ -54,9 +59,14 @@ type providerInput struct {
 	Enabled             *bool  `json:"enabled"`
 	// 0-100; absent (or null) = the global default threshold.
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
+	// Absent keeps the current setting (off for new providers).
+	VODEnabled *bool `json:"vod_enabled"`
 }
 
 func (in *providerInput) validate() error {
+	if in.VODEnabled != nil && *in.VODEnabled && in.Type != "xtream" {
+		return errors.New("vod_enabled needs an Xtream provider")
+	}
 	if err := source.ValidateRefreshMaxDisablePct(in.RefreshMaxDisablePct); err != nil {
 		return err
 	}
@@ -132,6 +142,14 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "create provider failed")
 		return
 	}
+	if in.VODEnabled != nil && *in.VODEnabled {
+		if err := env.Store.SetProviderVODEnabled(r.Context(), db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: true}); err != nil {
+			env.Log.Error("api: enable vod", "provider_id", p.ID, "err", err)
+			writeErr(w, http.StatusInternalServerError, "create provider failed")
+			return
+		}
+		p.VodEnabled = true
+	}
 	writeJSON(w, http.StatusCreated, toJSON(p))
 }
 
@@ -205,6 +223,23 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 		env.Log.Error("api: update provider", "provider_id", id, "err", err)
 		writeErr(w, http.StatusInternalServerError, "update provider failed")
 		return
+	}
+	// Absent vod_enabled keeps the stored flag, except that a non-Xtream
+	// provider cannot keep VOD on.
+	vod := current.VodEnabled
+	if in.VODEnabled != nil {
+		vod = *in.VODEnabled
+	}
+	if p.Type != "xtream" {
+		vod = false
+	}
+	if vod != p.VodEnabled {
+		if err := env.Store.SetProviderVODEnabled(r.Context(), db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: vod}); err != nil {
+			env.Log.Error("api: set vod", "provider_id", p.ID, "err", err)
+			writeErr(w, http.StatusInternalServerError, "update provider failed")
+			return
+		}
+		p.VodEnabled = vod
 	}
 	writeJSON(w, http.StatusOK, toJSON(p))
 }

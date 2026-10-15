@@ -110,6 +110,12 @@ type fakeRefresher struct {
 	err    error
 }
 
+func (f *fakeRefresher) RefreshVOD(_ context.Context, p db.Provider, force bool) (source.VODResult, error) {
+	f.got = append(f.got, p.ID)
+	f.forced = append(f.forced, force)
+	return source.VODResult{Movies: 3, Series: 1}, f.err
+}
+
 func (f *fakeRefresher) RefreshProvider(_ context.Context, p db.Provider, force bool) (source.Result, error) {
 	f.got = append(f.got, p.ID)
 	f.forced = append(f.forced, force)

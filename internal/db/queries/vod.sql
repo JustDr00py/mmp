@@ -96,3 +96,144 @@ SELECT * FROM series_episodes WHERE series_id = $1 ORDER BY season, episode_num,
 
 -- name: SetProviderVODEnabled :exec
 UPDATE providers SET vod_enabled = $2, updated_at = now() WHERE id = $1;
+
+-- Admin browsing.
+
+-- name: ListVODCategoriesAdmin :many
+-- Categories of one kind with their active item counts; provider_id NULL = all.
+SELECT c.id, c.provider_id, pr.name AS provider_name, c.kind, c.external_id, c.name, c.disabled,
+       (CASE WHEN c.kind = 'movie'
+             THEN (SELECT count(*) FROM vod_items i WHERE i.provider_id = c.provider_id AND i.category_external_id = c.external_id AND NOT i.disabled)
+             ELSE (SELECT count(*) FROM series s WHERE s.provider_id = c.provider_id AND s.category_external_id = c.external_id AND NOT s.disabled)
+        END)::bigint AS items
+FROM vod_categories c
+JOIN providers pr ON pr.id = c.provider_id
+WHERE c.kind = sqlc.arg('kind')
+  AND (sqlc.narg('provider_id')::bigint IS NULL OR c.provider_id = sqlc.narg('provider_id'))
+ORDER BY pr.priority, pr.name, c.name;
+
+-- name: ListVODItemsAdmin :many
+SELECT i.id, i.provider_id, i.external_id, i.name, i.category_external_id, i.icon, i.rating,
+       i.container_extension, i.added_at, i.disabled
+FROM vod_items i
+WHERE (sqlc.narg('provider_id')::bigint IS NULL OR i.provider_id = sqlc.narg('provider_id'))
+  AND (sqlc.narg('category_id')::bigint IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = sqlc.narg('category_id') AND c.kind = 'movie'
+          AND c.provider_id = i.provider_id AND c.external_id = i.category_external_id))
+  AND (sqlc.narg('search')::text IS NULL OR i.name ILIKE sqlc.narg('search'))
+ORDER BY i.name, i.id
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ListSeriesAdmin :many
+SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cover, s.rating,
+       s.release_date, s.episodes_fetched_at, s.disabled
+FROM series s
+WHERE (sqlc.narg('provider_id')::bigint IS NULL OR s.provider_id = sqlc.narg('provider_id'))
+  AND (sqlc.narg('category_id')::bigint IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = sqlc.narg('category_id') AND c.kind = 'series'
+          AND c.provider_id = s.provider_id AND c.external_id = s.category_external_id))
+  AND (sqlc.narg('search')::text IS NULL OR s.name ILIKE sqlc.narg('search'))
+ORDER BY s.name, s.id
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- Bouquet membership.
+
+-- name: AddVODCategoriesToBouquet :execrows
+INSERT INTO bouquet_vod_categories (bouquet_id, vod_category_id)
+SELECT sqlc.arg('bouquet_id'), unnest(sqlc.arg('category_ids')::bigint[])
+ON CONFLICT DO NOTHING;
+
+-- name: RemoveVODCategoryFromBouquet :execrows
+DELETE FROM bouquet_vod_categories WHERE bouquet_id = $1 AND vod_category_id = $2;
+
+-- name: ListBouquetVODCategories :many
+SELECT c.id, c.provider_id, c.kind, c.name, c.disabled
+FROM bouquet_vod_categories b
+JOIN vod_categories c ON c.id = b.vod_category_id
+WHERE b.bouquet_id = $1
+ORDER BY c.kind, c.name;
+
+-- Customer access: a user sees the active categories granted by their
+-- bouquets (admins: every active category of an enabled provider), and
+-- the active items inside them.
+
+-- name: ListUserVODCategories :many
+SELECT c.id, c.kind, c.name
+FROM vod_categories c
+JOIN providers pr ON pr.id = c.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE c.kind = sqlc.arg('kind') AND NOT c.disabled
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')))
+ORDER BY pr.priority, c.name, c.id;
+
+-- name: ListUserVODItems :many
+-- category_id NULL = every visible category.
+SELECT i.id, i.name, i.icon, i.rating, i.container_extension, i.tmdb_id, i.added_at, c.id AS category_id
+FROM vod_items i
+JOIN vod_categories c ON c.provider_id = i.provider_id AND c.kind = 'movie'
+                     AND c.external_id = i.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = i.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE NOT i.disabled
+  AND (sqlc.narg('category_id')::bigint IS NULL OR c.id = sqlc.narg('category_id'))
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')))
+ORDER BY i.name, i.id;
+
+-- name: ListUserSeries :many
+SELECT s.id, s.name, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating,
+       s.last_modified, c.id AS category_id
+FROM series s
+JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
+                     AND c.external_id = s.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = s.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE NOT s.disabled
+  AND (sqlc.narg('category_id')::bigint IS NULL OR c.id = sqlc.narg('category_id'))
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')))
+ORDER BY s.name, s.id;
+
+-- name: GetUserVODItem :one
+-- One movie if the user may see it (else no rows), with what playback needs.
+SELECT i.id, i.provider_id, i.external_id, i.name, i.container_extension, i.info, i.info_fetched_at,
+       i.icon, i.rating, i.tmdb_id, i.added_at, c.id AS category_id
+FROM vod_items i
+JOIN vod_categories c ON c.provider_id = i.provider_id AND c.kind = 'movie'
+                     AND c.external_id = i.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = i.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE i.id = sqlc.arg('id') AND NOT i.disabled
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')));
+
+-- name: GetUserSeries :one
+SELECT s.*, c.id AS category_id
+FROM series s
+JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
+                     AND c.external_id = s.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = s.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE s.id = sqlc.arg('id') AND NOT s.disabled
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')));
+
+-- name: GetUserEpisode :one
+-- One episode if the user may see its series.
+SELECT e.id, e.external_id, e.container_extension, s.id AS series_id, s.provider_id
+FROM series_episodes e
+JOIN series s ON s.id = e.series_id AND NOT s.disabled
+JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
+                     AND c.external_id = s.category_external_id AND NOT c.disabled
+JOIN providers pr ON pr.id = s.provider_id AND pr.enabled AND pr.vod_enabled
+WHERE e.id = sqlc.arg('id')
+  AND (sqlc.arg('is_admin')::bool OR EXISTS (
+        SELECT 1 FROM bouquet_vod_categories bv
+        JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
+        WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id')));
