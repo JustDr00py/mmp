@@ -52,6 +52,11 @@ type Store interface {
 	DeleteProvider(ctx context.Context, id int64) error
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
 	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
+	ProviderGroupSummary(ctx context.Context) ([]db.ProviderGroupSummaryRow, error)
+	ListProviderGroups(ctx context.Context, providerID int64) ([]db.ListProviderGroupsRow, error)
+	ClearProviderGroups(ctx context.Context, providerID int64) error
+	AddProviderGroups(ctx context.Context, arg db.AddProviderGroupsParams) error
+	SetProviderGroupFilter(ctx context.Context, arg db.SetProviderGroupFilterParams) error
 	ListProviderStreams(ctx context.Context, arg db.ListProviderStreamsParams) ([]db.ProviderStream, error)
 	SearchProviderStreams(ctx context.Context, arg db.SearchProviderStreamsParams) ([]db.ProviderStream, error)
 
@@ -183,7 +188,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {

@@ -120,6 +120,8 @@ JOIN providers pr ON pr.id = ps.provider_id
 WHERE pr.enabled
   AND NOT ps.disabled
   AND NOT EXISTS (SELECT 1 FROM channel_streams cs WHERE cs.provider_stream_id = ps.id)
+  AND (NOT pr.group_filter OR EXISTS (SELECT 1 FROM provider_groups pg
+       WHERE pg.provider_id = ps.provider_id AND pg.group_title = ps.group_title))
 ORDER BY pr.priority, ps.id
 `
 
@@ -132,7 +134,8 @@ type ListUnassignedStreamsRow struct {
 	ProviderPriority int32  `json:"provider_priority"`
 }
 
-// Live streams of enabled providers not yet on any channel's failover list.
+// Live streams of enabled providers not yet on any channel's failover list,
+// in the groups selected for their provider.
 func (q *Queries) ListUnassignedStreams(ctx context.Context) ([]ListUnassignedStreamsRow, error) {
 	rows, err := q.db.Query(ctx, listUnassignedStreams)
 	if err != nil {

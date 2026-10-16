@@ -410,6 +410,8 @@ SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, ps.logo_url, ps.health_score,
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE NOT ps.disabled AND ps.name ILIKE $1
+  AND (NOT pr.group_filter OR EXISTS (SELECT 1 FROM provider_groups pg
+       WHERE pg.provider_id = ps.provider_id AND pg.group_title = ps.group_title))
 ORDER BY ps.name, pr.priority, ps.id
 LIMIT $2
 `
@@ -430,7 +432,8 @@ type SearchStreamsAllProvidersRow struct {
 	ProviderName string  `json:"provider_name"`
 }
 
-// Admin stream picker: live streams of every provider matching a name.
+// Admin stream picker: live streams of every provider matching a name, in
+// the groups selected for their provider.
 func (q *Queries) SearchStreamsAllProviders(ctx context.Context, arg SearchStreamsAllProvidersParams) ([]SearchStreamsAllProvidersRow, error) {
 	rows, err := q.db.Query(ctx, searchStreamsAllProviders, arg.Pattern, arg.Limit)
 	if err != nil {

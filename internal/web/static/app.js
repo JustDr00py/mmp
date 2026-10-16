@@ -37,6 +37,15 @@
     if (order(li.parentNode) !== before) li.closest('[data-sortable-form]')?.requestSubmit();
   });
 
+  // <input data-filter="#list"> hides the list's <li>s whose text does not
+  // contain what was typed.
+  document.addEventListener('input', (e) => {
+    const box = e.target.closest?.('[data-filter]');
+    if (!box) return;
+    const q = box.value.trim().toLowerCase();
+    document.querySelectorAll(`${box.dataset.filter} > li`).forEach((li) => { li.hidden = q !== '' && !li.textContent.toLowerCase().includes(q); });
+  });
+
   // <form data-confirm="question"> asks before submitting.
   document.addEventListener('submit', (e) => {
     const msg = e.target.dataset?.confirm;
@@ -85,8 +94,12 @@
     const t = e.target;
     // [data-check-all="name"] toggles every checkbox called name in its form.
     if (t.matches('[data-check-all]')) {
-      t.form.querySelectorAll(`input[type=checkbox][name="${t.dataset.checkAll}"]`).forEach((c) => { c.checked = t.checked; });
+      // Rows hidden by a [data-filter] box are left alone.
+      t.form.querySelectorAll(`input[type=checkbox][name="${t.dataset.checkAll}"]`).forEach((c) => { if (!c.closest('[hidden]')) c.checked = t.checked; });
     }
     if (t.matches('[data-autosubmit]')) t.form.requestSubmit();
+    // Ticking inside [data-check-on-change="#radio"] also checks that radio.
+    const on = t.closest('[data-check-on-change]');
+    if (on && t.type === 'checkbox') document.querySelector(on.dataset.checkOnChange).checked = true;
   });
 })();

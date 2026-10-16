@@ -76,8 +76,15 @@ needs at least two providers carrying the same channel.
 
 ### 2. Create channels
 
-A **channel** is what your viewers see. It has an ordered failover list of provider streams. Two ways
-to build channels:
+A **channel** is what your viewers see. It has an ordered failover list of provider streams.
+
+First, trim what each provider offers: big panels carry hundreds of regional groups. On **Providers**, press
+**Groups** on a provider, type in the filter (e.g. `US`), tick the groups you want and save with
+*Only the groups ticked below*. Match and the stream search then only offer streams from those groups;
+groups the provider adds later stay hidden until you tick them. Channels already using a stream keep it.
+(API: `GET`/`PUT /api/v1/providers/{id}/groups`.)
+
+Two ways to build channels:
 
 - **Match** (fastest): MMP suggests channels that several providers carry, matching them by tvg-id, by
   normalised name (`UK: BBC One HD` ≈ `BBC One`), or by your own regex rules. Tick the suggestions you want

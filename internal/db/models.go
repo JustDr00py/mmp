@@ -127,6 +127,12 @@ type Provider struct {
 	RefreshMaxDisablePct *int32     `json:"refresh_max_disable_pct"`
 	VodEnabled           bool       `json:"vod_enabled"`
 	VodRefreshedAt       *time.Time `json:"vod_refreshed_at"`
+	GroupFilter          bool       `json:"group_filter"`
+}
+
+type ProviderGroup struct {
+	ProviderID int64  `json:"provider_id"`
+	GroupTitle string `json:"group_title"`
 }
 
 type ProviderStream struct {

@@ -156,3 +156,8 @@ ul.slots li { background: var(--card); border: 1px solid var(--line); border-rad
 .vod-cats { margin-bottom: 1.5rem; }
 .vod-cats .pick-list li.row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .vod-add { margin-top: .75rem; }
+.groups-form .mode { border: 0; padding: 0; margin: 0 0 1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.groups-form .pane-head { position: sticky; top: 0; background: var(--bg); padding: .5rem 0; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; z-index: 1; }
+.groups-form .pane-head input[type=search] { flex: 1 1 14rem; }
+.group-list { columns: 2 20rem; column-gap: 2rem; }
+.group-list li { break-inside: avoid; }

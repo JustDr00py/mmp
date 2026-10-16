@@ -1,0 +1,28 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
+<div class="head"><h1>{{$d.Provider.Name}}: groups</h1></div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+<p class="muted">Choose the groups you want from this provider. Only streams in the chosen groups show up in
+  <a href="/admin/match">Match</a> and when adding streams to a channel. Groups the provider adds later stay hidden until you
+  tick them. Channels that already use a stream keep it.</p>
+{{if $d.Groups}}
+<form method="post" action="/admin/providers/{{$d.Provider.ID}}/groups" class="groups-form" data-check-on-change="#mode-selected">
+  <fieldset class="mode">
+    <label class="check"><input type="radio" name="mode" value="all"{{if not $d.Provider.GroupFilter}} checked{{end}}> All groups</label>
+    <label class="check"><input type="radio" name="mode" value="selected" id="mode-selected"{{if $d.Provider.GroupFilter}} checked{{end}}> Only the groups ticked below</label>
+  </fieldset>
+  <div class="pane-head">
+    <input type="search" data-filter="#group-list" placeholder="Filter groups, e.g. US or UK" aria-label="Filter groups">
+    <label class="check small"><input type="checkbox" data-check-all="group"> tick all shown</label>
+    <span class="muted">{{$d.Selected}} of {{len $d.Groups}} ticked</span>
+    <button type="submit">Save</button>
+  </div>
+  <ul class="pick-list group-list" id="group-list">{{range $d.Groups}}
+    <li><label class="check"><input type="checkbox" name="group" value="{{.GroupTitle}}"{{if .Selected}} checked{{end}}> {{if .GroupTitle}}{{.GroupTitle}}{{else}}<em>(no group)</em>{{end}} <span class="sub">{{.Streams}} streams</span></label></li>
+  {{end}}</ul>
+  <p><button type="submit">Save</button></p>
+</form>
+{{else}}<div class="card empty"><p>No streams imported yet.</p>
+  <p class="muted">Refresh the provider on the <a href="/admin/providers">providers page</a>, then come back to choose its groups.</p></div>{{end}}
+{{end}}

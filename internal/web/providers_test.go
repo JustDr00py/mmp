@@ -90,6 +90,11 @@ func (f *fakeStore) SetProviderEnabled(_ context.Context, a db.SetProviderEnable
 	return nil
 }
 
+// ProviderGroupSummary: groups are tested against Postgres.
+func (f *fakeStore) ProviderGroupSummary(context.Context) ([]db.ProviderGroupSummaryRow, error) {
+	return nil, nil
+}
+
 func (f *fakeStore) ProviderStreamCounts(context.Context) ([]db.ProviderStreamCountsRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -34,6 +34,8 @@ func (ui *UI) mountProviders(r chi.Router) {
 		r.Post("/toggle", ui.providerToggle)
 		r.Post("/refresh", ui.providerRefresh)
 		r.Get("/streams", ui.streamsPage)
+		r.Get("/groups", ui.providerGroupsPage)
+		r.Post("/groups", ui.providerGroupsSave)
 	})
 }
 
@@ -42,13 +44,14 @@ type providerRow struct {
 	db.Provider
 	Streams, Active, Cooling int64
 	SlotsInUse               int
+	Groups, GroupsSelected   int64           // stream groups, and how many are selected
 	Refresh                  *refreshData    // outcome of a refresh just run from this row
 	VODRefresh               *vodRefreshData // outcome of a catalog import just run from this row
 }
 
 // flashes are the fixed messages ?msg= may select: never reflected text.
 var flashes = map[string]string{
-	"created": "Provider added. Refresh it to import its streams.",
+	"created": "Provider added. Refresh it to import its streams, then use Groups to choose which of its groups you want.",
 	"saved":   "Provider saved.",
 	"deleted": "Provider deleted.",
 }
@@ -71,6 +74,14 @@ func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
 	for _, c := range counts {
 		byID[c.ProviderID] = c
 	}
+	groups, err := ui.Store.ProviderGroupSummary(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	groupsByID := map[int64]db.ProviderGroupSummaryRow{}
+	for _, g := range groups {
+		groupsByID[g.ProviderID] = g
+	}
 	var slots map[int64]int
 	if ui.Slots != nil {
 		slots = ui.Slots()
@@ -81,7 +92,9 @@ func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
 			continue
 		}
 		c := byID[p.ID]
-		rows = append(rows, providerRow{Provider: p, Streams: c.Total, Active: c.Active, Cooling: c.Cooling, SlotsInUse: slots[p.ID]})
+		g := groupsByID[p.ID]
+		rows = append(rows, providerRow{Provider: p, Streams: c.Total, Active: c.Active, Cooling: c.Cooling, SlotsInUse: slots[p.ID],
+			Groups: g.Total, GroupsSelected: g.Selected})
 	}
 	return rows, nil
 }

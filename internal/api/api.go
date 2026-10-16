@@ -110,6 +110,10 @@ type Store interface {
 	DeleteAPIToken(ctx context.Context, id int64) (int64, error)
 
 	SetProviderVODEnabled(ctx context.Context, arg db.SetProviderVODEnabledParams) error
+	ListProviderGroups(ctx context.Context, providerID int64) ([]db.ListProviderGroupsRow, error)
+	ClearProviderGroups(ctx context.Context, providerID int64) error
+	AddProviderGroups(ctx context.Context, arg db.AddProviderGroupsParams) error
+	SetProviderGroupFilter(ctx context.Context, arg db.SetProviderGroupFilterParams) error
 	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
 	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
 	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)

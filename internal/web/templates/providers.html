@@ -30,7 +30,8 @@
   <td>{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
   <td class="num">{{.Priority}}</td>
   <td class="num">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
-  <td class="num">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}</td>
+  <td class="num">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
+    {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if .GroupFilter}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}all {{.Groups}} groups{{end}}</a></div>{{end}}</td>
   <td>{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
     {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}</div>{{end}}</td>
   <td>
@@ -45,6 +46,7 @@
     {{if .VodEnabled}}<form method="post" action="/admin/providers/{{.ID}}/vod" hx-post="/admin/providers/{{.ID}}/vod" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
       <button type="submit" class="small secondary" title="Import movies &amp; series now">Import catalog</button>
     </form>{{end}}
+    <a class="button small secondary" href="/admin/providers/{{.ID}}/groups">Groups</a>
     <a class="button small secondary" href="/admin/providers/{{.ID}}/edit">Edit</a>
     <span id="refresh-{{.ID}}-busy" class="htmx-indicator sub">refreshing…</span>
   </div></td>

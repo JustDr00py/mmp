@@ -32,6 +32,9 @@ type providerJSON struct {
 	// VODEnabled imports the provider's movies and series (Xtream only).
 	VODEnabled     bool       `json:"vod_enabled"`
 	VODRefreshedAt *time.Time `json:"vod_refreshed_at,omitempty"`
+	// GroupFilter limits matching and the stream picker to the selected
+	// groups (see /providers/{id}/groups).
+	GroupFilter bool `json:"group_filter"`
 }
 
 func toJSON(p db.Provider) providerJSON {
@@ -41,6 +44,7 @@ func toJSON(p db.Provider) providerJSON {
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
 		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
 		VODEnabled:           p.VodEnabled, VODRefreshedAt: p.VodRefreshedAt,
+		GroupFilter: p.GroupFilter,
 	}
 }
 
@@ -99,6 +103,8 @@ func MountProviders(r chi.Router, env *Env) {
 			r.Delete("/", env.deleteProvider)
 			r.Post("/refresh", env.refreshProvider)
 			r.Get("/streams", env.listProviderStreams)
+			r.Get("/groups", env.listProviderGroups)
+			r.Put("/groups", env.setProviderGroups)
 		})
 	})
 }
@@ -361,4 +367,89 @@ func clampInt(v string, def, min, max int) int {
 		return max
 	}
 	return n
+}
+
+type providerGroupJSON struct {
+	Name     string `json:"name"`
+	Streams  int64  `json:"streams"`
+	Selected bool   `json:"selected"`
+}
+
+type providerGroupsJSON struct {
+	Filter bool                `json:"filter"`
+	Groups []providerGroupJSON `json:"groups"`
+}
+
+// listProviderGroups lists the provider's stream groups and the selection.
+func (env *Env) listProviderGroups(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := env.Store.GetProvider(r.Context(), id)
+	if isNotFound(err) {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: get provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "get provider failed")
+		return
+	}
+	gs, err := env.Store.ListProviderGroups(r.Context(), id)
+	if err != nil {
+		env.Log.Error("api: list groups", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "list groups failed")
+		return
+	}
+	out := providerGroupsJSON{Filter: p.GroupFilter, Groups: make([]providerGroupJSON, 0, len(gs))}
+	for _, g := range gs {
+		out.Groups = append(out.Groups, providerGroupJSON{Name: g.GroupTitle, Streams: g.Streams, Selected: g.Selected})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// setProviderGroups replaces the selection: {"filter": true, "groups": [...]}
+// offers only those groups; {"filter": false} offers all (groups, if given,
+// are stored for later).
+func (env *Env) setProviderGroups(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var in struct {
+		Filter bool      `json:"filter"`
+		Groups *[]string `json:"groups"`
+	}
+	if err := readJSON(w, r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := env.Store.GetProvider(r.Context(), id); isNotFound(err) {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	} else if err != nil {
+		env.Log.Error("api: get provider", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "get provider failed")
+		return
+	}
+	err = env.inTx(r.Context(), func(st Store) error {
+		if in.Groups != nil {
+			if err := st.ClearProviderGroups(r.Context(), id); err != nil {
+				return err
+			}
+			if err := st.AddProviderGroups(r.Context(), db.AddProviderGroupsParams{ProviderID: id, GroupTitles: *in.Groups}); err != nil {
+				return err
+			}
+		}
+		return st.SetProviderGroupFilter(r.Context(), db.SetProviderGroupFilterParams{ID: id, GroupFilter: in.Filter})
+	})
+	if err != nil {
+		env.Log.Error("api: set groups", "provider_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "set groups failed")
+		return
+	}
+	env.listProviderGroups(w, r)
 }
