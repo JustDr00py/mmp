@@ -25,6 +25,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 	r.Get("/channels", ui.channelsPage)
 	r.Get("/channels/new", ui.channelNew)
 	r.Post("/channels/new", ui.channelCreate)
+	r.Post("/channels/group", ui.channelsSetGroup)
 	r.Route("/channels/{id}", func(r chi.Router) {
 		r.Get("/", ui.channelPage)
 		r.Post("/", ui.channelUpdate)
@@ -48,7 +49,7 @@ type channelsData struct {
 	Rows       []channelRow
 	Groups     []db.ChannelGroup
 	Query      string
-	GroupID    int64
+	GroupID    int64 // -1 = channels without a group
 	Offset     int
 	NextOffset int
 	PrevOffset int
@@ -69,8 +70,12 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		pat := "%" + likeEscape(q) + "%"
 		params.Search = &pat
 	}
-	if gid > 0 {
+	switch {
+	case gid > 0:
 		params.GroupID = &gid
+	case gid == -1:
+		none := int64(0)
+		params.GroupID = &none
 	}
 	ctx := r.Context()
 	chans, err := ui.Store.ListChannels(ctx, params)
@@ -99,6 +104,9 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	playing := ui.playing()
 	d := channelsData{Groups: groups, Query: q, GroupID: gid, Offset: offset, PrevOffset: max(offset-channelsPerPage, 0),
 		Flash: channelFlashes[r.URL.Query().Get("msg")]}
+	if q := r.URL.Query(); q.Get("msg") == "grouped" {
+		d.Flash = "Updated " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " of " + strconv.Itoa(atoi(q.Get("of"))) + " selected."
+	}
 	if len(chans) > channelsPerPage {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
 	}
@@ -114,6 +122,62 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.render(w, r, http.StatusOK, "channels", "Channels", d)
+}
+
+// channelsSetGroup moves the selected channels: to=<group id>, "none"
+// (no group) or "source" (the group named after each channel's provider
+// group). It returns to the list as it was filtered.
+func (ui *UI) channelsSetGroup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	back := url.Values{}
+	for _, k := range []string{"q", "group", "offset"} {
+		if v := f.Get(k); v != "" && v != "0" {
+			back.Set(k, v)
+		}
+	}
+	ids := channelIDs(r)
+	to := f.Get("to")
+	if len(ids) == 0 || to == "" {
+		ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+		return
+	}
+	var n int64
+	var err error
+	switch to {
+	case "source":
+		err = ui.inTx(r.Context(), func(q Store) error {
+			n, err = assignSourceGroups(r.Context(), q, ids)
+			return err
+		})
+	case "none":
+		n, err = ui.Store.SetChannelsGroup(r.Context(), db.SetChannelsGroupParams{ChannelIds: ids})
+	default:
+		gid, perr := strconv.ParseInt(to, 10, 64)
+		if perr != nil || gid <= 0 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		n, err = ui.Store.SetChannelsGroup(r.Context(), db.SetChannelsGroupParams{GroupID: &gid, ChannelIds: ids})
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "23503" {
+			http.Error(w, "that group no longer exists; reload the page", http.StatusConflict)
+			return
+		}
+	}
+	if err != nil {
+		ui.fail(w, "set channel group", err)
+		return
+	}
+	ui.Log.Info("web: channels regrouped", "to", to, "selected", len(ids), "changed", n)
+	back.Set("msg", "grouped")
+	back.Set("n", strconv.FormatInt(n, 10))
+	back.Set("of", strconv.Itoa(len(ids)))
+	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
 }
 
 // playing maps channel id to the stream its session is playing now.

@@ -351,6 +351,13 @@ form.rule { margin-top: 1rem; }
 td.name-col { min-width: 13rem; }
 .sub.url { overflow-wrap: normal; word-break: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22rem; }
 .row.center { justify-content: center; }
+.row.bulk { margin: 0 0 .6rem; }
+td.check, th.check { width: 1%; }
+.group-table input[name=name] { width: 100%; min-width: 10rem; }
+.group-table input[name=sort_order] { width: 6rem; }
+.group-table .actions { justify-content: flex-end; flex-wrap: nowrap; }
+.card.row { margin-bottom: 1rem; }
+.card.row .grow { flex: 1; min-width: 12rem; }
 @media (max-width: 900px) {
   .sidebar { box-shadow: none; }
   body.nav-open .sidebar { box-shadow: var(--shadow-lg); }

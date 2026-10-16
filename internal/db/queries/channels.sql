@@ -19,6 +19,33 @@ UPDATE channel_groups SET name = $2, sort_order = $3 WHERE id = $1 RETURNING *;
 -- name: DeleteChannelGroup :exec
 DELETE FROM channel_groups WHERE id = $1;
 
+-- name: GetChannelGroup :one
+SELECT * FROM channel_groups WHERE id = $1;
+
+-- name: ChannelGroupCounts :many
+-- Channels per group; group_id 0 counts the channels without a group.
+SELECT COALESCE(group_id, 0)::bigint AS group_id, count(*) AS channels
+FROM channels GROUP BY 1;
+
+-- name: SetChannelsGroup :execrows
+-- Moves channels into a group (NULL = no group).
+UPDATE channels SET group_id = sqlc.narg('group_id'), updated_at = now()
+WHERE id = ANY(sqlc.arg('channel_ids')::bigint[])
+  AND group_id IS DISTINCT FROM sqlc.narg('group_id');
+
+-- name: ChannelSourceGroups :many
+-- The provider group of each channel's first failover stream that has one:
+-- for the listed channels, or every channel without a group when
+-- channel_ids is NULL.
+SELECT DISTINCT ON (cs.channel_id) cs.channel_id, btrim(ps.group_title) AS group_title
+FROM channel_streams cs
+JOIN channels c ON c.id = cs.channel_id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+WHERE btrim(ps.group_title) <> ''
+  AND CASE WHEN sqlc.narg('channel_ids')::bigint[] IS NULL THEN c.group_id IS NULL
+           ELSE c.id = ANY(sqlc.narg('channel_ids')::bigint[]) END
+ORDER BY cs.channel_id, cs.priority, ps.id;
+
 -- Channels.
 
 -- name: CreateChannel :one
@@ -29,8 +56,9 @@ VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
 SELECT * FROM channels WHERE id = $1;
 
 -- name: ListChannels :many
+-- group_id 0 lists the channels without a group.
 SELECT * FROM channels
-WHERE (sqlc.narg('group_id')::bigint IS NULL OR group_id = sqlc.narg('group_id'))
+WHERE (sqlc.narg('group_id')::bigint IS NULL OR group_id IS NOT DISTINCT FROM NULLIF(sqlc.narg('group_id')::bigint, 0))
   AND (sqlc.narg('search')::text IS NULL OR name ILIKE sqlc.narg('search'))
 ORDER BY number NULLS LAST, name LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 

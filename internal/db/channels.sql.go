@@ -10,6 +10,37 @@ import (
 	"time"
 )
 
+const channelGroupCounts = `-- name: ChannelGroupCounts :many
+SELECT COALESCE(group_id, 0)::bigint AS group_id, count(*) AS channels
+FROM channels GROUP BY 1
+`
+
+type ChannelGroupCountsRow struct {
+	GroupID  int64 `json:"group_id"`
+	Channels int64 `json:"channels"`
+}
+
+// Channels per group; group_id 0 counts the channels without a group.
+func (q *Queries) ChannelGroupCounts(ctx context.Context) ([]ChannelGroupCountsRow, error) {
+	rows, err := q.db.Query(ctx, channelGroupCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelGroupCountsRow
+	for rows.Next() {
+		var i ChannelGroupCountsRow
+		if err := rows.Scan(&i.GroupID, &i.Channels); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelNamesByIDs = `-- name: ChannelNamesByIDs :many
 SELECT id, name FROM channels WHERE id = ANY($1::bigint[])
 `
@@ -29,6 +60,45 @@ func (q *Queries) ChannelNamesByIDs(ctx context.Context, ids []int64) ([]Channel
 	for rows.Next() {
 		var i ChannelNamesByIDsRow
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const channelSourceGroups = `-- name: ChannelSourceGroups :many
+SELECT DISTINCT ON (cs.channel_id) cs.channel_id, btrim(ps.group_title) AS group_title
+FROM channel_streams cs
+JOIN channels c ON c.id = cs.channel_id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+WHERE btrim(ps.group_title) <> ''
+  AND CASE WHEN $1::bigint[] IS NULL THEN c.group_id IS NULL
+           ELSE c.id = ANY($1::bigint[]) END
+ORDER BY cs.channel_id, cs.priority, ps.id
+`
+
+type ChannelSourceGroupsRow struct {
+	ChannelID  int64  `json:"channel_id"`
+	GroupTitle string `json:"group_title"`
+}
+
+// The provider group of each channel's first failover stream that has one:
+// for the listed channels, or every channel without a group when
+// channel_ids is NULL.
+func (q *Queries) ChannelSourceGroups(ctx context.Context, channelIds []int64) ([]ChannelSourceGroupsRow, error) {
+	rows, err := q.db.Query(ctx, channelSourceGroups, channelIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelSourceGroupsRow
+	for rows.Next() {
+		var i ChannelSourceGroupsRow
+		if err := rows.Scan(&i.ChannelID, &i.GroupTitle); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -207,6 +277,17 @@ func (q *Queries) GetChannelByTvgID(ctx context.Context, tvgID string) (Channel,
 	return i, err
 }
 
+const getChannelGroup = `-- name: GetChannelGroup :one
+SELECT id, name, sort_order FROM channel_groups WHERE id = $1
+`
+
+func (q *Queries) GetChannelGroup(ctx context.Context, id int64) (ChannelGroup, error) {
+	row := q.db.QueryRow(ctx, getChannelGroup, id)
+	var i ChannelGroup
+	err := row.Scan(&i.ID, &i.Name, &i.SortOrder)
+	return i, err
+}
+
 const listChannelGroups = `-- name: ListChannelGroups :many
 SELECT id, name, sort_order FROM channel_groups ORDER BY sort_order, name
 `
@@ -233,7 +314,7 @@ func (q *Queries) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error)
 
 const listChannels = `-- name: ListChannels :many
 SELECT id, number, name, tvg_id, logo_url, group_id, stream_profile_id, enabled, created_at, updated_at FROM channels
-WHERE ($1::bigint IS NULL OR group_id = $1)
+WHERE ($1::bigint IS NULL OR group_id IS NOT DISTINCT FROM NULLIF($1::bigint, 0))
   AND ($2::text IS NULL OR name ILIKE $2)
 ORDER BY number NULLS LAST, name LIMIT $4 OFFSET $3
 `
@@ -245,6 +326,7 @@ type ListChannelsParams struct {
 	Limit   int32   `json:"limit"`
 }
 
+// group_id 0 lists the channels without a group.
 func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]Channel, error) {
 	rows, err := q.db.Query(ctx, listChannels,
 		arg.GroupID,
@@ -398,6 +480,26 @@ func (q *Queries) NextChannelNumber(ctx context.Context) (int32, error) {
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const setChannelsGroup = `-- name: SetChannelsGroup :execrows
+UPDATE channels SET group_id = $1, updated_at = now()
+WHERE id = ANY($2::bigint[])
+  AND group_id IS DISTINCT FROM $1
+`
+
+type SetChannelsGroupParams struct {
+	GroupID    *int64  `json:"group_id"`
+	ChannelIds []int64 `json:"channel_ids"`
+}
+
+// Moves channels into a group (NULL = no group).
+func (q *Queries) SetChannelsGroup(ctx context.Context, arg SetChannelsGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setChannelsGroup, arg.GroupID, arg.ChannelIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setupProgress = `-- name: SetupProgress :one
