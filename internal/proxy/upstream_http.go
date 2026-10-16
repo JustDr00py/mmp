@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/redact"
 )
 
 // DefaultUserAgent is sent when the candidate sets none.

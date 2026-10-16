@@ -21,12 +21,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/channel"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/proxy"
-	"github.com/sysadmin/mmp/internal/redact"
-	"github.com/sysadmin/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/channel"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 //go:embed templates

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 // StreamAttacher joins viewers to channel sessions (satisfied by

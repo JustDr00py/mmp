@@ -18,10 +18,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/channel"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/testpg"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/channel"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/testpg"
 )
 
 // pgUI is the UI over a fresh Postgres database with a signed-in admin.

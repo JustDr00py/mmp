@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/channel"
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/channel"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // MountMatch registers matcher routes: regex rules, proposals, apply.

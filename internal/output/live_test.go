@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 // fakeTS serves an endless paced TS (PAT + 9 payload packets per group)

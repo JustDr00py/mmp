@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/redact"
 )
 
 const (

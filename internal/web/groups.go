@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // groupsData is the provider groups page: which of a provider's stream

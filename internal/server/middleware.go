@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/redact"
 )
 
 // statusWriter records the response status and size for logging.

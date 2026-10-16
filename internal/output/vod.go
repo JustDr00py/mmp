@@ -14,9 +14,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 // VODSource is the movie/series catalog as one customer may see it, plus

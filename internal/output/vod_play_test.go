@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 // fakeFilePanel serves movie 11 and episode 7001 for puser/ppass with

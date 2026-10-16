@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 func scrape(t *testing.T, h http.Handler, auth string) (int, string) {

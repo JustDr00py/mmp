@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // SessionCookie is the admin browser session cookie.

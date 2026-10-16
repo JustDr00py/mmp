@@ -13,9 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source"
-	"github.com/sysadmin/mmp/internal/testpg"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/testpg"
 )
 
 func fakeVODXtream(t *testing.T) *httptest.Server {

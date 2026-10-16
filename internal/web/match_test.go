@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/sysadmin/mmp/internal/channel"
+	"github.com/JustDr00py/mmp/internal/channel"
 )
 
 func TestNaturalCompare(t *testing.T) {

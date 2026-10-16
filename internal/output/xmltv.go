@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // Guide window served to players: a day of catch-up context, a week ahead.

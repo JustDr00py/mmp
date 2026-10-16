@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // candidateLimit caps the "add channels" list; narrow it with search.

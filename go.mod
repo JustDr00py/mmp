@@ -1,4 +1,4 @@
-module github.com/sysadmin/mmp
+module github.com/JustDr00py/mmp
 
 go 1.26.9
 

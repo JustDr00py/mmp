@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // seedGrouped: providers A and B both carry n sports channels ("US| SPORTS")

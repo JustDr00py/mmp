@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 type fakeInserter struct {

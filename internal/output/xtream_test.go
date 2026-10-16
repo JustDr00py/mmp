@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source/xtream"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

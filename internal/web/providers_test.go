@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 // fakeStore is an in-memory web.Store.

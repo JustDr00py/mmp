@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // The Xtream API mirrors Xtream UI panels field for field: players are

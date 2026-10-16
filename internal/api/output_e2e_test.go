@@ -16,10 +16,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/output"
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/output"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 // TestXtreamPlaybackEndToEnd is the 5.7 AC through the real stack: a

@@ -17,8 +17,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 // fakeStore is an in-memory Store. The embedded *db.Queries satisfies the

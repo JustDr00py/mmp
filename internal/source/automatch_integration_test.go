@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sysadmin/mmp/internal/channel"
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/channel"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // TestRefreshAutoMatch is the 3.5 AC: with auto-match on, refreshing a

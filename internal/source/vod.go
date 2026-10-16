@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source/xtream"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
 // ErrVODUnsupported: only Xtream panels expose movie and series catalogs.

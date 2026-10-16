@@ -12,11 +12,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/proxy"
-	"github.com/sysadmin/mmp/internal/redact"
-	"github.com/sysadmin/mmp/internal/source/xtream"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
 // vodWriteTimeout bounds one write to a VOD client (a paused player that

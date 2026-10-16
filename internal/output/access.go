@@ -5,9 +5,9 @@ package output
 import (
 	"errors"
 
-	"github.com/sysadmin/mmp/internal/auth"
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 // ErrTooManyConnections means the user already has max_connections streams.

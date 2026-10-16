@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sysadmin/mmp/internal/config"
+	"github.com/JustDr00py/mmp/internal/config"
 )
 
 // Pinger reports dependency health for /healthz. *pgxpool.Pool satisfies it.

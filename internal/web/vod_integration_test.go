@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 func TestVODPages(t *testing.T) {

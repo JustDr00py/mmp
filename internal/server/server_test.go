@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/config"
+	"github.com/JustDr00py/mmp/internal/config"
 )
 
 func testCfg() config.Config {

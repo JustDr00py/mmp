@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // TestFetchErrorsHideCredentials: transport failures must not echo the

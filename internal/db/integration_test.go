@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/sysadmin/mmp/internal/testpg"
+	"github.com/JustDr00py/mmp/internal/testpg"
 )
 
 // testDSN returns the DSN under test. The round-trip test is destructive, so

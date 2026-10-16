@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
 
-	"github.com/sysadmin/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/redact"
 
 	// Register the pgx stdlib driver so goose can drive migrations through
 	// database/sql.

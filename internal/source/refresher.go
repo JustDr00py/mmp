@@ -15,11 +15,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/redact"
-	"github.com/sysadmin/mmp/internal/source/epg"
-	"github.com/sysadmin/mmp/internal/source/m3u"
-	"github.com/sysadmin/mmp/internal/source/xtream"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/source/epg"
+	"github.com/JustDr00py/mmp/internal/source/m3u"
+	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
 // maxM3USize bounds playlist downloads (100 MiB: big but bounded).

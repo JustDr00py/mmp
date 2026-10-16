@@ -7,7 +7,7 @@ import (
 	"math"
 	"slices"
 
-	"github.com/sysadmin/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/db"
 )
 
 // CandidateQuerier is the query the proxy needs (satisfied by *db.Queries).

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/db"
-	"github.com/sysadmin/mmp/internal/source/epg"
+	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source/epg"
 )
 
 var guideNow = time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)

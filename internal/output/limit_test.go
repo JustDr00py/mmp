@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysadmin/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/auth"
 )
 
 // newLimitedHandlers builds the test handlers with a 3-attempt lockout.
