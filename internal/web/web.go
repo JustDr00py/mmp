@@ -25,6 +25,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
 	"github.com/JustDr00py/mmp/internal/source"
@@ -39,9 +40,19 @@ var staticFS embed.FS
 // Prefix is where the UI is mounted.
 const Prefix = "/admin"
 
-// LiveStatus reports running channel sessions (satisfied by *proxy.Manager).
+// LiveStatus reports and controls running channel sessions (satisfied by
+// *proxy.Manager).
 type LiveStatus interface {
 	Channels() []proxy.ChannelStatus
+	Stop(channelID int64) bool
+	Switch(channelID, streamID int64) bool
+}
+
+// LiveViewers lists and disconnects the customers watching live channels
+// (satisfied by *output.Access).
+type LiveViewers interface {
+	Viewers() []output.Viewer
+	Kick(id uint64) bool
 }
 
 // Store is the persistence the pages need (satisfied by *db.Queries).
@@ -128,6 +139,8 @@ type Store interface {
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
+	LiveChannelInfo(ctx context.Context, ids []int64) ([]db.LiveChannelInfoRow, error)
+	LiveChannelStreams(ctx context.Context, ids []int64) ([]db.LiveChannelStreamsRow, error)
 
 	ListMatchRules(ctx context.Context) ([]db.MatchRule, error)
 	CreateMatchRule(ctx context.Context, arg db.CreateMatchRuleParams) (db.MatchRule, error)
@@ -157,6 +170,7 @@ type Deps struct {
 	Refresh    Refresher
 	Match      Matcher
 	Live       LiveStatus           // optional
+	Viewers    LiveViewers          // optional: who is watching, for the dashboard
 	Slots      func() map[int64]int // provider slots in use; optional
 	LoginLimit *auth.Limiter        // locks out repeated login failures; optional
 	// Connections reports open customer streams per user; optional.
@@ -242,6 +256,10 @@ func New(d Deps) (*UI, error) {
 		"list":       func(xs ...int) []int { return xs },
 		"field":      func(id, label, value string) copyField { return copyField{id, label, value} },
 		"last":       func(i, n int) bool { return i == n-1 },
+		"mbps":       mbps,
+		"bytesize":   byteSize,
+		"fps":        fps,
+		"upper":      strings.ToUpper,
 		"size":       humanSize,
 		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
 	}
@@ -316,6 +334,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountProfiles(r)
 			ui.mountVOD(r)
 			ui.mountBackups(r)
+			ui.mountLive(r)
 		})
 	})
 }
@@ -481,7 +500,7 @@ func (ui *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "dashboard snapshot", err)
 		return
 	}
-	d := dashboardData{Live: snap}
+	d := dashboardData{Live: snap, Flash: liveFlashes[r.URL.Query().Get("msg")]}
 	prog, err := ui.Store.SetupProgress(r.Context())
 	if err != nil {
 		ui.fail(w, "setup progress", err)
@@ -493,6 +512,7 @@ func (ui *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 type dashboardData struct {
+	Flash  string
 	Live   liveSnapshot
 	Setup  *setupView // nil once every required step is done
 	Totals db.SetupProgressRow

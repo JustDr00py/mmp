@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,7 +24,12 @@ const (
 	EventOpenFailed = "open_failed" // a candidate could not be opened
 	EventFailover   = "failover"    // a playing upstream failed and another took over
 	EventExhausted  = "exhausted"   // no candidate worked within the retry window
+	EventSwitch     = "switch"      // an admin moved the channel to another stream
 )
+
+// reasonSwitched ends an upstream that an admin switched away from: not a
+// failure, so no cooldown.
+const reasonSwitched = "switched"
 
 // Event is a session state change worth recording (see events table).
 type Event struct {
@@ -52,6 +58,7 @@ type SessionConfig struct {
 	Log            *slog.Logger
 	OnEvent        func(Event) // optional; called from the session goroutine
 	Metrics        *Metrics    // optional
+	Probe          MediaProbe  // optional: fills in resolution, frame rate, audio layout
 }
 
 // SessionStatus is a snapshot for the dashboard.
@@ -60,8 +67,21 @@ type SessionStatus struct {
 	State      string    `json:"state"` // connecting | streaming | waiting | closed
 	StreamID   int64     `json:"stream_id,omitempty"`
 	ProviderID int64     `json:"provider_id,omitempty"`
-	Since      time.Time `json:"since"`
+	Since      time.Time `json:"since"`   // in the current state
+	Started    time.Time `json:"started"` // the session
 	Failovers  int       `json:"failovers"`
+	Bytes      uint64    `json:"bytes"`    // delivered to the ring, all upstreams
+	Kbps       int       `json:"kbps"`     // over the last few seconds
+	AvgKbps    int       `json:"avg_kbps"` // since the first byte
+	Media      MediaInfo `json:"media"`    // of the current upstream
+}
+
+// rateWindow is how far back the current bitrate looks.
+const rateWindow = 5 * time.Second
+
+type rateSample struct {
+	at    time.Time
+	bytes uint64
 }
 
 // Session runs one channel's upstream: it keeps exactly one provider
@@ -72,8 +92,12 @@ type Session struct {
 	cfg SessionConfig
 	log *slog.Logger
 
-	mu     sync.Mutex
-	status SessionStatus
+	mu        sync.Mutex
+	status    SessionStatus
+	firstByte time.Time    // first byte of the session, for the average
+	rate      []rateSample // about one per second over rateWindow
+	preferred int64        // stream an admin asked for, tried next
+	switchReq chan struct{}
 }
 
 // NewSession fills defaults.
@@ -87,10 +111,12 @@ func NewSession(cfg SessionConfig) *Session {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
+	now := time.Now()
 	return &Session{
-		cfg:    cfg,
-		log:    cfg.Log.With("channel_id", cfg.ChannelID),
-		status: SessionStatus{ChannelID: cfg.ChannelID, State: "connecting", Since: time.Now()},
+		cfg:       cfg,
+		log:       cfg.Log.With("channel_id", cfg.ChannelID),
+		status:    SessionStatus{ChannelID: cfg.ChannelID, State: "connecting", Since: now, Started: now},
+		switchReq: make(chan struct{}, 1),
 	}
 }
 
@@ -98,7 +124,86 @@ func NewSession(cfg SessionConfig) *Session {
 func (s *Session) Status() SessionStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.status
+	st := s.status
+	now := time.Now()
+	if len(s.rate) > 0 {
+		// From the oldest sample in the window to now: a stalled upstream
+		// shows its rate falling instead of the last good value.
+		first := s.rate[0]
+		if d := now.Sub(first.at); d > 0 {
+			st.Kbps = int(float64(st.Bytes-first.bytes) * 8 / d.Seconds() / 1000)
+		}
+	}
+	if !s.firstByte.IsZero() {
+		if d := now.Sub(s.firstByte); d >= time.Second {
+			st.AvgKbps = int(float64(st.Bytes) * 8 / d.Seconds() / 1000)
+		} else {
+			st.AvgKbps = st.Kbps
+		}
+	}
+	return st
+}
+
+// addBytes counts n bytes delivered at now.
+func (s *Session) addBytes(now time.Time, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.firstByte.IsZero() {
+		s.firstByte = now
+		s.rate = append(s.rate, rateSample{now, 0})
+	}
+	s.status.Bytes += uint64(n)
+	if now.Sub(s.rate[len(s.rate)-1].at) >= time.Second {
+		s.rate = append(s.rate, rateSample{now, s.status.Bytes})
+	}
+	cut := 0
+	for cut < len(s.rate)-1 && now.Sub(s.rate[cut].at) > rateWindow {
+		cut++
+	}
+	s.rate = s.rate[cut:]
+}
+
+// setMedia records what stream streamID carries, unless the session moved on.
+func (s *Session) setMedia(streamID int64, m MediaInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status.StreamID == streamID {
+		s.status.Media = s.status.Media.merge(m)
+	}
+}
+
+// Switch asks the session to move to streamID now, even if it is cooling
+// down. The current upstream is closed without counting as a failure. If
+// the stream cannot be opened the session fails over as usual.
+func (s *Session) Switch(streamID int64) {
+	s.mu.Lock()
+	if s.status.StreamID == streamID && s.status.State == "streaming" {
+		s.mu.Unlock()
+		return // already playing it
+	}
+	s.preferred = streamID
+	s.mu.Unlock()
+	select {
+	case s.switchReq <- struct{}{}:
+	default: // one pending request is enough
+	}
+}
+
+// takePreferred returns cands with the requested stream first (once).
+func (s *Session) takePreferred(cands []Candidate) ([]Candidate, int64) {
+	s.mu.Lock()
+	id := s.preferred
+	s.preferred = 0
+	s.mu.Unlock()
+	if id == 0 {
+		return cands, 0
+	}
+	i := slices.IndexFunc(cands, func(c Candidate) bool { return c.StreamID == id })
+	if i < 0 {
+		return cands, 0
+	}
+	out := append([]Candidate{cands[i]}, cands[:i]...)
+	return append(out, cands[i+1:]...), id
 }
 
 func (s *Session) setState(state string, c *Candidate) {
@@ -107,6 +212,9 @@ func (s *Session) setState(state string, c *Candidate) {
 	s.status.State = state
 	s.status.Since = time.Now()
 	if c != nil {
+		if c.StreamID != s.status.StreamID {
+			s.status.Media = MediaInfo{}
+		}
 		s.status.StreamID, s.status.ProviderID = c.StreamID, c.ProviderID
 	}
 }
@@ -144,9 +252,10 @@ func (s *Session) Run(ctx context.Context) error {
 			s.log.Warn("session: load candidates", "err", err)
 		}
 
+		cands, preferred := s.takePreferred(cands)
 		played := false
 		for _, c := range cands {
-			if s.cfg.Cooldowns.Active(c.StreamID, time.Now()) {
+			if c.StreamID != preferred && s.cfg.Cooldowns.Active(c.StreamID, time.Now()) {
 				continue
 			}
 			slot, ok := s.cfg.Capacity.TryAcquire(c.ProviderID, c.MaxConnections)
@@ -169,7 +278,7 @@ func (s *Session) Run(ctx context.Context) error {
 				continue
 			}
 
-			res := s.stream(ctx, c, rc, spliced, lastFailed)
+			res := s.stream(ctx, c, rc, spliced, lastFailed, c.StreamID == preferred)
 			rc.Close()
 			slot.Release()
 			if res.delivered {
@@ -178,6 +287,12 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 			if ctx.Err() != nil {
 				return nil
+			}
+			if res.reason == reasonSwitched {
+				s.log.Info("session: switching stream", "from_stream_id", c.StreamID)
+				lastFailed = c.StreamID // the switch event names it
+				played = true
+				break
 			}
 			s.cfg.Metrics.upstreamFailure(res.reason)
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
@@ -202,6 +317,7 @@ func (s *Session) Run(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return nil
+			case <-s.switchReq: // an admin picked a stream: try it now
 			case <-time.After(s.cfg.RetryBackoff):
 			}
 		}
@@ -214,11 +330,13 @@ type streamResult struct {
 }
 
 // stream pumps one upstream into the ring until it fails or ctx ends. A
-// watchdog closes rc when tswatch judges the upstream unhealthy, which
-// unblocks the read.
-func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spliced bool, failedID int64) streamResult {
+// watchdog closes rc when tswatch judges the upstream unhealthy, or when an
+// admin switches streams, which unblocks the read. manual marks an upstream
+// an admin picked.
+func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spliced bool, failedID int64, manual bool) streamResult {
 	w := NewWatcher(s.cfg.Thresholds, time.Now())
 	var verdict atomic.Int32
+	var switched atomic.Bool
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -233,6 +351,10 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			case <-done:
 				return
 			case <-ctx.Done():
+				rc.Close()
+				return
+			case <-s.switchReq:
+				switched.Store(true)
 				rc.Close()
 				return
 			case now := <-t.C:
@@ -252,6 +374,8 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 	var res streamResult
 	var firstAt time.Time
 	stableCleared := false
+	var sample []byte // the start of this upstream, for MediaInfo
+	sampled := false
 	for {
 		n, err := rc.Read(buf)
 		if n > 0 {
@@ -268,11 +392,24 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 					return res
 				}
 				s.cfg.Metrics.addUpstreamBytes(len(out))
+				s.addBytes(now, len(out))
+				if !sampled {
+					sample = append(sample, out...)
+					if len(sample) >= mediaSampleSize || (res.delivered && now.Sub(firstAt) >= 3*time.Second) {
+						sampled = true
+						go s.probeMedia(ctx, c.StreamID, sample)
+						sample = nil
+					}
+				}
 				if !res.delivered {
 					res.delivered, firstAt = true, now
 					s.setState("streaming", &c)
 					s.log.Info("session: streaming", "stream_id", c.StreamID, "provider_id", c.ProviderID)
-					if failedID != 0 {
+					switch {
+					case manual:
+						s.emit(Event{Type: EventSwitch, ProviderID: c.ProviderID, FromStreamID: failedID,
+							ToStreamID: c.StreamID, Message: "switched by an admin"})
+					case failedID != 0:
 						s.cfg.Metrics.failover()
 						s.emit(Event{Type: EventFailover, ProviderID: c.ProviderID, FromStreamID: failedID,
 							ToStreamID: c.StreamID, Message: "switched upstream"})
@@ -285,6 +422,8 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 		}
 		if err != nil {
 			switch v := Verdict(verdict.Load()); {
+			case switched.Load():
+				res.reason = reasonSwitched
 			case v != Healthy:
 				res.reason = v.String()
 			case errors.Is(err, io.EOF):
@@ -295,6 +434,24 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			return res
 		}
 	}
+}
+
+// probeMedia works out what streamID carries from the start of its data:
+// codecs from the PMT, the rest from the configured probe.
+func (s *Session) probeMedia(ctx context.Context, streamID int64, sample []byte) {
+	m := tsMediaInfo(sample)
+	s.setMedia(streamID, m)
+	if s.cfg.Probe == nil {
+		return
+	}
+	pm, err := s.cfg.Probe(ctx, sample)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.log.Debug("session: media probe", "stream_id", streamID, "err", err)
+		}
+		return
+	}
+	s.setMedia(streamID, pm.merge(m))
 }
 
 // maxPATWait bounds how much of a new upstream is discarded while waiting

@@ -19,6 +19,7 @@
   </ol>
 </section>
 {{end}}
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <div id="live" data-sse="/admin/live" data-sse-state="#live-state">
 {{template "live" $d.Live}}
 </div>
@@ -30,29 +31,17 @@
   <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-eye"/></svg></span><span class="num">{{.Viewers}}</span><span class="label">viewers on sessions</span></div>
   <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></span><span class="num">{{.Customers}}</span><span class="label">customer connections</span></div>
 </section>
+<h2>Live channels</h2>
+{{if .Channels}}
+<div class="live-grid">{{range .Channels}}{{template "live-card" .}}{{end}}</div>
+{{else}}<div class="card empty"><p>Nobody is watching right now.</p><p class="muted">Channels appear here as soon as a customer starts playing one.</p></div>{{end}}
 <div class="split">
   <section>
-    <h2>Live channels</h2>
-    {{if .Channels}}
-    <div class="table-wrap"><table>
-      <thead><tr><th>Channel</th><th>State</th><th>Playing from</th><th class="num">For</th><th class="num">Failovers</th><th class="num">Viewers</th></tr></thead>
-      <tbody>{{range .Channels}}
-      <tr>
-        <td><a href="/admin/channels/{{.ID}}">{{if .Name}}{{.Name}}{{else}}#{{.ID}}{{end}}</a></td>
-        <td>{{if eq .State "streaming"}}<span class="pill ok">streaming</span>{{else if eq .State "connecting"}}<span class="pill warn">connecting</span>{{else}}<span class="pill warn">{{.State}}</span>{{end}}{{if .Closing}} <span class="pill off">closing</span>{{end}}</td>
-        <td>{{if .Stream}}{{.Stream}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td class="num">{{.For}}</td>
-        <td class="num">{{if .Failovers}}<span class="pill warn">{{.Failovers}}</span>{{else}}0{{end}}</td>
-        <td class="num">{{.Viewers}}</td>
-      </tr>{{end}}</tbody>
-    </table></div>
-    {{else}}<div class="card empty"><p>Nobody is watching right now.</p><p class="muted">Channels appear here as soon as a customer starts playing one.</p></div>{{end}}
-
     <h2>Recent events</h2>
     {{if .Events}}
     <ul class="events">{{range .Events}}
       <li><span class="mono muted">{{.At}}</span>
-        {{if eq .Type "failover"}}<span class="pill warn">failover</span>{{else if eq .Type "exhausted"}}<span class="pill bad">down</span>{{else if eq .Type "open_failed"}}<span class="pill off">open failed</span>{{else}}<span class="pill off">{{.Type}}</span>{{end}}
+        {{if eq .Type "failover"}}<span class="pill warn">failover</span>{{else if eq .Type "exhausted"}}<span class="pill bad">down</span>{{else if eq .Type "switch"}}<span class="pill ok">switch</span>{{else if eq .Type "open_failed"}}<span class="pill off">open failed</span>{{else}}<span class="pill off">{{.Type}}</span>{{end}}
         {{if .ChannelID}}<a href="/admin/channels/{{.ChannelID}}">{{if .Channel}}{{.Channel}}{{else}}#{{.ChannelID}}{{end}}</a>{{end}}
         <span class="sub">{{.Message}}</span></li>{{end}}
     </ul>
@@ -69,4 +58,60 @@
     {{else}}<div class="card empty"><p>No providers yet.</p><a class="button small" href="/admin/providers/new">Add provider</a></div>{{end}}
   </section>
 </div>
+{{end}}
+
+{{define "live-card"}}
+<article class="card live-card" aria-labelledby="lc-{{.ID}}">
+  <header class="lc-head">
+    <div class="lc-logo">{{if .Logo}}<img src="{{.Logo}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<svg aria-hidden="true"><use href="#i-tv"/></svg>{{end}}</div>
+    <div class="lc-tools">
+      <span class="lc-uptime" title="Session running for {{.Uptime}}"><svg aria-hidden="true"><use href="#i-clock"/></svg>{{.Uptime}}</span>
+      <form method="post" action="/admin/live/channels/{{.ID}}/stop"
+        data-confirm="Stop {{.Name}}? Its {{.Viewers}} viewer(s) are disconnected; players that reconnect start it again.">
+        <button type="submit" class="icon-btn danger" aria-label="Stop {{.Name}}" title="Stop channel"><svg aria-hidden="true"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+  </header>
+  <div class="lc-title">
+    <h3 id="lc-{{.ID}}"><a href="/admin/channels/{{.ID}}">{{with .Number}}{{.}} · {{end}}{{if .Name}}{{.Name}}{{else}}#{{.ID}}{{end}}</a></h3>
+    <span class="lc-profile" title="Stream profile"><svg aria-hidden="true"><use href="#i-sliders"/></svg>{{.Profile}}</span>
+  </div>
+  <p class="lc-state">
+    {{if eq .State "streaming"}}<span class="pill ok">streaming</span>{{else if eq .State "connecting"}}<span class="pill warn">connecting</span>{{else}}<span class="pill warn">{{.State}}</span>{{end}}{{if .Closing}} <span class="pill off">closing</span>{{end}}
+    {{if .Failovers}}<span class="pill warn">{{.Failovers}} failover{{if ne .Failovers 1}}s{{end}}</span>{{end}}
+    {{with .NowPlaying}}<span class="lc-now"><span class="on-air" aria-hidden="true"></span>Now playing: <span class="muted">{{.}}</span></span>{{end}}
+  </p>
+  {{if .Streams}}
+  <form class="lc-stream" method="post" action="/admin/live/channels/{{.ID}}/switch">
+    <label>Active stream
+      <select name="stream">{{$cur := .StreamID}}{{range .Streams}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <button type="submit" class="icon-btn ok" aria-label="Play the selected stream" title="Play the selected stream"><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+  </form>
+  {{else if .Stream}}<p class="muted small">Playing {{.Stream}}</p>{{end}}
+  {{with .Media}}{{if .Known}}
+  <ul class="badges" aria-label="Stream details">
+    {{if .Width}}<li class="b-res">{{.Width}}×{{.Height}}</li>{{end}}
+    {{if .FPS}}<li class="b-fps">{{fps .FPS}} FPS</li>{{end}}
+    {{with .VideoCodec}}<li class="b-video">{{.}}</li>{{end}}
+    {{with .AudioCodec}}<li class="b-audio">{{.}}</li>{{end}}
+    {{with .Audio}}<li class="b-layout">{{upper .}}</li>{{end}}
+    <li class="b-ts">MPEGTS</li>
+  </ul>{{end}}{{end}}
+  <dl class="lc-stats">
+    <div title="Current bitrate"><dt><svg aria-hidden="true"><use href="#i-gauge"/></svg><span class="sr-only">Now</span></dt><dd>{{mbps .Kbps}}</dd></div>
+    <div title="Average bitrate"><dt>Avg</dt><dd>{{mbps .AvgKbps}}</dd></div>
+    <div title="Data received from the provider"><dt><svg aria-hidden="true"><use href="#i-download"/></svg><span class="sr-only">Data</span></dt><dd>{{bytesize .Bytes}}</dd></div>
+    <div title="Viewers"><dt><svg aria-hidden="true"><use href="#i-users"/></svg><span class="sr-only">Viewers</span></dt><dd>{{.Viewers}}</dd></div>
+  </dl>
+  {{if .Watchers}}
+  <div class="table-wrap lc-viewers"><table>
+    <thead><tr><th>IP address</th><th>User</th><th class="wide-only">Connected</th><th>Duration</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>{{range .Watchers}}
+    <tr><td class="mono">{{.Addr}}</td><td>{{.User}} <span class="sub">{{.Output}}</span></td><td class="wide-only">{{.Since}}</td><td>{{.Duration}}</td>
+      <td><form method="post" action="/admin/live/viewers/{{.ID}}/kick" data-confirm="Disconnect {{.User}} ({{.Addr}})? Their player may reconnect.">
+        <button type="submit" class="icon-btn danger" aria-label="Disconnect {{.User}}" title="Disconnect"><svg aria-hidden="true"><use href="#i-x"/></svg></button></form></td></tr>{{end}}
+    </tbody>
+  </table></div>
+  {{end}}
+</article>
 {{end}}

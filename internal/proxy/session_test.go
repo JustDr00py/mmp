@@ -529,3 +529,49 @@ type readerCtx struct {
 }
 
 func (r readerCtx) Read(p []byte) (int, error) { return r.rd.Read(r.ctx, p) }
+
+// TestSessionSwitch: an admin's switch moves the session to the chosen
+// stream without counting a failure or cooling the old one, and the
+// session reports bytes and bitrate as it goes.
+func TestSessionSwitch(t *testing.T) {
+	a := newFakeProvider(t, 'A', "ok", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL},
+	}, nil)
+	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'A') >= 100 }); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond) // a second of rate samples
+	st := h.sess.Status()
+	if st.StreamID != 1 || st.Bytes == 0 || st.Kbps <= 0 || st.AvgKbps <= 0 || st.Started.IsZero() {
+		t.Fatalf("status = %+v, want stream 1 with bytes and bitrate", st)
+	}
+
+	h.sess.Switch(1) // already playing: nothing happens
+	h.sess.Switch(2)
+	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+		t.Fatalf("no B after switch: %v", err)
+	}
+	st = h.sess.Status()
+	if st.StreamID != 2 || st.State != "streaming" || st.Failovers != 0 {
+		t.Errorf("after switch: %+v, want streaming stream 2 with no failovers", st)
+	}
+	if h.cool.Active(1, time.Now()) {
+		t.Error("switching away cooled stream 1 down")
+	}
+	if ev := h.eventsOf(EventSwitch); len(ev) != 1 || ev[0].FromStreamID != 1 || ev[0].ToStreamID != 2 {
+		t.Errorf("switch events = %+v", ev)
+	}
+	if ev := h.eventsOf(EventFailover); len(ev) != 0 {
+		t.Errorf("a switch logged failovers: %+v", ev)
+	}
+
+	// A cooling stream can still be picked by hand.
+	h.cool.Fail(1, time.Now())
+	h.sess.Switch(1)
+	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'A') >= 100 }); err != nil {
+		t.Fatalf("could not switch to a cooling stream: %v", err)
+	}
+}

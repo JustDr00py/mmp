@@ -35,24 +35,14 @@ func tsPackets(n int, pat bool) []byte {
 
 // origin is a fake provider whose behaviour can be switched mid-test.
 type origin struct {
-	mode    atomic.Value // "ts" | "503" | "html" | "nopat"
-	active  atomic.Int32
-	maxSeen atomic.Int32
-	srv     *httptest.Server
+	mode atomic.Value // "ts" | "503" | "html" | "nopat"
+	srv  *httptest.Server
 }
 
 func newOrigin(t *testing.T, mode string) *origin {
 	o := &origin{}
 	o.mode.Store(mode)
 	o.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := o.active.Add(1)
-		defer o.active.Add(-1)
-		for {
-			m := o.maxSeen.Load()
-			if n <= m || o.maxSeen.CompareAndSwap(m, n) {
-				break
-			}
-		}
 		switch o.mode.Load().(string) {
 		case "503":
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -127,6 +117,41 @@ func (c *clock) add(d time.Duration) {
 	c.mu.Lock()
 	c.t = c.t.Add(d)
 	c.mu.Unlock()
+}
+
+// countingOpener tracks how many upstreams are open at once, from Open to
+// Close, which is what the prober's concurrency limit bounds. The origin
+// cannot count this: its handler notices a closed client only on its next
+// write, after the prober may already have started the next probe.
+type countingOpener struct {
+	proxy.Opener
+	open, maxSeen atomic.Int32
+}
+
+func (c *countingOpener) Open(ctx context.Context, cand proxy.Candidate) (io.ReadCloser, error) {
+	rc, err := c.Opener.Open(ctx, cand)
+	if err != nil {
+		return nil, err
+	}
+	n := c.open.Add(1)
+	for {
+		m := c.maxSeen.Load()
+		if n <= m || c.maxSeen.CompareAndSwap(m, n) {
+			break
+		}
+	}
+	return &countedBody{ReadCloser: rc, c: c}, nil
+}
+
+type countedBody struct {
+	io.ReadCloser
+	c    *countingOpener
+	once sync.Once
+}
+
+func (b *countedBody) Close() error {
+	b.once.Do(func() { b.c.open.Add(-1) })
+	return b.ReadCloser.Close()
 }
 
 func newProber(store *fakeStore, clk *clock) *Prober {
@@ -255,12 +280,14 @@ func TestProbeConcurrencyAndCoolingFirst(t *testing.T) {
 		store.rows[id] = target(id, o.srv.URL+"/x.ts")
 	}
 	p := newProber(store, clk)
+	counter := &countingOpener{Opener: p.Opener}
+	p.Opener = counter
 	p.Cooldowns.Fail(5, clk.now())
 	res, _ := p.RunOnce(context.Background())
 	if len(res) != 6 || res[0].StreamID != 5 {
 		t.Errorf("results = %+v; want all 6, cooling stream 5 first", res)
 	}
-	if m := o.maxSeen.Load(); m > 2 {
+	if m := counter.maxSeen.Load(); m > 2 {
 		t.Errorf("%d probes ran at once, want <= 2", m)
 	}
 }

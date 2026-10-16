@@ -100,8 +100,8 @@ type matchData struct {
 
 	ChannelGroups []db.ChannelGroup
 	Bouquets      []db.Bouquet
-	ApplyGroup    string // "none", "source" or a channel group id (sticky)
-	ApplyBouquet  int64
+	ApplyGroup    string         // "none", "source" or a channel group id (sticky)
+	ApplyBouquets map[int64]bool // sticky
 
 	Rules     []db.MatchRule
 	RuleError string
@@ -112,7 +112,7 @@ type matchData struct {
 
 type appliedSummary struct {
 	Created, Attached int
-	Bouquet           string
+	Bouquets          []string
 }
 
 var matchedByText = map[string]string{channel.ByTvgID: "same tvg-id", channel.ByName: "same name", channel.ByRule: "your rule"}
@@ -257,7 +257,12 @@ func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 	if !q.Has("cg") { // new channels keep their provider's categories unless told otherwise
 		d.ApplyGroup = "source"
 	}
-	d.ApplyBouquet, _ = strconv.ParseInt(q.Get("bq"), 10, 64)
+	d.ApplyBouquets = map[int64]bool{}
+	for _, v := range q["bq"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+			d.ApplyBouquets[id] = true
+		}
+	}
 	if msg := q.Get("applied"); msg != "" {
 		parts := strings.SplitN(msg, "-", 3)
 		a := &appliedSummary{Created: atoi(parts[0])}
@@ -265,8 +270,8 @@ func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 			a.Attached = atoi(parts[1])
 		}
 		for _, b := range d.Bouquets {
-			if b.ID == d.ApplyBouquet {
-				a.Bouquet = b.Name
+			if d.ApplyBouquets[b.ID] {
+				a.Bouquets = append(a.Bouquets, b.Name)
 			}
 		}
 		d.Applied = a
@@ -333,15 +338,17 @@ func (ui *UI) matchApply(w http.ResponseWriter, r *http.Request) {
 			opts.ChannelGroupID = &id
 		}
 	}
-	if id, err := strconv.ParseInt(pf.Get("bq"), 10, 64); err == nil && id > 0 {
-		opts.BouquetID = &id
+	for _, v := range pf["bq"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 && !slices.Contains(opts.BouquetIDs, id) {
+			opts.BouquetIDs = append(opts.BouquetIDs, id)
+		}
 	}
 	back := f.Values()
 	if cg != "" {
 		back.Set("cg", cg)
 	}
-	if opts.BouquetID != nil {
-		back.Set("bq", strconv.FormatInt(*opts.BouquetID, 10))
+	for _, id := range opts.BouquetIDs {
+		back.Add("bq", strconv.FormatInt(id, 10))
 	}
 	if f.Offset > 0 {
 		back.Set("offset", strconv.Itoa(f.Offset))

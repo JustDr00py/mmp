@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
 const (
@@ -23,14 +28,37 @@ const (
 
 type liveChannel struct {
 	ID        int64
+	Number    *int32
 	Name      string
+	Logo      string
 	State     string
 	Provider  string
 	Stream    string
+	StreamID  int64
 	For       string // time in the current state
+	Uptime    string // since the session started
 	Failovers int
-	Viewers   int
+	Viewers   int // customers watching (or session readers without a viewer list)
 	Closing   bool
+
+	Profile    string // "FFmpeg" or "Passthrough"
+	NowPlaying string // the guide's current program
+	Streams    []liveStreamOption
+	Media      proxy.MediaInfo
+	Kbps       int
+	AvgKbps    int
+	Bytes      uint64
+	Watchers   []liveViewer
+}
+
+type liveStreamOption struct {
+	ID    int64
+	Label string
+}
+
+type liveViewer struct {
+	ID                                  uint64
+	Addr, User, Output, Since, Duration string
 }
 
 type liveProvider struct {
@@ -88,7 +116,9 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 				s.Streaming++
 			}
 			chans = append(chans, liveChannel{ID: c.ChannelID, State: c.State, Provider: provName[c.ProviderID],
-				For: shortDuration(time.Since(c.Since)), Failovers: c.Failovers, Viewers: c.Viewers, Closing: c.Closing})
+				StreamID: c.StreamID, For: shortDuration(time.Since(c.Since)), Uptime: shortDuration(time.Since(c.Started)),
+				Failovers: c.Failovers, Viewers: c.Viewers, Closing: c.Closing,
+				Media: c.Media, Kbps: c.Kbps, AvgKbps: c.AvgKbps, Bytes: c.Bytes})
 			chanIDs = append(chanIDs, c.ChannelID)
 			if c.StreamID != 0 {
 				streamIDs = append(streamIDs, c.StreamID)
@@ -133,8 +163,13 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 		}
 	}
 
+	if err := ui.cardDetails(ctx, chans); err != nil {
+		return s, err
+	}
 	for i := range chans {
-		chans[i].Name = chanName[chans[i].ID]
+		if chans[i].Name == "" {
+			chans[i].Name = chanName[chans[i].ID]
+		}
 		if id, ok := streamOf[chans[i].ID]; ok {
 			chans[i].Stream = streamName[id]
 		}
@@ -168,7 +203,7 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 		if e.ChannelID != nil {
 			le.ChannelID, le.Channel = *e.ChannelID, chanName[*e.ChannelID]
 		}
-		if e.Type == "failover" && e.FromStreamID != nil && e.ToStreamID != nil {
+		if (e.Type == "failover" || e.Type == "switch") && e.FromStreamID != nil && e.ToStreamID != nil {
 			if *e.FromStreamID == *e.ToStreamID {
 				le.Message = streamName[*e.ToStreamID] + " reconnected"
 			} else {
@@ -178,6 +213,168 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 		s.Events = append(s.Events, le)
 	}
 	return s, nil
+}
+
+// cardDetails fills in what the channel cards show beyond the session:
+// logo, profile, the current program, the stream picker and the viewers.
+func (ui *UI) cardDetails(ctx context.Context, chans []liveChannel) error {
+	if len(chans) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(chans))
+	byID := map[int64]*liveChannel{}
+	for i := range chans {
+		ids[i] = chans[i].ID
+		byID[chans[i].ID] = &chans[i]
+	}
+	info, err := ui.Store.LiveChannelInfo(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, r := range info {
+		c := byID[r.ID]
+		c.Number, c.Name, c.Logo, c.NowPlaying = r.Number, r.Name, r.LogoUrl, r.NowTitle
+		c.Profile = "Passthrough"
+		if r.ProfileMode == "ffmpeg" {
+			c.Profile = "FFmpeg"
+		}
+		if r.ProfileName != "" {
+			c.Profile += " · " + r.ProfileName
+		}
+	}
+	streams, err := ui.Store.LiveChannelStreams(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, r := range streams {
+		c := byID[r.ChannelID]
+		c.Streams = append(c.Streams, liveStreamOption{ID: r.ProviderStreamID, Label: r.StreamName + " [" + r.ProviderName + "]"})
+	}
+	if ui.Viewers == nil {
+		return nil
+	}
+	for i := range chans {
+		chans[i].Viewers = 0 // counted from the viewer list below
+	}
+	now := time.Now()
+	for _, v := range ui.Viewers.Viewers() {
+		c, ok := byID[v.ChannelID]
+		if !ok {
+			continue
+		}
+		c.Viewers++
+		c.Watchers = append(c.Watchers, liveViewer{ID: v.ID, Addr: v.Addr, User: v.Username, Output: strings.ToUpper(v.Output),
+			Since: clockTime(v.Since, now), Duration: shortDuration(now.Sub(v.Since))})
+	}
+	return nil
+}
+
+// clockTime shows a time of day, with the date when it is not today.
+func clockTime(t, now time.Time) string {
+	t = t.Local()
+	if y, m, d := t.Date(); y == now.Year() && m == now.Month() && d == now.Day() {
+		return t.Format("15:04:05")
+	}
+	return t.Format("Jan 2 15:04")
+}
+
+// mbps renders a bitrate: "2.48 Mbps", or kbps below one megabit.
+func mbps(kbps int) string {
+	if kbps < 1000 {
+		return fmt.Sprintf("%d kbps", kbps)
+	}
+	return fmt.Sprintf("%.2f Mbps", float64(kbps)/1000)
+}
+
+// byteSize renders a byte count: "17.71 MB".
+func byteSize(n uint64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for v := n / unit; v >= unit && exp < 4; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(n)/float64(div), "kMGTP"[exp])
+}
+
+// fps renders a frame rate: "29.97", "25".
+func fps(f float64) string {
+	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.2f", f), "0"), ".")
+}
+
+// mountLive registers the dashboard's controls for running channels.
+func (ui *UI) mountLive(r chi.Router) {
+	r.Post("/live/channels/{id}/stop", ui.liveStop)
+	r.Post("/live/channels/{id}/switch", ui.liveSwitch)
+	r.Post("/live/viewers/{id}/kick", ui.liveKick)
+}
+
+var liveFlashes = map[string]string{
+	"stopped":  "Channel stopped. Its viewers were disconnected; players that reconnect start it again.",
+	"switched": "Switching streams. The card shows the new stream once it plays.",
+	"kicked":   "Viewer disconnected. Their player may reconnect.",
+	"gone":     "That channel or viewer is no longer live.",
+}
+
+func (ui *UI) liveDone(w http.ResponseWriter, r *http.Request, ok bool, msg string) {
+	if !ok {
+		msg = "gone"
+	}
+	ui.redirect(w, r, Prefix+"/?msg="+msg)
+}
+
+func adminName(r *http.Request) string {
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		return u.Username
+	}
+	return ""
+}
+
+func (ui *UI) liveStop(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || ui.Live == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ok := ui.Live.Stop(id)
+	ui.Log.Info("web: channel stopped", "channel_id", id, "by", adminName(r), "was_running", ok)
+	ui.liveDone(w, r, ok, "stopped")
+}
+
+func (ui *UI) liveSwitch(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	stream, serr := strconv.ParseInt(r.FormValue("stream"), 10, 64)
+	if err != nil || serr != nil || stream <= 0 || ui.Live == nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	// Only a stream on the channel's own failover list.
+	rows, err := ui.Store.ListChannelStreams(r.Context(), id)
+	if err != nil {
+		ui.fail(w, "channel streams", err)
+		return
+	}
+	if !slices.ContainsFunc(rows, func(s db.ListChannelStreamsRow) bool { return s.ProviderStreamID == stream }) {
+		http.Error(w, "that stream is not on this channel", http.StatusConflict)
+		return
+	}
+	ok := ui.Live.Switch(id, stream)
+	ui.Log.Info("web: channel switched", "channel_id", id, "stream_id", stream, "by", adminName(r), "was_running", ok)
+	ui.liveDone(w, r, ok, "switched")
+}
+
+func (ui *UI) liveKick(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || ui.Viewers == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ok := ui.Viewers.Kick(id)
+	ui.Log.Info("web: viewer kicked", "viewer_id", id, "by", adminName(r), "found", ok)
+	ui.liveDone(w, r, ok, "kicked")
 }
 
 // liveStream is the dashboard's server-sent event stream: a "live" event

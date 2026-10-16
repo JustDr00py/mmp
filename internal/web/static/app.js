@@ -103,9 +103,16 @@
   document.querySelectorAll('[data-sse]').forEach((el) => {
     const state = document.querySelector(el.dataset.sseState);
     const es = new EventSource(el.dataset.sse);
+    // While a control in the block has focus (an open stream picker), hold
+    // updates so the re-render does not reset it; apply the latest on blur.
+    let pending = null;
+    const busy = () => el.contains(document.activeElement) && document.activeElement.matches('select');
+    const apply = (html) => { el.innerHTML = html; bars(el); };
+    el.addEventListener('focusout', () => setTimeout(() => {
+      if (pending !== null && !busy()) { apply(pending); pending = null; }
+    }, 0));
     es.addEventListener('live', (e) => {
-      el.innerHTML = e.data;
-      bars(el);
+      if (busy()) pending = e.data; else apply(e.data);
       if (state) { state.textContent = '● live'; state.dataset.state = 'live'; }
     });
     es.addEventListener('error', () => {

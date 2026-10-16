@@ -60,6 +60,7 @@ type hlsLease struct {
 	channel  *hlsChannel
 	slot     *proxy.Slot
 	lastSeen time.Time
+	unlist   func() // drops it from the dashboard's viewers
 }
 
 // NewHLS starts the HLS output; it stops serving and frees everything when
@@ -76,7 +77,7 @@ var errHLSUnavailable = errors.New("hls: channel unavailable")
 
 // lease returns the key of u's lease on channel id, creating it (and
 // taking a connection slot) if u has none.
-func (h *HLS) lease(u db.User, id int64) (string, error) {
+func (h *HLS) lease(u db.User, id int64, addr string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, l := range h.leases {
@@ -97,6 +98,8 @@ func (h *HLS) lease(u db.User, id int64) (string, error) {
 	var b [16]byte
 	rand.Read(b[:])
 	l := &hlsLease{key: hex.EncodeToString(b[:]), userID: u.ID, channel: ch, slot: slot, lastSeen: time.Now()}
+	_, l.unlist = h.access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username, Addr: addr,
+		Output: "hls", Since: l.lastSeen}, func() { h.drop(l.key) })
 	h.leases[l.key] = l
 	return l.key, nil
 }
@@ -152,8 +155,7 @@ func (h *HLS) reap() {
 		case <-h.ctx.Done():
 			h.mu.Lock()
 			for k, l := range h.leases {
-				l.slot.Release()
-				delete(h.leases, k)
+				h.endLocked(k, l)
 			}
 			h.mu.Unlock()
 			return
@@ -169,8 +171,7 @@ func (h *HLS) reapOnce(now time.Time) {
 	used := map[*hlsChannel]bool{}
 	for k, l := range h.leases {
 		if now.Sub(l.lastSeen) > h.cfg.Idle {
-			l.slot.Release()
-			delete(h.leases, k)
+			h.endLocked(k, l)
 			h.log.Info("viewer stopped", "user_id", l.userID, "channel_id", l.channel.id, "output", "hls")
 			continue
 		}
@@ -182,6 +183,25 @@ func (h *HLS) reapOnce(now time.Time) {
 			delete(h.chans, id)
 			h.log.Info("hls: channel stopped", "channel_id", id)
 		}
+	}
+}
+
+// endLocked ends lease l (key k): its slot is freed and it leaves the
+// dashboard. Callers hold h.mu.
+func (h *HLS) endLocked(k string, l *hlsLease) {
+	l.slot.Release()
+	l.unlist()
+	delete(h.leases, k)
+}
+
+// drop ends a lease at once (an admin kicked the viewer). The player's next
+// request fails; the channel stops at the next reap if nobody else uses it.
+func (h *HLS) drop(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if l, ok := h.leases[key]; ok {
+		h.endLocked(key, l)
+		h.log.Info("viewer stopped", "user_id", l.userID, "channel_id", l.channel.id, "output", "hls", "reason", "kicked")
 	}
 }
 

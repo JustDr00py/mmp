@@ -17,6 +17,7 @@ var ErrTooManyConnections = errors.New("connection limit reached")
 type Access struct {
 	Customers *auth.Customers
 	conns     *proxy.Capacity // keyed by user id; same slot semantics as providers
+	viewers   viewers
 }
 
 // NewAccess builds the customer access layer.
@@ -39,3 +40,10 @@ func (a *Access) ActiveConnections(userID int64) int { return a.conns.InUse(user
 
 // Connections returns open streams per user, for the dashboard.
 func (a *Access) Connections() map[int64]int { return a.conns.Snapshot() }
+
+// Viewers lists the customers watching live channels, oldest first.
+func (a *Access) Viewers() []Viewer { return a.viewers.list() }
+
+// Kick disconnects viewer id. Its player may reconnect; this does not lock
+// the customer out. It reports whether the viewer was found.
+func (a *Access) Kick(id uint64) bool { return a.viewers.kick(id) }

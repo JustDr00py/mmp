@@ -52,6 +52,12 @@ func fakeTS(t *testing.T) (*httptest.Server, *atomic.Int32) {
 // manager whose every channel is backed by one fake upstream.
 func newLiveServer(t *testing.T) (*httptest.Server, *fakeStore, *atomic.Int32) {
 	t.Helper()
+	srv, hs, hits := newLiveHandlers(t)
+	return srv, hs.Store.(*fakeStore), hits
+}
+
+func newLiveHandlers(t *testing.T) (*httptest.Server, *Handlers, *atomic.Int32) {
+	t.Helper()
 	up, hits := fakeTS(t)
 	hs, _ := newTestHandlers(t)
 	m := proxy.NewManager(context.Background(), proxy.ManagerConfig{
@@ -72,7 +78,7 @@ func newLiveServer(t *testing.T) (*httptest.Server, *fakeStore, *atomic.Int32) {
 	hs.Streams = m
 	srv := httptest.NewServer(chiRouter(hs))
 	t.Cleanup(srv.Close)
-	return srv, hs.Store.(*fakeStore), hits
+	return srv, hs, hits
 }
 
 // play opens a stream and, on 200, reads the first TS packet. The returned

@@ -95,25 +95,29 @@ func TestMatchApplyOptions(t *testing.T) {
 	ids := seedGrouped(t, q, 60)
 	bq, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Basic"})
 	bqID := strconv.FormatInt(bq.ID, 10)
+	bq2, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Sports"})
+	bq2ID := strconv.FormatInt(bq2.ID, 10)
+	q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Kids"}) // not ticked
 
 	// One row: renamed, only provider A's stream, into a group named after
-	// the provider group, and into the bouquet.
+	// the provider group, and into two of the three bouquets.
 	_, body := b.get("/admin/match?group=" + url.QueryEscape("US| NEWS"))
 	cnn := keysOn(body)["CNN"]
 	if cnn == "" {
 		t.Fatalf("no CNN key:\n%s", body)
 	}
 	f := url.Values{"scope": {"selected"}, "key": {cnn}, "row": {cnn}, "name|" + cnn: {"CNN USA"},
-		"stream|" + cnn: {strconv.FormatInt(ids["US: CNN HD@A"], 10)}, "cg": {"source"}, "bq": {bqID},
+		"stream|" + cnn: {strconv.FormatInt(ids["US: CNN HD@A"], 10)}, "cg": {"source"}, "bq": {bqID, bq2ID},
 		"group": {"US| NEWS"}, "min": {"2"}}
 	resp, _ := b.post("/admin/match/apply", f, b.base)
 	loc := resp.Header.Get("Location")
-	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "applied=1-1") || !strings.Contains(loc, "cg=source") || !strings.Contains(loc, "bq="+bqID) {
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "applied=1-1") || !strings.Contains(loc, "cg=source") || !strings.Contains(loc, "bq="+bqID+"&bq="+bq2ID) {
 		t.Fatalf("apply = %d %s", resp.StatusCode, loc)
 	}
 	_, body = b.get(loc)
-	if !strings.Contains(body, "Done: 1 channel created, 1 stream added, all in bouquet “Basic”") ||
-		!strings.Contains(body, `<option value="source" selected>`) || !strings.Contains(body, `selected>bouquet “Basic”`) {
+	if !strings.Contains(body, "Done: 1 channel created, 1 stream added, all in bouquets “Basic”, “Sports”") ||
+		!strings.Contains(body, `<option value="source" selected>`) || !strings.Contains(body, `value="`+bqID+`" checked> Basic`) ||
+		!strings.Contains(body, `value="`+bq2ID+`" checked> Sports`) || strings.Contains(body, `checked> Kids`) {
 		t.Errorf("after apply (flash, sticky options):\n%s", body)
 	}
 	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10})
@@ -127,8 +131,10 @@ func TestMatchApplyOptions(t *testing.T) {
 	if len(groups) != 1 || groups[0].Name != "US| NEWS" || *chans[0].GroupID != groups[0].ID {
 		t.Errorf("channel groups = %+v", groups)
 	}
-	if n, _ := q.BouquetCounts(ctx); len(n) != 1 || n[0].Channels != 1 {
-		t.Errorf("bouquet counts = %+v", n)
+	for _, c := range func() []db.BouquetCountsRow { n, _ := q.BouquetCounts(ctx); return n }() {
+		if want := int64(map[bool]int{true: 1}[c.ID == bq.ID || c.ID == bq2.ID]); c.Channels != want {
+			t.Errorf("bouquet %d has %d channels, want %d", c.ID, c.Channels, want)
+		}
 	}
 	// B's unticked stream stays unassigned, so it is suggested again.
 	_, body = b.get("/admin/match?min=1&q=cnn")
