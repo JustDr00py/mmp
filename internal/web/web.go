@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/proxy"
@@ -156,6 +157,10 @@ type Deps struct {
 	DefaultRefresh time.Duration
 	// EpisodeTTL is how long a series' episode list is reused (vod.episode_ttl).
 	EpisodeTTL time.Duration
+	// Backups is the backup service; nil hides the page.
+	Backups *backup.Service
+	// Restart restarts MMP after a restore (nil: no restart).
+	Restart func()
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
@@ -186,10 +191,11 @@ var nav = []navItem{
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
 	{Prefix + "/profiles", "Profiles", "sliders", "Settings"},
+	{Prefix + "/backups", "Backups", "archive", ""},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -222,6 +228,8 @@ func New(d Deps) (*UI, error) {
 		"list":       func(xs ...int) []int { return xs },
 		"field":      func(id, label, value string) copyField { return copyField{id, label, value} },
 		"last":       func(i, n int) bool { return i == n-1 },
+		"size":       humanSize,
+		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
 	}
 	for _, page := range pageNames {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials/*.html", "templates/"+page+".html")
@@ -292,6 +300,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountEPG(r)
 			ui.mountProfiles(r)
 			ui.mountVOD(r)
+			ui.mountBackups(r)
 		})
 	})
 }
@@ -595,4 +604,18 @@ func cacheStatic(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// humanSize formats a byte count: "512 B", "3.4 MB".
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }

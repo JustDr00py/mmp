@@ -1,0 +1,10 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="card empty restored">
+  <p>Backup restored</p>
+  <p class="muted">{{$d.Manifest.Rows}} rows from <span class="mono">{{$d.Name}}</span> (MMP {{$d.Manifest.Version}}, {{when $d.Manifest.CreatedAt}}).
+    MMP is restarting; guides download again within a few minutes.</p>
+  <p class="muted">The data from before the restore is saved as <span class="mono">{{$d.Safety}}</span>.</p>
+  <a class="button" href="/admin/login">Sign in again</a>
+</div>
+{{end}}

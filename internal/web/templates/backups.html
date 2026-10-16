@@ -1,0 +1,76 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Backups</h1>
+    <p class="lede">A backup holds everything you set up: providers, channels, bouquets, users, movies &amp; series and settings.
+      Guide data is left out (it downloads again after a restore). Backups contain provider logins and customer
+      tokens, so store downloaded copies somewhere safe.</p></div>
+  <form method="post" action="/admin/backups/create" hx-post="/admin/backups/create" hx-disabled-elt="find button" hx-indicator="#backup-busy">
+    <button type="submit">Back up now</button> <span id="backup-busy" class="htmx-indicator sub">working…</span>
+  </form>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<div class="split">
+<section>
+  <h2>Saved backups</h2>
+  {{if $d.Backups}}
+  <div class="table-wrap"><table class="stack">
+    <thead><tr><th>Backup</th><th>Type</th><th class="num">Size</th><th></th></tr></thead>
+    <tbody>{{range $d.Backups}}
+    <tr>
+      <td class="cell-title"><span class="mono">{{.Name}}</span>
+        <div class="sub">{{when .Created}}{{with .Manifest.Version}} · MMP {{.}}{{end}}{{if .Manifest.Rows}} · {{.Manifest.Rows}} rows{{end}}</div>
+        {{with .Err}}<div class="errmsg small">{{.}}</div>{{end}}</td>
+      <td data-label="Type">{{if eq .Kind "auto"}}<span class="pill ok">automatic</span>{{else if eq .Kind "pre-restore"}}<span class="pill warn">before restore</span>{{else if eq .Kind "upload"}}<span class="pill off">uploaded</span>{{else}}<span class="pill off">manual</span>{{end}}</td>
+      <td class="num" data-label="Size">{{size .Size}}</td>
+      <td class="cell-actions"><div class="actions">
+        <a class="button small secondary" href="/admin/backups/{{.Name}}/download">Download</a>
+        {{if not .Err}}<details class="restore">
+          <summary class="button small secondary">Restore…</summary>
+          <form method="post" action="/admin/backups/{{.Name}}/restore" class="restore-form">
+            <p class="small">Replaces <strong>all</strong> current data with this backup, then restarts MMP (streams pause for a few
+              seconds, everyone signs in again). A safety backup of the current data is made first.</p>
+            <label>Type RESTORE to confirm<input name="confirm" autocomplete="off" required pattern="RESTORE"></label>
+            <button type="submit" class="danger small">Restore this backup</button>
+          </form>
+        </details>{{end}}
+        <form method="post" action="/admin/backups/{{.Name}}/delete" data-confirm="Delete {{.Name}}? This cannot be undone.">
+          <button type="submit" class="small secondary">Delete</button></form>
+      </div></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<div class="card empty"><p>No backups yet.</p><p class="muted">Press “Back up now”, or turn on automatic backups.</p></div>{{end}}
+  <p class="hint">Stored in <span class="mono">{{$d.Dir}}</span> on the server.</p>
+
+  <h2>Restore from a file</h2>
+  <form class="card form" method="post" action="/admin/backups/upload" enctype="multipart/form-data">
+    <label>Backup file (.tar.gz from MMP)<input type="file" name="file" accept=".gz,application/gzip" required></label>
+    <div class="row"><button type="submit" class="secondary">Upload</button><span class="hint">It is added to the list above; nothing is restored until you choose Restore.</span></div>
+  </form>
+</section>
+
+<section>
+  <h2>Automatic backups</h2>
+  <form class="card form" method="post" action="/admin/backups/schedule">
+    <label class="check"><input type="checkbox" name="enabled"{{if $d.Schedule.Enabled}} checked{{end}}> Back up automatically</label>
+    <div class="grid2">
+      <label>How often
+        <select name="every">
+          {{range $d.Every}}<option value="{{.}}"{{if eq . $d.Schedule.Every}} selected{{end}}>{{if eq . "6h"}}every 6 hours{{else if eq . "12h"}}every 12 hours{{else if eq . "daily"}}daily{{else}}weekly (Sundays){{end}}</option>{{end}}
+        </select></label>
+      <label>At<input type="time" name="at" value="{{$d.Schedule.At}}" required>
+        <span class="hint">server time ({{$d.Zone}}); for 6 and 12 hours, the first run of the day</span></label>
+    </div>
+    <label>Keep the last<input type="number" name="keep" min="1" max="365" value="{{$d.Schedule.Keep}}" required>
+      <span class="hint">automatic backups; older ones are deleted. Manual, uploaded and safety backups are kept until you delete them.</span></label>
+    <div class="row"><button type="submit">Save</button></div>
+    <div class="sub">
+      {{if $d.Schedule.Enabled}}Next backup: {{when $d.Next}}.{{else}}Automatic backups are off.{{end}}
+      {{with $d.Status.At}}{{if not .IsZero}}<br>Last automatic run: {{when .}}{{end}}{{end}}{{with $d.Status.Error}} — <span class="errmsg">failed: {{.}}</span>{{end}}
+    </div>
+  </form>
+</section>
+</div>
+{{end}}

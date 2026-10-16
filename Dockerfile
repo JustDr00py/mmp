@@ -22,7 +22,10 @@ FROM alpine:3.22 AS runtime
 LABEL org.opencontainers.image.source="https://github.com/JustDr00py/mmp" \
       org.opencontainers.image.description="MMP: self-hosted IPTV multiplexer with automatic failover" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata \
+ && mkdir -p /var/lib/mmp/backups && chown -R nobody:nobody /var/lib/mmp && chmod 700 /var/lib/mmp/backups
+# Backups go here; mount a volume on it to keep them (see docker-compose.yml).
+ENV MMP_BACKUP_DIR=/var/lib/mmp/backups
 COPY --from=build /out/mmp /usr/local/bin/mmp
 USER nobody:nobody
 EXPOSE 8080
