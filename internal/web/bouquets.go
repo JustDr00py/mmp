@@ -76,8 +76,8 @@ func (ui *UI) bouquetsPage(w http.ResponseWriter, r *http.Request) {
 	ui.render(w, r, http.StatusOK, "bouquets", "Bouquets", d)
 }
 
-// parseBouquetForm reads name and sort order.
-func parseBouquetForm(w http.ResponseWriter, r *http.Request) (name string, sort int32, raw string, err error) {
+// parseNameSortForm reads a name and sort order (bouquets, channel groups).
+func parseNameSortForm(w http.ResponseWriter, r *http.Request) (name string, sort int32, raw string, err error) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		return "", 0, "", formError("Could not read the form.")
@@ -106,7 +106,7 @@ func bouquetSaveErr(err error) (string, bool) {
 }
 
 func (ui *UI) bouquetCreate(w http.ResponseWriter, r *http.Request) {
-	name, sort, raw, err := parseBouquetForm(w, r)
+	name, sort, raw, err := parseNameSortForm(w, r)
 	if err == nil {
 		var b db.Bouquet
 		if b, err = ui.Store.CreateBouquet(r.Context(), db.CreateBouquetParams{Name: name, SortOrder: sort}); err == nil {
@@ -266,7 +266,7 @@ func (ui *UI) bouquetUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	name, sort, raw, err := parseBouquetForm(w, r)
+	name, sort, raw, err := parseNameSortForm(w, r)
 	if err == nil {
 		if _, err = ui.Store.UpdateBouquet(r.Context(), db.UpdateBouquetParams{ID: b.ID, Name: name, SortOrder: sort}); err == nil {
 			ui.redirect(w, r, Prefix+"/bouquets/"+strconv.FormatInt(b.ID, 10)+"?msg=saved")

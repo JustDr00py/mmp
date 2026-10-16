@@ -68,6 +68,14 @@ type Store interface {
 	DeleteChannel(ctx context.Context, id int64) error
 	NextChannelNumber(ctx context.Context) (int32, error)
 	ListChannelGroups(ctx context.Context) ([]db.ChannelGroup, error)
+	GetChannelGroup(ctx context.Context, id int64) (db.ChannelGroup, error)
+	CreateChannelGroup(ctx context.Context, arg db.CreateChannelGroupParams) (db.ChannelGroup, error)
+	EnsureChannelGroup(ctx context.Context, name string) (db.ChannelGroup, error)
+	UpdateChannelGroup(ctx context.Context, arg db.UpdateChannelGroupParams) (db.ChannelGroup, error)
+	DeleteChannelGroup(ctx context.Context, id int64) error
+	ChannelGroupCounts(ctx context.Context) ([]db.ChannelGroupCountsRow, error)
+	SetChannelsGroup(ctx context.Context, arg db.SetChannelsGroupParams) (int64, error)
+	ChannelSourceGroups(ctx context.Context, channelIds []int64) ([]db.ChannelSourceGroupsRow, error)
 	ListStreamProfiles(ctx context.Context) ([]db.StreamProfile, error)
 	GetStreamProfile(ctx context.Context, id int64) (db.StreamProfile, error)
 	CreateStreamProfile(ctx context.Context, arg db.CreateStreamProfileParams) (db.StreamProfile, error)
@@ -182,6 +190,7 @@ var nav = []navItem{
 	{Prefix + "/epg", "Guide", "guide", ""},
 	{Prefix + "/match", "Match", "match", "Lineup"},
 	{Prefix + "/channels", "Channels", "tv", ""},
+	{Prefix + "/groups", "Groups", "folder", ""},
 	{Prefix + "/bouquets", "Bouquets", "stack", ""},
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
@@ -189,7 +198,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "channel_groups"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -286,6 +295,7 @@ func (ui *UI) Mount(r chi.Router) {
 			r.Get("/live", ui.liveStream)
 			ui.mountProviders(r)
 			ui.mountChannels(r)
+			ui.mountChannelGroups(r)
 			ui.mountMatch(r)
 			ui.mountUsers(r)
 			ui.mountBouquets(r)

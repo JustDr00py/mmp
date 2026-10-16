@@ -37,7 +37,7 @@
     <legend>When applying</legend>
     <label>Put new channels in
       <select name="cg">
-        <option value="">no channel group</option>
+        <option value="none"{{if eq $d.ApplyGroup "none"}} selected{{end}}>no channel group (shows as Uncategorized)</option>
         <option value="source"{{if eq $d.ApplyGroup "source"}} selected{{end}}>a group named after the provider group</option>
         {{range $d.ChannelGroups}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $d.ApplyGroup}} selected{{end}}>group “{{.Name}}”</option>{{end}}
       </select></label>

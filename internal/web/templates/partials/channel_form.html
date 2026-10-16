@@ -8,9 +8,10 @@
   <div class="grid2">
     <label>Group
       <select name="group_id">
-        <option value="0">— none —</option>
+        <option value="0">— none (Uncategorized) —</option>
         {{range .Groups}}<option value="{{.ID}}"{{if eq .ID $.GroupID}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>
+      <span class="hint">the category players show · <a href="/admin/groups">manage groups</a></span>
     </label>
     <label>Stream profile
       <select name="profile_id">

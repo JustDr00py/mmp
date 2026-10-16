@@ -100,7 +100,7 @@ type matchData struct {
 
 	ChannelGroups []db.ChannelGroup
 	Bouquets      []db.Bouquet
-	ApplyGroup    string // "", "source" or a channel group id (sticky)
+	ApplyGroup    string // "none", "source" or a channel group id (sticky)
 	ApplyBouquet  int64
 
 	Rules     []db.MatchRule
@@ -254,6 +254,9 @@ func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Flash = matchFlashes[q.Get("msg")]
 	d.ApplyGroup = q.Get("cg")
+	if !q.Has("cg") { // new channels keep their provider's categories unless told otherwise
+		d.ApplyGroup = "source"
+	}
 	d.ApplyBouquet, _ = strconv.ParseInt(q.Get("bq"), 10, 64)
 	if msg := q.Get("applied"); msg != "" {
 		parts := strings.SplitN(msg, "-", 3)
