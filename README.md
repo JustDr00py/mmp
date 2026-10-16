@@ -63,6 +63,27 @@ You need Docker (or Podman) with Compose.
 Before exposing MMP beyond your own network, read [Deployment notes](#deployment-notes) (Postgres
 password and port, TLS).
 
+### Through a VPN (optional)
+
+`docker-compose.vpn.yml` runs the same stack with all of MMP's outgoing traffic (playlists, streams,
+movies, guides) sent through a VPN by [gluetun](https://github.com/qdm12/gluetun). Players on your
+network still connect to MMP directly.
+
+1. Fill in the **VPN** section of `.env` (see `.env.example`): your provider, WireGuard key and address or
+   OpenVPN login, and optionally a server country or city near your IPTV providers.
+2. Use this file **instead of** `docker-compose.yml` (stop the other stack first; the database is kept):
+
+   ```sh
+   docker compose down
+   docker compose -f docker-compose.vpn.yml up -d --build
+   ```
+
+If the tunnel drops, gluetun's firewall blocks MMP's internet traffic until it is back, so nothing
+reaches your providers unprotected; streams fail over or wait meanwhile. Check the tunnel with
+`docker compose -f docker-compose.vpn.yml logs gluetun`. After recreating gluetun, also recreate mmp
+(`... up -d --force-recreate mmp`), since it lives in gluetun's network. Rootless Podman may need
+`WIREGUARD_IMPLEMENTATION=userspace`.
+
 ## From zero to playback
 
 The admin UI walks you through the same five steps. Each page links to the next.

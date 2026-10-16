@@ -1,0 +1,120 @@
+# MMP with every outgoing connection (playlists, streams, movies, guides)
+# sent through a VPN by gluetun (https://github.com/qdm12/gluetun).
+#
+#   cp .env.example .env     # fill in the gluetun section
+#   docker compose -f docker-compose.vpn.yml up -d --build
+#   (Podman: podman compose -f docker-compose.vpn.yml up -d --build)
+#
+# This file is complete on its own: use it instead of docker-compose.yml, not
+# with it. Both use the same project and volume names, so switching keeps the
+# database; stop one stack (`down`) before starting the other.
+#
+# How it fits together:
+# - mmp shares gluetun's network stack, so the VPN carries all its traffic
+#   and gluetun's kill switch blocks anything else if the tunnel drops.
+# - Players reach MMP on gluetun's published port 8080 (LAN traffic does not
+#   go through the VPN).
+# - gluetun answers DNS itself, so mmp cannot look up "postgres" by name:
+#   postgres gets a fixed address on a private network, which gluetun's
+#   firewall lets through (FIREWALL_OUTBOUND_SUBNETS).
+# - If gluetun is recreated, recreate mmp too (it lives in gluetun's network):
+#   `... up -d --force-recreate mmp`.
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    environment:
+      POSTGRES_USER: mmp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: mmp
+    networks:
+      backend:
+        ipv4_address: ${MMP_POSTGRES_IP:-172.29.0.10}
+    # Only this machine can reach Postgres (for local development and tests).
+    ports:
+      - "127.0.0.1:${MMP_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmp -d mmp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  gluetun:
+    image: docker.io/qmcgaw/gluetun:v3
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - backend
+    ports:
+      - "${MMP_HTTP_PORT:-8080}:8080" # MMP (players and admin UI)
+    environment:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:?set VPN_SERVICE_PROVIDER in .env (see .env.example)}
+      VPN_TYPE: ${VPN_TYPE:-wireguard}
+      # OpenVPN
+      OPENVPN_USER: ${OPENVPN_USER:-}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:-}
+      # WireGuard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      WIREGUARD_PRESHARED_KEY: ${WIREGUARD_PRESHARED_KEY:-}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:-}
+      WIREGUARD_IMPLEMENTATION: ${WIREGUARD_IMPLEMENTATION:-auto}
+      # Server choice (comma-separated; blank = any)
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
+      SERVER_CITIES: ${SERVER_CITIES:-}
+      SERVER_HOSTNAMES: ${SERVER_HOSTNAMES:-}
+      # Networks mmp may reach outside the tunnel: the private network with
+      # postgres (required), plus e.g. your LAN for a provider hosted there.
+      FIREWALL_OUTBOUND_SUBNETS: ${VPN_OUTBOUND_SUBNETS:-172.29.0.0/24}
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  mmp:
+    build:
+      context: .
+      # Variant with ffmpeg on board for transcode profiles and the prober:
+      # target: mmp-ffmpeg
+      args:
+        VERSION: dev
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      MMP_DB_DSN: postgres://mmp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@${MMP_POSTGRES_IP:-172.29.0.10}:5432/mmp?sslmode=disable
+      MMP_BASE_URL: ${MMP_BASE_URL:-http://localhost:8080}
+      # After each provider refresh, add new matching streams to existing
+      # channels as extra failover; never create channels on its own.
+      MMP_MATCH_AUTO: "true"
+      MMP_MATCH_AUTO_NEW_CHANNELS: "false"
+      # First admin, created only when none exists (values from .env):
+      MMP_ADMIN_USERNAME: ${MMP_ADMIN_USERNAME:-}
+      MMP_ADMIN_PASSWORD: ${MMP_ADMIN_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ${MMP_BACKEND_SUBNET:-172.29.0.0/24}
+
+volumes:
+  pgdata:
