@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -71,9 +73,49 @@ func (f *fakeAuthStore) GetAPITokenUser(context.Context, []byte) (db.GetAPIToken
 
 func (f *fakeAuthStore) TouchAPIToken(context.Context, int64) error { return nil }
 
-type fakeLive []proxy.ChannelStatus
+type fakeLive struct {
+	chans []proxy.ChannelStatus
 
-func (f fakeLive) Channels() []proxy.ChannelStatus { return f }
+	mu       sync.Mutex
+	stopped  []int64
+	switched [][2]int64 // channel, stream
+}
+
+func (f *fakeLive) Channels() []proxy.ChannelStatus { return f.chans }
+
+func (f *fakeLive) running(id int64) bool {
+	return slices.ContainsFunc(f.chans, func(c proxy.ChannelStatus) bool { return c.ChannelID == id })
+}
+
+func (f *fakeLive) Stop(id int64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = append(f.stopped, id)
+	return f.running(id)
+}
+
+func (f *fakeLive) Switch(id, stream int64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.switched = append(f.switched, [2]int64{id, stream})
+	return f.running(id)
+}
+
+// fakeViewers is a fixed viewer list that records kicks.
+type fakeViewers struct {
+	list   []output.Viewer
+	mu     sync.Mutex
+	kicked []uint64
+}
+
+func (f *fakeViewers) Viewers() []output.Viewer { return f.list }
+
+func (f *fakeViewers) Kick(id uint64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kicked = append(f.kicked, id)
+	return slices.ContainsFunc(f.list, func(v output.Viewer) bool { return v.ID == id })
+}
 
 func newUI(t *testing.T) (*httptest.Server, *fakeAuthStore) {
 	srv, store, _ := newUIWith(t)
@@ -94,10 +136,12 @@ func newUIWith(t *testing.T) (*httptest.Server, *fakeAuthStore, *UI) {
 		"boss":   {ID: 1, Username: "boss", PasswordHash: hash("boss-pass-1"), Role: auth.RoleAdmin, Enabled: true},
 		"viewer": {ID: 2, Username: "viewer", PasswordHash: hash("viewer-pass-1"), Role: auth.RoleCustomer, Enabled: true},
 	}}
-	live := fakeLive{
-		{SessionStatus: proxy.SessionStatus{ChannelID: 1, State: "streaming", StreamID: 7, ProviderID: 1, Since: time.Now()}, Viewers: 3},
+	live := &fakeLive{chans: []proxy.ChannelStatus{
+		{SessionStatus: proxy.SessionStatus{ChannelID: 1, State: "streaming", StreamID: 7, ProviderID: 1, Since: time.Now(), Started: time.Now(),
+			Bytes: 17_710_000, Kbps: 2480, AvgKbps: 13660,
+			Media: proxy.MediaInfo{VideoCodec: "H264", AudioCodec: "AAC", Width: 1280, Height: 720, FPS: 30000.0 / 1001, Audio: "stereo"}}, Viewers: 3},
 		{SessionStatus: proxy.SessionStatus{ChannelID: 2, State: "waiting"}, Viewers: 1},
-	}
+	}}
 	ui, err := New(Deps{Auth: auth.NewAuthenticator(store, nil, 0, false), Store: newFakeStore(), Refresh: &fakeRefresher{},
 		Live: live, Slots: func() map[int64]int { return map[int64]int{1: 1} }, Log: slog.New(slog.DiscardHandler), Version: "test"})
 	if err != nil {

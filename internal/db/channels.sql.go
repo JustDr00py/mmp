@@ -471,6 +471,101 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 	return items, nil
 }
 
+const liveChannelInfo = `-- name: LiveChannelInfo :many
+SELECT c.id, c.number, c.name, c.logo_url,
+       COALESCE(sp.name, '')::text AS profile_name, COALESCE(sp.mode, '')::text AS profile_mode,
+       COALESCE((SELECT p.title FROM epg_programs p
+          JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+         WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+           AND p.start_time <= now() AND p.stop_time > now()
+         ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
+FROM channels c
+LEFT JOIN stream_profiles sp ON sp.id = c.stream_profile_id
+WHERE c.id = ANY($1::bigint[])
+`
+
+type LiveChannelInfoRow struct {
+	ID          int64  `json:"id"`
+	Number      *int32 `json:"number"`
+	Name        string `json:"name"`
+	LogoUrl     string `json:"logo_url"`
+	ProfileName string `json:"profile_name"`
+	ProfileMode string `json:"profile_mode"`
+	NowTitle    string `json:"now_title"`
+}
+
+// What the dashboard's channel cards show besides the session: logo,
+// stream profile, and what is on now (by tvg-id, case-insensitively).
+func (q *Queries) LiveChannelInfo(ctx context.Context, ids []int64) ([]LiveChannelInfoRow, error) {
+	rows, err := q.db.Query(ctx, liveChannelInfo, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LiveChannelInfoRow
+	for rows.Next() {
+		var i LiveChannelInfoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Name,
+			&i.LogoUrl,
+			&i.ProfileName,
+			&i.ProfileMode,
+			&i.NowTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const liveChannelStreams = `-- name: LiveChannelStreams :many
+SELECT cs.channel_id, cs.provider_stream_id, ps.name AS stream_name, pr.name AS provider_name
+FROM channel_streams cs
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE cs.channel_id = ANY($1::bigint[])
+ORDER BY cs.channel_id, cs.priority, pr.priority, ps.name
+`
+
+type LiveChannelStreamsRow struct {
+	ChannelID        int64  `json:"channel_id"`
+	ProviderStreamID int64  `json:"provider_stream_id"`
+	StreamName       string `json:"stream_name"`
+	ProviderName     string `json:"provider_name"`
+}
+
+// The failover lists of several channels, for the dashboard's stream picker.
+func (q *Queries) LiveChannelStreams(ctx context.Context, ids []int64) ([]LiveChannelStreamsRow, error) {
+	rows, err := q.db.Query(ctx, liveChannelStreams, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LiveChannelStreamsRow
+	for rows.Next() {
+		var i LiveChannelStreamsRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.ProviderStreamID,
+			&i.StreamName,
+			&i.ProviderName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextChannelNumber = `-- name: NextChannelNumber :one
 SELECT COALESCE(max(number), 100) + 1 FROM channels
 `

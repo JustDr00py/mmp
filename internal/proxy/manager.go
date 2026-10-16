@@ -34,7 +34,8 @@ type ManagerConfig struct {
 
 	Log     *slog.Logger
 	OnEvent func(Event)
-	Metrics *Metrics // optional
+	Metrics *Metrics   // optional
+	Probe   MediaProbe // optional: resolution, frame rate and audio layout for the dashboard
 }
 
 // Manager owns one Session per active channel and fans its ring out to
@@ -126,6 +127,7 @@ func (m *Manager) start(channelID int64) *channelRun {
 		Log:            m.log,
 		OnEvent:        m.cfg.OnEvent,
 		Metrics:        m.cfg.Metrics,
+		Probe:          m.cfg.Probe,
 	})
 	m.channels[channelID] = run
 	m.wg.Add(1)
@@ -176,6 +178,37 @@ func (m *Manager) teardown(run *channelRun) {
 	run.closing = true
 	run.cancel()
 	m.log.Info("proxy: teardown", "channel_id", run.id)
+}
+
+// Stop ends channelID's session now: its upstream is closed and its viewers
+// get EOF. Players that reconnect start a fresh session. It reports whether
+// the channel was running.
+func (m *Manager) Stop(channelID int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run, ok := m.channels[channelID]
+	if !ok || run.closing {
+		return false
+	}
+	if run.idle != nil {
+		run.idle.Stop()
+		run.idle = nil
+	}
+	m.teardown(run)
+	return true
+}
+
+// Switch moves channelID's session to streamID (see Session.Switch). It
+// reports whether the channel was running.
+func (m *Manager) Switch(channelID, streamID int64) bool {
+	m.mu.Lock()
+	run, ok := m.channels[channelID]
+	m.mu.Unlock()
+	if !ok || run.closing {
+		return false
+	}
+	run.sess.Switch(streamID)
+	return true
 }
 
 // ChannelStatus is one active channel for the dashboard.

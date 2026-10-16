@@ -407,3 +407,38 @@ func TestSortByHealthPicksHealthierStream(t *testing.T) {
 		}
 	}
 }
+
+// TestManagerStopAndSwitch: Stop ends a channel's session and its viewers;
+// Switch reaches the session; both report unknown channels.
+func TestManagerStopAndSwitch(t *testing.T) {
+	a := newFakeProvider(t, 'A', "ok", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	m := newTestManager(t, map[int64][]Candidate{
+		7: {{StreamID: 1, ProviderID: 1, URL: a.URL}, {StreamID: 2, ProviderID: 2, URL: b.URL}},
+	}, nil)
+	v, err := m.Attach(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	if err := readTag(t, v, 'A', 50, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if m.Switch(99, 1) || m.Stop(99) {
+		t.Error("unknown channel reported as running")
+	}
+	if !m.Switch(7, 2) {
+		t.Fatal("Switch on a running channel = false")
+	}
+	if err := readTag(t, v, 'B', 50, 5*time.Second); err != nil {
+		t.Fatalf("no B after Switch: %v", err)
+	}
+	if !m.Stop(7) {
+		t.Fatal("Stop on a running channel = false")
+	}
+	if err := readTag(t, v, 'B', 1<<30, 5*time.Second); !errors.Is(err, io.EOF) {
+		t.Fatalf("viewer after Stop: %v, want EOF", err)
+	}
+	eventually(t, 5*time.Second, func() bool { return len(m.Channels()) == 0 }, "channel still listed after Stop")
+	eventually(t, 5*time.Second, func() bool { return a.open.Load()+b.open.Load() == 0 }, "upstream still open after Stop")
+}

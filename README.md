@@ -323,7 +323,7 @@ because each probe uses one of the provider's connections.
 | `probe.sample` | `MMP_PROBE_SAMPLE` | `3s` | how long one probe reads |
 | `probe.concurrency` | `MMP_PROBE_CONCURRENCY` | `2` | probes at once |
 | `probe.ffprobe` | `MMP_PROBE_FFPROBE` | `false` | also require ffprobe to find audio or video (needs ffmpeg) |
-| `probe.ffprobe_path` | `MMP_PROBE_FFPROBE_PATH` | `ffprobe` on `PATH` | |
+| `probe.ffprobe_path` | `MMP_PROBE_FFPROBE_PATH` | `ffprobe` on `PATH` | also used for the dashboard's stream details, prober on or off |
 
 ### Movies and series
 
@@ -417,8 +417,13 @@ uses one of their connections and one of the provider's.
 
 ## Monitoring
 
-- **Dashboard** (`/admin/`): live channels, the provider each one is playing from, viewers, provider
-  connection slots, and recent failovers. Updates live.
+- **Dashboard** (`/admin/`): a card per live channel with its uptime, stream profile, what the guide
+  says is on, the stream it plays (pick another and press play to switch by hand; a manual switch
+  is not a failure, so nothing cools down), current and average bitrate, data received, and who is
+  watching (IP, user, connected since). Stop a channel or disconnect a viewer from the card; players
+  may reconnect. Codecs come from the stream itself; resolution, frame rate and audio layout need
+  `ffprobe` (the `-ffmpeg` image, or `probe.ffprobe_path`). Also provider connection slots and recent
+  failovers. Updates live.
 - **`/healthz`**: liveness for load balancers and the container healthcheck.
 - **`/metrics`**: Prometheus metrics: `mmp_sessions{state}`, `mmp_session_viewers`,
   `mmp_customer_connections`, `mmp_provider_slots_in_use{provider_id}`, `mmp_failovers_total`,

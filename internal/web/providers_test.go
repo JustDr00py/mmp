@@ -158,6 +158,29 @@ func (f *fakeStore) ChannelNamesByIDs(_ context.Context, ids []int64) ([]db.Chan
 	return out, nil
 }
 
+func (f *fakeStore) ListChannelStreams(_ context.Context, id int64) ([]db.ListChannelStreamsRow, error) {
+	return []db.ListChannelStreamsRow{{ChannelID: id, ProviderStreamID: 7}, {ChannelID: id, ProviderStreamID: 8}}, nil
+}
+
+func (f *fakeStore) LiveChannelInfo(_ context.Context, ids []int64) ([]db.LiveChannelInfoRow, error) {
+	var out []db.LiveChannelInfoRow
+	for _, id := range ids {
+		out = append(out, db.LiveChannelInfoRow{ID: id, Name: fmt.Sprintf("Channel %d", id), ProfileMode: "ffmpeg",
+			ProfileName: "Remux", NowTitle: "Storage Wars"})
+	}
+	return out, nil
+}
+
+func (f *fakeStore) LiveChannelStreams(_ context.Context, ids []int64) ([]db.LiveChannelStreamsRow, error) {
+	var out []db.LiveChannelStreamsRow
+	for _, id := range ids {
+		for _, s := range []int64{7, 8} {
+			out = append(out, db.LiveChannelStreamsRow{ChannelID: id, ProviderStreamID: s, StreamName: fmt.Sprintf("Stream %d", s), ProviderName: "Acme"})
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) GetStreamsByIDs(_ context.Context, ids []int64) ([]db.GetStreamsByIDsRow, error) {
 	var out []db.GetStreamsByIDsRow
 	for _, id := range ids {

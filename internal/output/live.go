@@ -1,10 +1,12 @@
 package output
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -75,7 +77,7 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	}
 
 	if hls {
-		h.startHLS(w, r, u, id)
+		h.startHLS(w, r, u, id, auth.RemoteIP(r))
 		return
 	}
 
@@ -97,14 +99,21 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	}
 	defer v.Close()
 
+	// The dashboard lists the connection and can end it (kick).
+	ctx, kick := context.WithCancel(r.Context())
+	defer kick()
+	_, remove := h.Access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username,
+		Addr: auth.RemoteIP(r), Output: "ts", Since: time.Now()}, kick)
+	defer remove()
+
 	h.Log.Info("viewer started", "user_id", u.ID, "channel_id", id)
-	proxy.ServeViewer(w, r, v)
+	proxy.ServeViewer(w, r.WithContext(ctx), v)
 	h.Log.Info("viewer stopped", "user_id", u.ID, "channel_id", id)
 }
 
 // startHLS leases the channel for u and redirects to the lease's playlist.
-func (h *Handlers) startHLS(w http.ResponseWriter, r *http.Request, u db.User, id int64) {
-	key, err := h.HLS.lease(u, id)
+func (h *Handlers) startHLS(w http.ResponseWriter, r *http.Request, u db.User, id int64, addr string) {
+	key, err := h.HLS.lease(u, id, addr)
 	switch {
 	case errors.Is(err, ErrTooManyConnections):
 		h.Log.Info("output: connection limit", "user_id", u.ID, "channel_id", id, "max", u.MaxConnections)

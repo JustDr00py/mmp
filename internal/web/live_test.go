@@ -5,11 +5,13 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/output"
 )
 
 func TestSSEEvent(t *testing.T) {
@@ -72,8 +74,17 @@ func TestLiveStream(t *testing.T) {
 	}
 	rd := bufio.NewReader(resp.Body)
 	name, data := readEvent(t, rd)
-	if name != "live" || !strings.Contains(data, "Channel 1") || !strings.Contains(data, "Stream 7 · Acme") || strings.Contains(data, "<html") {
+	if name != "live" || !strings.Contains(data, "Channel 1") || strings.Contains(data, "<html") {
 		t.Fatalf("first event %q:\n%s", name, data)
+	}
+	// The card: what plays, the picker on the current stream, details and
+	// figures from the session.
+	for _, want := range []string{`<option value="7" selected>Stream 7 [Acme]</option>`, `<option value="8">Stream 8 [Acme]</option>`,
+		"FFmpeg · Remux", "Now playing: <span class=\"muted\">Storage Wars", "1280×720", "29.97 FPS", "H264", "AAC", "STEREO",
+		"2.48 Mbps", "13.66 Mbps", "17.71 MB", `action="/admin/live/channels/1/stop"`, `action="/admin/live/channels/1/switch"`} {
+		if !strings.Contains(data, want) {
+			t.Errorf("live card lacks %q", want)
+		}
 	}
 
 	// A new event (a failover) appears in the next pushed snapshot.
@@ -124,5 +135,69 @@ func TestLiveStreamStopsOnShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("stream still open after shutdown")
+	}
+}
+
+func TestLiveControls(t *testing.T) {
+	srv, _, ui := newUIWith(t)
+	viewers := &fakeViewers{list: []output.Viewer{
+		{ID: 5, ChannelID: 1, UserID: 9, Username: "sysadmin", Addr: "10.89.0.2", Output: "ts", Since: time.Now().Add(-90 * time.Second)},
+		{ID: 6, ChannelID: 99, Username: "elsewhere", Addr: "10.0.0.9", Output: "hls", Since: time.Now()}, // not live: not shown
+	}}
+	ui.Viewers = viewers
+	live := ui.Live.(*fakeLive)
+	b := newBrowser(t, srv.URL)
+	b.post("/admin/login", url.Values{"username": {"boss"}, "password": {"boss-pass-1"}}, srv.URL)
+
+	_, body := b.get("/admin/")
+	for _, want := range []string{"10.89.0.2", "sysadmin", "1m30s", `action="/admin/live/viewers/5/kick"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "elsewhere") {
+		t.Error("a viewer of a channel that is not live is listed")
+	}
+
+	post := func(path string, f url.Values) (int, string) {
+		resp, _ := b.post(path, f, srv.URL)
+		return resp.StatusCode, resp.Header.Get("Location")
+	}
+	if code, loc := post("/admin/live/channels/1/stop", nil); code != http.StatusSeeOther || loc != "/admin/?msg=stopped" {
+		t.Errorf("stop = %d %s", code, loc)
+	}
+	if code, loc := post("/admin/live/channels/3/stop", nil); loc != "/admin/?msg=gone" {
+		t.Errorf("stop of an idle channel = %d %s", code, loc)
+	}
+	if code, loc := post("/admin/live/channels/1/switch", url.Values{"stream": {"8"}}); code != http.StatusSeeOther || loc != "/admin/?msg=switched" {
+		t.Errorf("switch = %d %s", code, loc)
+	}
+	if code, _ := post("/admin/live/channels/1/switch", url.Values{"stream": {"77"}}); code != http.StatusConflict {
+		t.Errorf("switch to a stream not on the channel = %d, want 409", code)
+	}
+	if code, _ := post("/admin/live/channels/1/switch", url.Values{"stream": {"x"}}); code != http.StatusBadRequest {
+		t.Errorf("switch without a stream = %d, want 400", code)
+	}
+	if code, loc := post("/admin/live/viewers/5/kick", nil); code != http.StatusSeeOther || loc != "/admin/?msg=kicked" {
+		t.Errorf("kick = %d %s", code, loc)
+	}
+	if _, loc := post("/admin/live/viewers/404/kick", nil); loc != "/admin/?msg=gone" {
+		t.Errorf("kick of an unknown viewer → %s", loc)
+	}
+	live.mu.Lock()
+	if !slices.Equal(live.stopped, []int64{1, 3}) || len(live.switched) != 1 || live.switched[0] != [2]int64{1, 8} {
+		t.Errorf("stopped %v, switched %v", live.stopped, live.switched)
+	}
+	live.mu.Unlock()
+	if !slices.Equal(viewers.kicked, []uint64{5, 404}) {
+		t.Errorf("kicked %v", viewers.kicked)
+	}
+	if _, body := b.get("/admin/?msg=kicked"); !strings.Contains(body, "Viewer disconnected.") {
+		t.Error("kick flash missing")
+	}
+
+	// Cross-site posts are refused like every other admin form.
+	if resp, _ := b.post("/admin/live/channels/1/stop", nil, "https://evil.example"); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-site stop = %d, want 403", resp.StatusCode)
 	}
 }

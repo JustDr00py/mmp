@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -126,6 +127,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Log:            log,
 		OnEvent:        events.Record,
 		Metrics:        proxyMetrics,
+		Probe:          mediaProbe(cfg.Probe.FFprobePath, log),
 	})
 	defer streams.Shutdown()
 
@@ -196,7 +198,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		return err
 	}
 	go backups.Scheduler.Run(ctx)
-	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
+	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
 		Backups: backups, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
@@ -314,4 +316,16 @@ func restartSelf(log *slog.Logger) {
 	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
 		log.Error("restart after restore failed; restart MMP by hand", "err", err)
 	}
+}
+
+// mediaProbe runs ffprobe for the dashboard's stream details (resolution,
+// frame rate, audio layout) when it is installed; without it the dashboard
+// shows the codecs only.
+func mediaProbe(path string, log *slog.Logger) proxy.MediaProbe {
+	p, err := exec.LookPath(cmp.Or(path, "ffprobe"))
+	if err != nil {
+		log.Info("ffprobe not found: the dashboard shows codecs only", "path", cmp.Or(path, "ffprobe"))
+		return nil
+	}
+	return proxy.FFprobe(p)
 }
