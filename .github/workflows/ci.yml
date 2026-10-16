@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # the release workflow runs the same checks first
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mmp
+          POSTGRES_PASSWORD: mmp
+          POSTGRES_DB: mmp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mmp -d mmp"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      # Integration tests fail (instead of skipping) if this server is unusable.
+      MMP_TEST_PG: postgres://mmp:mmp@localhost:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Tools used by some tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg libxml2-utils >/dev/null
+      - name: Lint
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: Unit tests
+        run: go test -race ./...
+      - name: Integration tests
+        run: go test -race -p 1 -tags=integration ./...

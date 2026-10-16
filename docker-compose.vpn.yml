@@ -80,6 +80,10 @@ services:
     restart: unless-stopped
 
   mmp:
+    # Production: pull this released image (set MMP_IMAGE in .env to pin a
+    # version) and start with --no-build. Development: `up -d --build` builds
+    # it from source instead.
+    image: ${MMP_IMAGE:-ghcr.io/justdr00py/mmp:latest}
     build:
       context: .
       # Variant with ffmpeg on board for transcode profiles and the prober:

@@ -1,0 +1,76 @@
+name: Release
+
+# Push a tag like v0.1.0 to test, then publish multi-arch images:
+#   ghcr.io/<owner>/mmp:v0.1.0, :0.1, :latest          (default, no ffmpeg)
+#   ghcr.io/<owner>/mmp:v0.1.0-ffmpeg, :latest-ffmpeg  (with ffmpeg/ffprobe)
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub release
+      packages: write # ghcr.io
+    strategy:
+      matrix:
+        include:
+          - target: mmp
+            suffix: ""
+          - target: mmp-ffmpeg
+            suffix: "-ffmpeg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
+            suffix=${{ matrix.suffix }},onlatest=true
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+  github-release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes $prerelease \
+            --notes "Image: \`ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF_NAME}\` (with ffmpeg: \`${GITHUB_REF_NAME}-ffmpeg\`). See the README for upgrading."

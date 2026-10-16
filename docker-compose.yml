@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: docker.io/library/postgres:17-alpine
     environment:
       POSTGRES_USER: mmp
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
@@ -18,6 +18,10 @@ services:
     restart: unless-stopped
 
   mmp:
+    # Production: pull this released image (set MMP_IMAGE in .env to pin a
+    # version) and start with --no-build. Development: `up -d --build` builds
+    # it from source instead.
+    image: ${MMP_IMAGE:-ghcr.io/justdr00py/mmp:latest}
     build:
       context: .
       # Variant with ffmpeg on board for transcode profiles and the prober:

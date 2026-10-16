@@ -2,19 +2,26 @@
 
 # --- build stage ------------------------------------------------------------
 # Static binary: everything (migrations, templates, static assets) is embedded.
-FROM golang:1.26-alpine AS build
+# Runs on the build machine's own architecture and cross-compiles for the
+# target (fast multi-arch builds, no emulation).
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 # Cache module downloads separately from the source.
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=${VERSION}" \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
         -o /out/mmp ./cmd/mmp
 
 # --- runtime base -----------------------------------------------------------
 # ca-certificates: providers over HTTPS; tzdata: XMLTV local times.
 FROM alpine:3.22 AS runtime
+LABEL org.opencontainers.image.source="https://github.com/JustDr00py/mmp" \
+      org.opencontainers.image.description="MMP: self-hosted IPTV multiplexer with automatic failover" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/mmp /usr/local/bin/mmp
 USER nobody:nobody

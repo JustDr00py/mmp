@@ -22,12 +22,14 @@ stalls, errors or degrades, MMP switches to the next one **without dropping the 
 
 ## Quick start (Docker)
 
-You need Docker (or Podman) with Compose.
+You need Docker (or Podman) with Compose. Releases are published as images for amd64 and arm64
+(e.g. a Raspberry Pi 4/5): `ghcr.io/justdr00py/mmp:<version>`, plus `<version>-ffmpeg` with ffmpeg.
 
-1. **Get the code**
+1. **Get the compose files** at the release you want (see
+   [Releases](https://github.com/JustDr00py/mmp/releases)):
 
    ```sh
-   git clone <this repository> mmp && cd mmp
+   git clone --branch v0.1.0 https://github.com/JustDr00py/mmp.git && cd mmp
    ```
 
 2. **Create your `.env`** (it holds the secrets and is ignored by git):
@@ -46,15 +48,20 @@ You need Docker (or Podman) with Compose.
      admin when none exists; change passwords later on the **Users** page. Keep values containing `$` in
      single quotes.
 
-   Optional, in `docker-compose.yml`: uncomment `target: mmp-ffmpeg` for the image with ffmpeg (needed
-   only for [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode and the prober's ffprobe check).
+   - `MMP_IMAGE`: pin the release, e.g. `ghcr.io/justdr00py/mmp:v0.1.0`. Use `v0.1.0-ffmpeg` for the image
+     with ffmpeg (needed only for [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode and the
+     prober's ffprobe check).
+
    Postgres listens on `127.0.0.1` only.
 
 3. **Start it**
 
    ```sh
-   docker compose up -d --build      # Podman: podman compose up -d --build
+   docker compose pull               # Podman: podman compose pull
+   docker compose up -d --no-build   # Podman: podman compose up -d --no-build
    ```
+
+   (To build from source instead: `docker compose up -d --build`.)
 
    MMP applies its database migrations on start; `docker compose logs mmp` shows `server listening` when it is ready.
 
@@ -83,6 +90,19 @@ reaches your providers unprotected; streams fail over or wait meanwhile. Check t
 `docker compose -f docker-compose.vpn.yml logs gluetun`. After recreating gluetun, also recreate mmp
 (`... up -d --force-recreate mmp`), since it lives in gluetun's network. Rootless Podman may need
 `WIREGUARD_IMPLEMENTATION=userspace`.
+
+### Upgrading
+
+Set `MMP_IMAGE` in `.env` to the new version, then:
+
+```sh
+git pull --tags && git checkout v0.2.0   # newer compose files, if the release notes say so
+docker compose pull && docker compose up -d --no-build
+```
+
+Migrations run on start; back up first (`docker compose exec postgres pg_dump -U mmp mmp > backup.sql`).
+To roll back, set the previous version and run the same commands (only safe if the newer release added
+no migrations, or after restoring the backup).
 
 ## From zero to playback
 
@@ -420,3 +440,16 @@ make generate          # regenerate sqlc code after editing internal/db/queries/
 
 Database migrations live in `internal/db/migrations` (append-only, embedded and applied at start). The
 design and build plan are in `Plan/`.
+
+## Releasing
+
+Push a tag such as `v0.2.0`. GitHub Actions runs the full test suite (with Postgres), builds the amd64
+and arm64 images, pushes `ghcr.io/justdr00py/mmp:v0.2.0`, `:0.2`, `:latest` (and the `-ffmpeg`
+variants), and creates the GitHub release. `v0.*` and tags with a suffix (`v1.0.0-rc1`) are marked as
+pre-releases; suffixed tags do not move `latest`.
+
+## License
+
+MMP is free software under the [GNU Affero General Public License v3.0](LICENSE): you may use, change
+and share it, and if you offer a modified version to others over a network, you must publish your
+changes under the same license.
