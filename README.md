@@ -152,7 +152,7 @@ Two ways to build channels:
 - **By hand**: **Channels → New channel**, then search streams across all providers and **Add** them.
 
 On a channel's page, drag streams (or use ↑/↓) to set the failover order. The first available stream
-plays. Set the channel's **tvg-id** to the guide's channel id to get programme data (see the **Guide**
+plays. Set the channel's **tvg-id** to the guide's channel id to get program data (see the **Guide**
 page for coverage).
 
 ### 3. Put channels in a bouquet

@@ -295,7 +295,7 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 	if table {
 		since = now.Add(-guideBehind)
 	}
-	rows, err := h.programmes(r.Context(), tvgID, since, now.Add(guideAhead))
+	rows, err := h.programs(r.Context(), tvgID, since, now.Add(guideAhead))
 	if err != nil {
 		h.Log.Error("output: short epg", "user_id", u.ID, "channel_id", id, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
@@ -322,13 +322,13 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 	writeXtream(w, map[string]any{"epg_listings": out})
 }
 
-func (h *Handlers) programmes(ctx context.Context, tvgID string, since, until time.Time) ([]db.ListGuideProgrammesRow, error) {
-	return h.Store.ListGuideProgrammes(ctx, db.ListGuideProgrammesParams{
+func (h *Handlers) programs(ctx context.Context, tvgID string, since, until time.Time) ([]db.ListGuideProgramsRow, error) {
+	return h.Store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{
 		TvgKeys: []string{strings.ToLower(tvgID)}, Since: since, Until: until,
 	})
 }
 
-func listing(p db.ListGuideProgrammesRow, tvgID string) xtreamListing {
+func listing(p db.ListGuideProgramsRow, tvgID string) xtreamListing {
 	id := strconv.FormatInt(p.ID, 10)
 	return xtreamListing{
 		ID: id, EPGID: id, Lang: "",

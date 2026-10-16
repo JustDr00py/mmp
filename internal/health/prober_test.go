@@ -280,7 +280,7 @@ func TestProbeFFprobe(t *testing.T) {
 	if err := p.ffprobe(context.Background(), real); err != nil {
 		t.Errorf("real TS: %v", err)
 	}
-	// Aligned, with a PAT, but no programme: sniffing passes, ffprobe does not.
+	// Aligned, with a PAT, but no program: sniffing passes, ffprobe does not.
 	fake := tsPackets(400, true)
 	if err := sniffTS(fake); err != nil {
 		t.Fatalf("sniff: %v", err)

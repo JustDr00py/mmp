@@ -20,15 +20,15 @@ const (
 	guideAhead  = 7 * 24 * time.Hour
 )
 
-// guideBatch bounds how many channels' programmes are loaded at once, so a
+// guideBatch bounds how many channels' programs are loaded at once, so a
 // full guide streams out without being held in memory.
 const guideBatch = 100
 
 // xmltvTime is the XMLTV timestamp layout; times are always written in UTC.
 const xmltvTime = "20060102150405 -0700"
 
-// GuideFetcher loads programmes for a batch of lower-cased tvg-ids.
-type GuideFetcher func(ctx context.Context, keys []string) ([]db.ListGuideProgrammesRow, error)
+// GuideFetcher loads programs for a batch of lower-cased tvg-ids.
+type GuideFetcher func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error)
 
 type xmltvChannel struct {
 	XMLName      xml.Name   `xml:"channel"`
@@ -41,7 +41,7 @@ type xmltvIcon struct {
 	Src string `xml:"src,attr"`
 }
 
-type xmltvProgramme struct {
+type xmltvProgram struct {
 	XMLName  xml.Name `xml:"programme"`
 	Start    string   `xml:"start,attr"`
 	Stop     string   `xml:"stop,attr"`
@@ -54,7 +54,7 @@ type xmltvProgramme struct {
 // WriteXMLTV renders the guide for chans. Channel ids are the channels'
 // tvg-ids, the same value the playlists carry as tvg-id, so players link
 // the two; channels without a tvg-id have no guide and are left out, and a
-// tvg-id shared by several channels is listed once. Programmes are fetched
+// tvg-id shared by several channels is listed once. Programs are fetched
 // guideBatch channels at a time.
 func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFetcher) error {
 	if _, err := io.WriteString(w, xml.Header+`<!DOCTYPE tv SYSTEM "xmltv.dtd">`+"\n"); err != nil {
@@ -99,7 +99,7 @@ func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFe
 		}
 		keys = keys[n:]
 		for _, r := range rows {
-			if err := enc.Encode(xmltvProgramme{
+			if err := enc.Encode(xmltvProgram{
 				Start:    r.StartTime.UTC().Format(xmltvTime),
 				Stop:     r.StopTime.UTC().Format(xmltvTime),
 				Channel:  outID[r.TvgKey],
@@ -154,8 +154,8 @@ func (h *Handlers) serveGuide(w http.ResponseWriter, r *http.Request, u db.User)
 		return
 	}
 	now := h.now()
-	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgrammesRow, error) {
-		return h.Store.ListGuideProgrammes(ctx, db.ListGuideProgrammesParams{
+	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error) {
+		return h.Store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{
 			TvgKeys: keys, Since: now.Add(-guideBehind), Until: now.Add(guideAhead),
 		})
 	}

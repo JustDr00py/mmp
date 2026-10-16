@@ -9,13 +9,13 @@ import (
 	"context"
 )
 
-// iteratorForInsertEpgProgrammes implements pgx.CopyFromSource.
-type iteratorForInsertEpgProgrammes struct {
-	rows                 []InsertEpgProgrammesParams
+// iteratorForInsertEpgPrograms implements pgx.CopyFromSource.
+type iteratorForInsertEpgPrograms struct {
+	rows                 []InsertEpgProgramsParams
 	skippedFirstNextCall bool
 }
 
-func (r *iteratorForInsertEpgProgrammes) Next() bool {
+func (r *iteratorForInsertEpgPrograms) Next() bool {
 	if len(r.rows) == 0 {
 		return false
 	}
@@ -27,7 +27,7 @@ func (r *iteratorForInsertEpgProgrammes) Next() bool {
 	return len(r.rows) > 0
 }
 
-func (r iteratorForInsertEpgProgrammes) Values() ([]interface{}, error) {
+func (r iteratorForInsertEpgPrograms) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].EpgSourceID,
 		r.rows[0].ChannelTvgID,
@@ -39,10 +39,10 @@ func (r iteratorForInsertEpgProgrammes) Values() ([]interface{}, error) {
 	}, nil
 }
 
-func (r iteratorForInsertEpgProgrammes) Err() error {
+func (r iteratorForInsertEpgPrograms) Err() error {
 	return nil
 }
 
-func (q *Queries) InsertEpgProgrammes(ctx context.Context, arg []InsertEpgProgrammesParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"epg_programmes"}, []string{"epg_source_id", "channel_tvg_id", "title", "sub_title", "description", "start_time", "stop_time"}, &iteratorForInsertEpgProgrammes{rows: arg})
+func (q *Queries) InsertEpgPrograms(ctx context.Context, arg []InsertEpgProgramsParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"epg_programs"}, []string{"epg_source_id", "channel_tvg_id", "title", "sub_title", "description", "start_time", "stop_time"}, &iteratorForInsertEpgPrograms{rows: arg})
 }

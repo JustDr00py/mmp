@@ -1,5 +1,5 @@
 // Package epg parses XMLTV files (EPG data) in a streaming fashion:
-// programmes are emitted through a callback so huge guides parse with
+// programs are emitted through a callback so huge guides parse with
 // bounded memory.
 package epg
 
@@ -14,8 +14,8 @@ import (
 	"golang.org/x/text/encoding/unicode"
 )
 
-// Programme is one XMLTV <programme> element.
-type Programme struct {
+// Program is one XMLTV <programme> element.
+type Program struct {
 	Channel  string // channel id (the join key against tvg_id)
 	Start    time.Time
 	Stop     time.Time
@@ -32,7 +32,7 @@ var timeLayouts = []string{
 	"20060102150405-0700",
 }
 
-// ParseTime parses an XMLTV datetime with its per-programme UTC offset.
+// ParseTime parses an XMLTV datetime with its per-program UTC offset.
 func ParseTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	var lastErr error
@@ -46,10 +46,10 @@ func ParseTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("epg: time %q: %w", s, lastErr)
 }
 
-// Parse reads an XMLTV document and emits each complete programme.
-// Programmes missing a parseable start/stop or channel are skipped (real
+// Parse reads an XMLTV document and emits each complete program.
+// Programs missing a parseable start/stop or channel are skipped (real
 // guides contain junk). emit's error aborts parsing and is returned.
-func Parse(r io.Reader, emit func(Programme) error) error {
+func Parse(r io.Reader, emit func(Program) error) error {
 	dec := xml.NewDecoder(r)
 	// EPG files are commonly UTF-8 but ISO-8859-1 appears in the wild.
 	dec.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
@@ -64,8 +64,8 @@ func Parse(r io.Reader, emit func(Programme) error) error {
 		}
 	}
 
-	var p Programme
-	inProgramme := false
+	var p Program
+	inProgram := false
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -78,8 +78,8 @@ func Parse(r io.Reader, emit func(Programme) error) error {
 		case xml.StartElement:
 			switch el.Name.Local {
 			case "programme":
-				p = Programme{}
-				inProgramme = true
+				p = Program{}
+				inProgram = true
 				for _, a := range el.Attr {
 					switch a.Name.Local {
 					case "channel":
@@ -91,7 +91,7 @@ func Parse(r io.Reader, emit func(Programme) error) error {
 					}
 				}
 			case "title", "sub-title", "desc":
-				if !inProgramme {
+				if !inProgram {
 					continue
 				}
 				name := el.Name.Local
@@ -117,8 +117,8 @@ func Parse(r io.Reader, emit func(Programme) error) error {
 				}
 			}
 		case xml.EndElement:
-			if el.Name.Local == "programme" && inProgramme {
-				inProgramme = false
+			if el.Name.Local == "programme" && inProgram {
+				inProgram = false
 				if p.Channel == "" || p.Start.IsZero() || p.Stop.IsZero() || !p.Stop.After(p.Start) {
 					continue
 				}

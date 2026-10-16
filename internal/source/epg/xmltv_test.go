@@ -8,15 +8,15 @@ import (
 	"time"
 )
 
-func parseFixture(t *testing.T) []Programme {
+func parseFixture(t *testing.T) []Program {
 	t.Helper()
 	f, err := os.Open("testdata/guide.xml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	var out []Programme
-	if err := Parse(f, func(p Programme) error { out = append(out, p); return nil }); err != nil {
+	var out []Program
+	if err := Parse(f, func(p Program) error { out = append(out, p); return nil }); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	return out
@@ -25,7 +25,7 @@ func parseFixture(t *testing.T) []Programme {
 func TestParseFixture(t *testing.T) {
 	progs := parseFixture(t)
 	if len(progs) != 3 {
-		t.Fatalf("got %d programmes, want 3 (junk skipped): %+v", len(progs), progs)
+		t.Fatalf("got %d programs, want 3 (junk skipped): %+v", len(progs), progs)
 	}
 
 	// +0300 offset applied correctly.
@@ -93,7 +93,7 @@ func TestParseEmitError(t *testing.T) {
 <programme start="20261013190000 +0000" stop="20261013200000 +0000" channel="c"><title>B</title></programme>
 </tv>`
 	n := 0
-	err := Parse(strings.NewReader(doc), func(Programme) error {
+	err := Parse(strings.NewReader(doc), func(Program) error {
 		n++
 		return sentinel
 	})
@@ -108,7 +108,7 @@ func TestParseLatin1(t *testing.T) {
 		"<programme start=\"20261013180000 +0100\" stop=\"20261013190000 +0100\" channel=\"c\">" +
 		"<title>K\xf6che</title></programme></tv>"
 	var got string
-	err := Parse(strings.NewReader(doc), func(p Programme) error { got = p.Title; return nil })
+	err := Parse(strings.NewReader(doc), func(p Program) error { got = p.Title; return nil })
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

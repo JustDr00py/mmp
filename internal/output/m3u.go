@@ -24,7 +24,7 @@ import (
 type Store interface {
 	ListUserChannels(ctx context.Context, userID int64) ([]db.ListUserChannelsRow, error)
 	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
-	ListGuideProgrammes(ctx context.Context, arg db.ListGuideProgrammesParams) ([]db.ListGuideProgrammesRow, error)
+	ListGuidePrograms(ctx context.Context, arg db.ListGuideProgramsParams) ([]db.ListGuideProgramsRow, error)
 	GetChannelAccess(ctx context.Context, arg db.GetChannelAccessParams) (db.GetChannelAccessRow, error)
 }
 

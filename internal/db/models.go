@@ -67,7 +67,7 @@ type ChannelStream struct {
 	AddedAt          time.Time `json:"added_at"`
 }
 
-type EpgProgramme struct {
+type EpgProgram struct {
 	ID           int64     `json:"id"`
 	EpgSourceID  int64     `json:"epg_source_id"`
 	ChannelTvgID string    `json:"channel_tvg_id"`

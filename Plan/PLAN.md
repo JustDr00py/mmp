@@ -58,7 +58,7 @@ mmp/
 - `channel_streams`: channel_id, provider_stream_id, `priority` (ordered failover list)
 - `channel_groups`, `bouquets` + `bouquet_channels`
 - `stream_profiles`: mode (passthrough|ffmpeg), ffmpeg_args, user_agent
-- `epg_sources`, `epg_programmes`
+- `epg_sources`, `epg_programs`
 - `users`: username, password_hash, role (admin|customer), `max_connections`, expires_at, enabled, bouquets, `stream_token`
 - `events`: failover and audit log
 

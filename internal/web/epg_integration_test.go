@@ -34,7 +34,7 @@ func TestEPGPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Minute)
-	if _, err := q.InsertEpgProgrammes(ctx, []db.InsertEpgProgrammesParams{
+	if _, err := q.InsertEpgPrograms(ctx, []db.InsertEpgProgramsParams{
 		{EpgSourceID: src.ID, ChannelTvgID: "BBC1.uk", Title: "The News", StartTime: now.Add(-10 * time.Minute), StopTime: now.Add(20 * time.Minute)},
 		{EpgSourceID: src.ID, ChannelTvgID: "BBC1.uk", Title: "Weather", StartTime: now.Add(20 * time.Minute), StopTime: now.Add(30 * time.Minute)},
 		{EpgSourceID: src.ID, ChannelTvgID: "old.uk", Title: "Yesterday", StartTime: now.Add(-30 * time.Hour), StopTime: now.Add(-29 * time.Hour)},
@@ -55,7 +55,7 @@ func TestEPGPage(t *testing.T) {
 	if strings.Contains(body, "guide-secret") {
 		t.Error("EPG URL shown with its password")
 	}
-	if !strings.Contains(body, `<td class="num">3</td><td class="num">2</td>`) { // 3 programmes, 2 tvg-ids
+	if !strings.Contains(body, `<td class="num">3</td><td class="num">2</td>`) { // 3 programs, 2 tvg-ids
 		t.Errorf("source stats missing")
 	}
 	// Case-insensitive match: BBC One (bbc1.uk) has "The News" now and 2 in 24h.
@@ -70,7 +70,7 @@ func TestEPGPage(t *testing.T) {
 	}
 
 	resp, body := b.htmx(http.MethodPost, "/admin/epg/providers/"+strconv.FormatInt(xt.ID, 10)+"/refresh", nil, "epg-"+strconv.FormatInt(xt.ID, 10))
-	if resp.StatusCode != 200 || !strings.HasPrefix(strings.TrimSpace(body), `<tr id="epg-`) || !strings.Contains(body, "4321 programmes") {
+	if resp.StatusCode != 200 || !strings.HasPrefix(strings.TrimSpace(body), `<tr id="epg-`) || !strings.Contains(body, "4321 programs") {
 		t.Errorf("refresh = %d\n%s", resp.StatusCode, body)
 	}
 }

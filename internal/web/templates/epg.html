@@ -1,13 +1,13 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><h1>Guide (EPG)</h1></div>
-<p class="lede">Programme data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
+<p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
   A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source; if several sources have it, the highest-priority provider wins.</p>
 <h2>Sources</h2>
 {{if $d.Sources}}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Provider</th><th class="num">Programmes</th><th class="num">Channels</th><th>Last download</th><th></th></tr></thead>
+  <thead><tr><th>Provider</th><th class="num">Programs</th><th class="num">Channels</th><th>Last download</th><th></th></tr></thead>
   <tbody>{{range $d.Sources}}{{template "source-row" .}}{{end}}</tbody>
 </table>
 </div>
@@ -30,7 +30,7 @@
     {{with .Stats}}<div class="sub mono">{{redact .Url}}</div>{{end}}
     {{if not .Provider.Enabled}}<span class="pill off">provider disabled</span>{{end}}</td>
   {{with .Stats}}
-  <td class="num">{{.Programmes}}</td><td class="num">{{.Channels}}</td><td>{{ago .LastRefreshedAt}}</td>
+  <td class="num">{{.Programs}}</td><td class="num">{{.Channels}}</td><td>{{ago .LastRefreshedAt}}</td>
   {{else}}
   <td class="num">—</td><td class="num">—</td><td><span class="pill warn">not downloaded yet</span></td>
   {{end}}
@@ -40,7 +40,7 @@
       <button type="submit" class="small">Download now</button>
     </form>
     <span id="epg-{{.Provider.ID}}-busy" class="htmx-indicator sub">downloading…</span>
-    {{with .Refresh}}{{if .OK}}<span class="okmsg small">{{.Result.Seen}} programmes · {{.Elapsed}}</span>{{else}}<span class="errmsg small">{{.Error}}</span>{{end}}{{end}}
+    {{with .Refresh}}{{if .OK}}<span class="okmsg small">{{.Result.Seen}} programs · {{.Elapsed}}</span>{{else}}<span class="errmsg small">{{.Error}}</span>{{end}}{{end}}
   </div></td>
 </tr>
 {{end}}

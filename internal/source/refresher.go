@@ -1,6 +1,6 @@
 // Package source implements upstream ingestion: refreshing providers
 // (M3U and Xtream) into provider_streams, and EPG guides into
-// epg_programmes.
+// epg_programs.
 package source
 
 import (
@@ -25,8 +25,8 @@ import (
 // maxM3USize bounds playlist downloads (100 MiB: big but bounded).
 const maxM3USize = 100 << 20
 
-// programmeChunk is the COPY batch size for EPG inserts.
-const programmeChunk = 1000
+// programChunk is the COPY batch size for EPG inserts.
+const programChunk = 1000
 
 // Refresher refreshes providers on demand and on a schedule.
 type Refresher struct {
@@ -267,7 +267,7 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 }
 
 // RefreshEPG fetches the provider's XMLTV guide (panel-provided for Xtream,
-// epg_url for M3U) and replaces its stored programmes.
+// epg_url for M3U) and replaces its stored programs.
 func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) {
 	xmltvURL := p.EpgUrl
 	if p.Type == "xtream" && xmltvURL == "" {
@@ -295,7 +295,7 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := db.New(tx)
 
-	if _, err := q.ClearEpgSourceProgrammes(ctx, source.ID); err != nil {
+	if _, err := q.ClearEpgSourcePrograms(ctx, source.ID); err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: clear: %w", p.ID, err)
 	}
 
@@ -316,18 +316,18 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 
 	total := 0
-	batch := make([]db.InsertEpgProgrammesParams, 0, programmeChunk)
+	batch := make([]db.InsertEpgProgramsParams, 0, programChunk)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if _, err := q.InsertEpgProgrammes(ctx, batch); err != nil {
-			return fmt.Errorf("insert %d programmes: %w", len(batch), err)
+		if _, err := q.InsertEpgPrograms(ctx, batch); err != nil {
+			return fmt.Errorf("insert %d programs: %w", len(batch), err)
 		}
 		batch = batch[:0]
 		return nil
 	}
-	// Provider guides repeat programmes (same channel and start) and carry
+	// Provider guides repeat programs (same channel and start) and carry
 	// zero-length ones; either would fail the whole COPY, so skip them.
 	type progKey struct {
 		channel string
@@ -335,14 +335,14 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 	seen := map[progKey]struct{}{}
 	skipped := 0
-	err = epg.Parse(resp.Body, func(pr epg.Programme) error {
+	err = epg.Parse(resp.Body, func(pr epg.Program) error {
 		k := progKey{pr.Channel, pr.Start.UnixNano()}
 		if _, dup := seen[k]; dup || !pr.Stop.After(pr.Start) {
 			skipped++
 			return nil
 		}
 		seen[k] = struct{}{}
-		batch = append(batch, db.InsertEpgProgrammesParams{
+		batch = append(batch, db.InsertEpgProgramsParams{
 			EpgSourceID:  source.ID,
 			ChannelTvgID: pr.Channel,
 			Title:        pr.Title,
@@ -352,7 +352,7 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 			StopTime:     pr.Stop,
 		})
 		total++
-		if len(batch) >= programmeChunk {
+		if len(batch) >= programChunk {
 			return flush()
 		}
 		return nil
@@ -364,7 +364,7 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 		return 0, fmt.Errorf("refresh epg provider %d: %w", p.ID, err)
 	}
 	if skipped > 0 {
-		r.log.Info("epg: skipped duplicate or empty programmes", "provider_id", p.ID, "skipped", skipped)
+		r.log.Info("epg: skipped duplicate or empty programs", "provider_id", p.ID, "skipped", skipped)
 	}
 	if err := q.MarkEpgSourceRefreshed(ctx, source.ID); err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: mark: %w", p.ID, err)
@@ -372,7 +372,7 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: commit: %w", p.ID, err)
 	}
-	r.log.Info("epg refreshed", "provider_id", p.ID, "programmes", total)
+	r.log.Info("epg refreshed", "provider_id", p.ID, "programs", total)
 	return total, nil
 }
 

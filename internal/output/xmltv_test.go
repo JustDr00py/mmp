@@ -24,7 +24,7 @@ func newGuideHandlers(t *testing.T) (*fakeStore, http.Handler) {
 	hs.Now = func() time.Time { return guideNow }
 	store := hs.Store.(*fakeStore)
 	est := time.FixedZone("EST", -5*3600)
-	store.guide = map[string][]db.ListGuideProgrammesRow{
+	store.guide = map[string][]db.ListGuideProgramsRow{
 		"news.us": {
 			{TvgKey: "news.us", ID: 501, Title: "Morning <News> & Weather", SubTitle: "Ep. 1", Description: "Line one\nline two \x01",
 				StartTime: time.Date(2026, 10, 13, 7, 0, 0, 0, est), StopTime: time.Date(2026, 10, 13, 8, 0, 0, 0, est)},
@@ -89,7 +89,7 @@ func TestXMLTVPHPAdminDedupesAndParses(t *testing.T) {
 		t.Errorf("channels = %d, want 2 (no tvg-id dropped, case-duplicate merged):\n%s", n, body)
 	}
 	if !strings.Contains(body, `<channel id="Sports.UK">`) || !strings.Contains(body, `channel="Sports.UK"`) {
-		t.Errorf("programme must reference the listed channel id:\n%s", body)
+		t.Errorf("program must reference the listed channel id:\n%s", body)
 	}
 	if !strings.Contains(body, `src="http://logo/s.png?a=1&amp;b=2"`) {
 		t.Errorf("icon not escaped:\n%s", body)
@@ -99,8 +99,8 @@ func TestXMLTVPHPAdminDedupesAndParses(t *testing.T) {
 	}
 
 	// MMP's own XMLTV ingest reads the output back losslessly.
-	var progs []epg.Programme
-	if err := epg.Parse(strings.NewReader(body), func(p epg.Programme) error {
+	var progs []epg.Program
+	if err := epg.Parse(strings.NewReader(body), func(p epg.Program) error {
 		progs = append(progs, p)
 		return nil
 	}); err != nil {
@@ -113,16 +113,16 @@ func TestXMLTVPHPAdminDedupesAndParses(t *testing.T) {
 }
 
 func TestGuideBatches(t *testing.T) {
-	store := &fakeStore{guide: map[string][]db.ListGuideProgrammesRow{}}
+	store := &fakeStore{guide: map[string][]db.ListGuideProgramsRow{}}
 	var chans []Channel
 	for i := range 250 {
 		id := fmt.Sprintf("ch%03d", i)
 		chans = append(chans, Channel{ID: int64(i), Name: id, TvgID: id})
-		store.guide[id] = []db.ListGuideProgrammesRow{{TvgKey: id, Title: "x", StartTime: guideNow, StopTime: guideNow.Add(time.Hour)}}
+		store.guide[id] = []db.ListGuideProgramsRow{{TvgKey: id, Title: "x", StartTime: guideNow, StopTime: guideNow.Add(time.Hour)}}
 	}
 	var buf bytes.Buffer
-	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgrammesRow, error) {
-		return store.ListGuideProgrammes(ctx, db.ListGuideProgrammesParams{TvgKeys: keys})
+	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error) {
+		return store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{TvgKeys: keys})
 	}
 	if err := WriteXMLTV(context.Background(), &buf, chans, fetch); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestGuideBatches(t *testing.T) {
 		t.Errorf("batches = %d", len(store.fetchs))
 	}
 	if n := strings.Count(buf.String(), "<programme "); n != 250 {
-		t.Errorf("programmes = %d", n)
+		t.Errorf("programs = %d", n)
 	}
 	// No channels at all is still a valid, empty guide.
 	buf.Reset()
