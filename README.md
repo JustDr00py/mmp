@@ -452,15 +452,27 @@ uses one of their connections and one of the provider's.
   and allow long-lived responses.
 - **Client addresses behind a reverse proxy:** MMP sees the proxy's address on every connection, so the
   dashboard lists every viewer under it and all clients share one login-lockout bucket. List the proxy
-  in `http.trusted_proxies` (e.g. `MMP_HTTP_TRUSTED_PROXIES=10.89.0.0/24` for a Caddy container on that
-  network, or the proxy's exact IP). MMP then takes the client from `X-Forwarded-For`, which Caddy,
+  in `http.trusted_proxies`: the address MMP sees it connect from, which is what the dashboard shows
+  for every viewer until you set this. MMP then takes the client from `X-Forwarded-For`, which Caddy,
   nginx (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`) and Traefik set. Only
   connections from those addresses are believed; anyone else's headers are ignored, so trust nothing
-  that clients can reach directly. With Caddy:
+  that clients can reach directly.
+
+  With the compose files and the proxy installed on the host, proxying to `localhost:8080`, MMP sees the
+  Docker network's gateway. Set in `.env`:
+
+  ```
+  MMP_HTTP_BIND=127.0.0.1                # publish MMP to this host only: players go through the proxy
+  MMP_HTTP_TRUSTED_PROXIES=172.28.0.1    # docker-compose.yml's gateway (172.29.0.1 with the VPN file)
+  ```
+
+  `docker-compose.yml` pins its network to `172.28.0.0/24` (`MMP_SUBNET`), so the gateway stays the
+  same across `down`/`up`. A stack created before that pin is moved to it by the next `up -d`. If the
+  proxy runs in a container instead, trust that container's address. Caddy on the host:
 
   ```
   tv.example.com {
-      reverse_proxy mmp:8080 {
+      reverse_proxy localhost:8080 {
           flush_interval -1
       }
   }
