@@ -1,0 +1,15 @@
+{{define "content"}}
+{{$f := .Data}}
+<p class="crumbs"><a href="/admin/epg">Guide</a> /</p>
+<h1>{{.Title}}</h1>
+<form class="card form" method="post" action="/admin/epg/sources/{{$f.ID}}/edit">
+  {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <label>Name<input name="name" value="{{$f.Name}}" required maxlength="100"></label>
+  <label>XMLTV URL<input name="url" type="url" value="{{$f.URL}}" required>
+    <span class="hint">.xml or .xml.gz; changing it downloads the guide again.</span></label>
+  <label>Priority<input name="priority" type="number" value="{{$f.Priority}}">
+    <span class="hint">lower wins when several sources list a channel{{with $f.ProviderPriorities}}; providers: {{.}}{{end}}</span></label>
+  <label class="check"><input type="checkbox" name="enabled"{{if $f.Enabled}} checked{{end}}> Enabled</label>
+  <div class="row"><button type="submit">Save</button><a href="/admin/epg">Cancel</a></div>
+</form>
+{{end}}

@@ -3,6 +3,7 @@ package channel
 import (
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +146,57 @@ func TestDisplayName(t *testing.T) {
 	for _, tt := range tests {
 		if got := DisplayName(tt.in); got != tt.want {
 			t.Errorf("DisplayName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestFeedVariant(t *testing.T) {
+	for name, want := range map[string]string{
+		"US - A&E EAST HD ◉": "", "US - A&E WEST HD": "west", "A&E": "", "HBO Pacific": "west",
+		"Starz Mountain FHD": "mountain", "UK: Channel 4 +1": "+1", "ITV+1 HD": "+1", "E4 +2h": "+2",
+		"Westerns Channel": "", "Disney+ HD": "", "Sky Sports+": "", "BBC One West Midlands": "west",
+	} {
+		if got := FeedVariant(name); got != want {
+			t.Errorf("FeedVariant(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestMatchSplitsFeeds: providers tag East and West feeds with the same
+// tvg-id; they must stay separate channels (and never fail over into each
+// other), while East joins an unlabelled feed and the existing channel.
+func TestMatchSplitsFeeds(t *testing.T) {
+	streams := []Stream{
+		{ID: 1, ProviderID: 1, Name: "US - A&E EAST HD ◉", TvgID: "aande.us"},
+		{ID: 2, ProviderID: 1, Name: "US - A&E WEST HD", TvgID: "aande.us"},
+		{ID: 3, ProviderID: 2, Name: "US| A&E HD", TvgID: "AandE.us"},
+		{ID: 4, ProviderID: 2, Name: "US| A&E WEST", TvgID: "AandE.us"},
+		{ID: 5, ProviderID: 1, Name: "UK: Channel 4 +1", TvgID: "channel4.uk"},
+		{ID: 6, ProviderID: 1, Name: "UK: Channel 4", TvgID: "channel4.uk"},
+	}
+	byKey := map[string]Proposal{}
+	for _, p := range Match(streams, nil, nil) {
+		byKey[p.Key] = p
+	}
+	if p := byKey["tvg:aande.us"]; !slices.Equal(p.StreamIDs, []int64{1, 3}) {
+		t.Errorf("A&E (East) = %v, want streams 1 and 3", p.StreamIDs)
+	}
+	if p := byKey["tvg:aande.us|west"]; !slices.Equal(p.StreamIDs, []int64{2, 4}) || !strings.Contains(strings.ToLower(p.Name), "west") {
+		t.Errorf("A&E West = %+v, want streams 2 and 4", p)
+	}
+	if p := byKey["tvg:channel4.uk|+1"]; !slices.Equal(p.StreamIDs, []int64{5}) {
+		t.Errorf("Channel 4 +1 = %v", p.StreamIDs)
+	}
+
+	// An existing "A&E" channel takes the East feeds only; West is new.
+	props := Match(streams[:4], []Existing{{ID: 8, Name: "A&E", TvgID: "AandE.us"}}, nil)
+	for _, p := range props {
+		west := strings.HasSuffix(p.Key, "|west")
+		if west && p.ChannelID != 0 {
+			t.Errorf("West attached to the existing East channel: %+v", p)
+		}
+		if !west && p.ChannelID != 8 {
+			t.Errorf("East not attached to the existing channel: %+v", p)
 		}
 	}
 }

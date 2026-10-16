@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -87,7 +89,7 @@ func Migrate(ctx context.Context, dsn string) error {
 }
 
 // MigrateDownTo rolls the schema back to version v (0 = all the way down).
-// Used by tests and development only.
+// Restoring an older backup uses it; otherwise tests and development.
 func MigrateDownTo(ctx context.Context, dsn string, v int64) error {
 	goose.SetLogger(goose.NopLogger())
 	sdb, err := sql.Open("pgx", dsn)
@@ -103,4 +105,32 @@ func MigrateDownTo(ctx context.Context, dsn string, v int64) error {
 		return fmt.Errorf("db: migrate down to %d: %s", v, redact.Text(err.Error()))
 	}
 	return nil
+}
+
+// Migrator moves the schema of the database at DSN (for backup restores).
+type Migrator struct{ DSN string }
+
+// DownTo rolls back to version v.
+func (m Migrator) DownTo(ctx context.Context, v int64) error { return MigrateDownTo(ctx, m.DSN, v) }
+
+// Up applies every migration.
+func (m Migrator) Up(ctx context.Context) error { return Migrate(ctx, m.DSN) }
+
+// LatestMigration is the newest embedded migration version.
+func LatestMigration() (int64, error) {
+	entries, err := fs.ReadDir(migrationsSub, ".")
+	if err != nil {
+		return 0, err
+	}
+	var latest int64
+	for _, e := range entries {
+		num, _, ok := strings.Cut(e.Name(), "_")
+		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		if v, err := strconv.ParseInt(num, 10, 64); err == nil && v > latest {
+			latest = v
+		}
+	}
+	return latest, nil
 }

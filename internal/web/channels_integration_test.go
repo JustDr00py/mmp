@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/JustDr00py/mmp/internal/auth"
@@ -25,7 +26,7 @@ import (
 )
 
 // pgUI is the UI over a fresh Postgres database with a signed-in admin.
-func pgUI(t *testing.T) (*browser, *db.Queries) {
+func pgUI(t *testing.T, opts ...func(*Deps, *pgxpool.Pool)) (*browser, *db.Queries) {
 	t.Helper()
 	dsn := testpg.DSN("mmp_web_test")
 	cfg, _ := pgx.ParseConfig(dsn)
@@ -62,11 +63,15 @@ func pgUI(t *testing.T) (*browser, *db.Queries) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.DiscardHandler)
-	ui, err := New(Deps{Auth: auth.NewAuthenticator(q, log, time.Hour, false), Store: q, Refresh: &fakeRefresher{store: q},
+	deps := Deps{Auth: auth.NewAuthenticator(q, log, time.Hour, false), Store: q, Refresh: &fakeRefresher{store: q},
 		Match: channel.NewService(log, pool), Log: log, Version: "test", BaseURL: "http://mmp.example:8080",
 		InTx: func(ctx context.Context, fn func(Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
-		}})
+		}}
+	for _, o := range opts {
+		o(&deps, pool)
+	}
+	ui, err := New(deps)
 	if err != nil {
 		t.Fatal(err)
 	}

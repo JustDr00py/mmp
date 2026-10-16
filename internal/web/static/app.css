@@ -386,3 +386,9 @@ fieldset > legend + * { clear: both; }
   table.stack .sub.url { max-width: 100%; }
   .table-wrap:has(table.stack) { overflow-x: visible; }
 }
+details.restore { position: relative; }
+details.restore summary { list-style: none; }
+details.restore summary::-webkit-details-marker { display: none; }
+details.restore[open] .restore-form { position: absolute; right: 0; top: calc(100% + .35rem); z-index: 5; width: min(320px, 80vw);
+  display: grid; gap: .6rem; padding: .9rem; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); white-space: normal; }
+.restored { max-width: 560px; margin: 2rem auto; }

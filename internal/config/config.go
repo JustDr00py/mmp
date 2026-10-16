@@ -107,6 +107,11 @@ type Config struct {
 		InfoTTL    Duration `yaml:"info_ttl"`    // re-fetch a movie's get_vod_info after this
 		EpisodeTTL Duration `yaml:"episode_ttl"` // re-fetch a series' episodes after this
 	} `yaml:"vod"`
+	// Backup is where backups are stored (schedule and the rest are set in
+	// the admin UI).
+	Backup struct {
+		Dir string `yaml:"dir"`
+	} `yaml:"backup"`
 	// Metrics is the Prometheus endpoint (/metrics).
 	Metrics struct {
 		Enabled bool   `yaml:"enabled"`
@@ -166,6 +171,7 @@ func Defaults() Config {
 	c.Match.MinProviders = 2
 	c.Match.AutoNewChannels = true
 	c.VOD.InfoTTL = Duration{24 * time.Hour}
+	c.Backup.Dir = "backups"
 	c.VOD.EpisodeTTL = Duration{6 * time.Hour}
 	c.Metrics.Enabled = true
 	c.HLS.Enabled = true
@@ -281,6 +287,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_DB_DSN", &c.DB.DSN)
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
 	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
+	str("MMP_BACKUP_DIR", &c.Backup.Dir)
 	for _, e := range []error{
 		int32v("MMP_DB_MAX_CONNS", &c.DB.MaxConns),
 		dur("MMP_HTTP_READ_HEADER_TIMEOUT", &c.HTTP.ReadHeaderTimeout),

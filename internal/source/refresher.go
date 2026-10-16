@@ -1,9 +1,11 @@
 // Package source implements upstream ingestion: refreshing providers
 // (M3U and Xtream) into provider_streams, and EPG guides into
-// epg_programmes.
+// epg_programs.
 package source
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -25,8 +27,8 @@ import (
 // maxM3USize bounds playlist downloads (100 MiB: big but bounded).
 const maxM3USize = 100 << 20
 
-// programmeChunk is the COPY batch size for EPG inserts.
-const programmeChunk = 1000
+// programChunk is the COPY batch size for EPG inserts.
+const programChunk = 1000
 
 // Refresher refreshes providers on demand and on a schedule.
 type Refresher struct {
@@ -267,7 +269,7 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 }
 
 // RefreshEPG fetches the provider's XMLTV guide (panel-provided for Xtream,
-// epg_url for M3U) and replaces its stored programmes.
+// epg_url for M3U) and replaces its stored programs.
 func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) {
 	xmltvURL := p.EpgUrl
 	if p.Type == "xtream" && xmltvURL == "" {
@@ -287,47 +289,61 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	if err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: upsert source: %w", p.ID, err)
 	}
+	return r.loadGuide(ctx, source.ID, xmltvURL, p.UserAgent, fmt.Sprintf("provider %d", p.ID))
+}
 
+// RefreshEPGSource downloads an extra guide source (one not tied to a
+// provider) and replaces its stored programs.
+func (r *Refresher) RefreshEPGSource(ctx context.Context, src db.EpgSource) (int, error) {
+	if src.ProviderID != nil {
+		return 0, fmt.Errorf("refresh epg source %d: belongs to a provider", src.ID)
+	}
+	return r.loadGuide(ctx, src.ID, src.Url, "", fmt.Sprintf("source %d", src.ID))
+}
+
+// loadGuide fetches an XMLTV guide (plain or gzipped) and replaces the
+// source's programs in one transaction. label names it in errors.
+func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, userAgent, label string) (int, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: begin: %w", p.ID, err)
+		return 0, fmt.Errorf("refresh epg %s: begin: %w", label, err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := db.New(tx)
 
-	if _, err := q.ClearEpgSourceProgrammes(ctx, source.ID); err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: clear: %w", p.ID, err)
+	if _, err := q.ClearEpgSourcePrograms(ctx, sourceID); err != nil {
+		return 0, fmt.Errorf("refresh epg %s: clear: %w", label, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, xmltvURL, nil)
 	if err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: fetch %s: invalid url", p.ID, redact.URL(xmltvURL))
+		return 0, fmt.Errorf("refresh epg %s: fetch %s: invalid url", label, redact.URL(xmltvURL))
 	}
-	if p.UserAgent != "" {
-		req.Header.Set("User-Agent", p.UserAgent)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
 	}
 	resp, err := r.hc.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: fetch %s: %w", p.ID, redact.URL(xmltvURL), redact.Err(err))
+		return 0, fmt.Errorf("refresh epg %s: fetch %s: %w", label, redact.URL(xmltvURL), redact.Err(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("refresh epg provider %d: fetch: status %d", p.ID, resp.StatusCode)
+		return 0, fmt.Errorf("refresh epg %s: fetch: status %d", label, resp.StatusCode)
 	}
 
 	total := 0
-	batch := make([]db.InsertEpgProgrammesParams, 0, programmeChunk)
+	batch := make([]db.InsertEpgProgramsParams, 0, programChunk)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if _, err := q.InsertEpgProgrammes(ctx, batch); err != nil {
-			return fmt.Errorf("insert %d programmes: %w", len(batch), err)
+		if _, err := q.InsertEpgPrograms(ctx, batch); err != nil {
+			return fmt.Errorf("insert %d programs: %w", len(batch), err)
 		}
 		batch = batch[:0]
 		return nil
 	}
-	// Provider guides repeat programmes (same channel and start) and carry
+	// Provider guides repeat programs (same channel and start) and carry
 	// zero-length ones; either would fail the whole COPY, so skip them.
 	type progKey struct {
 		channel string
@@ -335,15 +351,25 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 	seen := map[progKey]struct{}{}
 	skipped := 0
-	err = epg.Parse(resp.Body, func(pr epg.Programme) error {
+	// Third-party guides are usually .xml.gz: detect gzip by its magic bytes.
+	var guide io.Reader = bufio.NewReaderSize(resp.Body, 64<<10)
+	if head, _ := guide.(*bufio.Reader).Peek(2); len(head) == 2 && head[0] == 0x1f && head[1] == 0x8b {
+		gz, err := gzip.NewReader(guide)
+		if err != nil {
+			return 0, fmt.Errorf("refresh epg %s: gzip: %w", label, err)
+		}
+		defer gz.Close()
+		guide = gz
+	}
+	err = epg.Parse(guide, func(pr epg.Program) error {
 		k := progKey{pr.Channel, pr.Start.UnixNano()}
 		if _, dup := seen[k]; dup || !pr.Stop.After(pr.Start) {
 			skipped++
 			return nil
 		}
 		seen[k] = struct{}{}
-		batch = append(batch, db.InsertEpgProgrammesParams{
-			EpgSourceID:  source.ID,
+		batch = append(batch, db.InsertEpgProgramsParams{
+			EpgSourceID:  sourceID,
 			ChannelTvgID: pr.Channel,
 			Title:        pr.Title,
 			SubTitle:     pr.SubTitle,
@@ -352,27 +378,27 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 			StopTime:     pr.Stop,
 		})
 		total++
-		if len(batch) >= programmeChunk {
+		if len(batch) >= programChunk {
 			return flush()
 		}
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: parse: %w", p.ID, err)
+		return 0, fmt.Errorf("refresh epg %s: parse: %w", label, err)
 	}
 	if err := flush(); err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: %w", p.ID, err)
+		return 0, fmt.Errorf("refresh epg %s: %w", label, err)
 	}
 	if skipped > 0 {
-		r.log.Info("epg: skipped duplicate or empty programmes", "provider_id", p.ID, "skipped", skipped)
+		r.log.Info("epg: skipped duplicate or empty programs", "provider_id", label, "skipped", skipped)
 	}
-	if err := q.MarkEpgSourceRefreshed(ctx, source.ID); err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: mark: %w", p.ID, err)
+	if err := q.MarkEpgSourceRefreshed(ctx, sourceID); err != nil {
+		return 0, fmt.Errorf("refresh epg %s: mark: %w", label, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("refresh epg provider %d: commit: %w", p.ID, err)
+		return 0, fmt.Errorf("refresh epg %s: commit: %w", label, err)
 	}
-	r.log.Info("epg refreshed", "provider_id", p.ID, "programmes", total)
+	r.log.Info("epg refreshed", "provider_id", label, "programs", total)
 	return total, nil
 }
 
@@ -421,6 +447,16 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 	for _, p := range epgDue {
 		if _, err := r.RefreshEPG(ctx, p); err != nil {
 			r.log.Error("refresher: epg refresh failed", "provider_id", p.ID, "err", err.Error())
+		}
+	}
+	extra, err := q.ListExtraEpgSourcesDue(ctx, epgInterval.Seconds())
+	if err != nil {
+		r.log.Error("refresher: list extra guides due", "err", err)
+		return
+	}
+	for _, src := range extra {
+		if _, err := r.RefreshEPGSource(ctx, src); err != nil {
+			r.log.Error("refresher: extra guide refresh failed", "epg_source_id", src.ID, "err", err.Error())
 		}
 	}
 }

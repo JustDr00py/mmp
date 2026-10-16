@@ -9,15 +9,18 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/JustDr00py/mmp/internal/api"
 	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/config"
 	"github.com/JustDr00py/mmp/internal/db"
@@ -36,10 +39,20 @@ func main() {
 	configPath := flag.String("config", "", "path to YAML config file (optional; env vars override)")
 	migrateOnly := flag.Bool("migrate", false, "run migrations and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	backupNow := flag.Bool("backup", false, "write a backup to the backup directory and exit")
+	restoreFile := flag.String("restore", "", "restore this backup file (replaces all data) and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("mmp", version)
+		return
+	}
+
+	if *backupNow || *restoreFile != "" {
+		if err := runBackupCLI(context.Background(), *configPath, *backupNow, *restoreFile); err != nil {
+			fmt.Fprintf(os.Stderr, "mmp: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -178,7 +191,13 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			streams, access, log)
 	}
 	outputs.Mount(srv.Mux())
+	backups, err := newBackups(pool, cfg, log)
+	if err != nil {
+		return err
+	}
+	go backups.Scheduler.Run(ctx)
 	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams,
+		Backups: backups, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
 		LoginLimit: loginLimit,
@@ -227,4 +246,72 @@ func newLogger(cfg config.Config) *slog.Logger {
 		return slog.New(slog.NewJSONHandler(os.Stdout, opts))
 	}
 	return slog.New(slog.NewTextHandler(os.Stdout, opts))
+}
+
+// newBackups builds the backup service over the backup directory.
+func newBackups(pool *pgxpool.Pool, cfg config.Config, log *slog.Logger) (*backup.Service, error) {
+	latest, err := db.LatestMigration()
+	if err != nil {
+		return nil, err
+	}
+	store := &backup.Store{Dir: cfg.Backup.Dir, Pool: pool, Version: version}
+	return &backup.Service{Store: store, Scheduler: &backup.Scheduler{Store: store, Log: log},
+		Migrator: db.Migrator{DSN: cfg.DB.DSN}, Latest: latest}, nil
+}
+
+// runBackupCLI handles -backup and -restore (for when the admin UI is not
+// usable): migrate, do the one thing, exit.
+func runBackupCLI(ctx context.Context, configPath string, create bool, restore string) error {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	log := newLogger(cfg)
+	if err := db.Migrate(ctx, cfg.DB.DSN); err != nil {
+		return err
+	}
+	pool, err := db.Open(ctx, db.PoolConfig{DSN: cfg.DB.DSN, MaxConns: cfg.DB.MaxConns})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	svc, err := newBackups(pool, cfg, log)
+	if err != nil {
+		return err
+	}
+	if create {
+		info, err := svc.Create(ctx, backup.KindManual)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("backup written: %s (%d bytes, %d rows)\n", filepath.Join(cfg.Backup.Dir, info.Name), info.Size, info.Manifest.Rows())
+		return nil
+	}
+	m, safety, err := svc.RestoreFile(ctx, restore)
+	if safety != "" {
+		fmt.Printf("data before the restore saved as %s\n", filepath.Join(cfg.Backup.Dir, safety))
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("restored %d rows from %s (MMP %s); restart MMP if it is running\n", m.Rows(), restore, m.Version)
+	return nil
+}
+
+// restartSelf replaces the process with a fresh copy of itself, so a
+// restore leaves nothing stale in memory. Listening sockets close on exec
+// (Go opens them close-on-exec) and the new process binds them again.
+func restartSelf(log *slog.Logger) {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Error("restart after restore failed; restart MMP by hand", "err", err)
+		return
+	}
+	log.Info("restarting after restore")
+	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+		log.Error("restart after restore failed; restart MMP by hand", "err", err)
+	}
 }

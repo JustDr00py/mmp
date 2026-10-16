@@ -280,25 +280,25 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get epg source: %v", err)
 	}
-	n2, err := q.CountEpgProgrammes(ctx, src.ID)
+	n2, err := q.CountEpgPrograms(ctx, src.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n2 != 2 {
-		t.Errorf("programmes after replace = %d, want 2", n2)
+		t.Errorf("programs after replace = %d, want 2", n2)
 	}
 	if src.LastRefreshedAt == nil {
 		t.Error("epg source last_refreshed_at not set")
 	}
 
-	// Real guides repeat programmes (here more than one COPY batch apart)
+	// Real guides repeat programs (here more than one COPY batch apart)
 	// and carry zero-length ones: both are skipped, the rest imports.
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0"?><tv>`)
 	dup := `<programme start="20261013200000 +0000" stop="20261013210000 +0000" channel="us.abc"><title>Dup</title></programme>`
 	b.WriteString(dup)
 	start := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
-	for i := range programmeChunk + 10 {
+	for i := range programChunk + 10 {
 		st := start.Add(time.Duration(i) * time.Minute)
 		fmt.Fprintf(&b, `<programme start="%s" stop="%s" channel="us.nbc"><title>P%d</title></programme>`,
 			st.Format("20060102150405 -0700"), st.Add(time.Minute).Format("20060102150405 -0700"), i)
@@ -310,8 +310,8 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if _, err := ref.RefreshEPG(ctx, p); err != nil {
 		t.Fatalf("epg refresh with duplicates: %v", err)
 	}
-	if n, _ := q.CountEpgProgrammes(ctx, src.ID); n != int64(programmeChunk+11) {
-		t.Errorf("programmes = %d, want %d (duplicate and empty skipped)", n, programmeChunk+11)
+	if n, _ := q.CountEpgPrograms(ctx, src.ID); n != int64(programChunk+11) {
+		t.Errorf("programs = %d, want %d (duplicate and empty skipped)", n, programChunk+11)
 	}
 }
 

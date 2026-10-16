@@ -441,8 +441,8 @@ func contextFor(r *http.Request, d time.Duration) (context.Context, context.Canc
 	return context.WithTimeout(context.WithoutCancel(r.Context()), d)
 }
 
-// resultOf adapts a programme count to the refresh result display.
-func resultOf(programmes int) source.Result { return source.Result{Seen: programmes} }
+// resultOf adapts a program count to the refresh result display.
+func resultOf(programs int) source.Result { return source.Result{Seen: programs} }
 
 // likeEscape makes user input literal inside an ILIKE pattern.
 func likeEscape(s string) string {

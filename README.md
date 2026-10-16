@@ -100,9 +100,9 @@ git pull --tags && git checkout v0.2.0   # newer compose files, if the release n
 docker compose pull && docker compose up -d --no-build
 ```
 
-Migrations run on start; back up first (`docker compose exec postgres pg_dump -U mmp mmp > backup.sql`).
-To roll back, set the previous version and run the same commands (only safe if the newer release added
-no migrations, or after restoring the backup).
+Migrations run on start, so back up first (**Backups → Back up now**). To roll back, set the previous
+version and run the same commands; if the newer release changed the database, restore the backup you
+made before upgrading.
 
 ## From zero to playback
 
@@ -152,8 +152,17 @@ Two ways to build channels:
 - **By hand**: **Channels → New channel**, then search streams across all providers and **Add** them.
 
 On a channel's page, drag streams (or use ↑/↓) to set the failover order. The first available stream
-plays. Set the channel's **tvg-id** to the guide's channel id to get programme data (see the **Guide**
+plays. Set the channel's **tvg-id** to the guide's channel id to get program data (see the **Guide**
 page for coverage).
+
+**Guide sources:** Xtream providers bring their own guide, M3U providers can have an EPG URL, and on the
+**Guide** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
+guide with better coverage. They download on the guide schedule (`refresh.epg_interval`). When several
+sources list a channel, the lowest priority number wins (providers use their own priority).
+
+**East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
+Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are
+separate channels), so a channel never fails over into a feed that airs hours later.
 
 ### 3. Put channels in a bouquet
 
@@ -339,6 +348,33 @@ Most channels need nothing special. For a provider whose streams have broken tim
 transcode, create a profile under **Profiles** (mode *ffmpeg*, e.g. arguments `-c copy`) and pick it in
 the channel's settings. MMP still connects to the provider itself and pipes the stream through ffmpeg, so
 failover works the same. This needs ffmpeg installed (`mmp-ffmpeg` image).
+
+## Backups
+
+**Backups** (in the sidebar under Settings) holds everything you set up: providers, channels, bouquets, users,
+movies & series and settings. Guide data and admin login sessions are left out; guides download again
+after a restore. Backups contain provider logins and customer tokens, so keep downloaded copies safe.
+
+- **Back up now** writes a backup into the backup folder (`MMP_BACKUP_DIR`, in Docker the `backups`
+  volume at `/var/lib/mmp/backups`). Download any backup from the list.
+- **Automatic backups** are off until you turn them on: every 6 or 12 hours, daily or weekly (Sundays) at a
+  time you choose, keeping the last *N*. Manual, uploaded and safety backups are only deleted by you.
+- **Restore** replaces all data with a backup after you type `RESTORE`. MMP first saves the current data as a
+  `pre-restore` backup, then restores, keeps your automatic-backup setting, and restarts itself (streams
+  pause for a few seconds; everyone signs in again). Backups from older MMP versions restore and are
+  upgraded; backups from newer versions are refused.
+- **Upload** a backup file to restore it on another machine (e.g. moving to production).
+
+From the command line, for when the admin UI is not usable:
+
+```sh
+docker compose exec mmp mmp -backup                                # writes a manual backup
+docker compose stop mmp
+docker compose run --rm mmp -restore /var/lib/mmp/backups/<file>   # replaces all data
+docker compose start mmp
+```
+
+To copy backups off the server: `docker compose cp mmp:/var/lib/mmp/backups ./backups`.
 
 ## Customer URLs
 

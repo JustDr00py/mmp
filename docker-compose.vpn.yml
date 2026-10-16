@@ -106,6 +106,9 @@ services:
       # First admin, created only when none exists (values from .env):
       MMP_ADMIN_USERNAME: ${MMP_ADMIN_USERNAME:-}
       MMP_ADMIN_PASSWORD: ${MMP_ADMIN_PASSWORD:-}
+    # Backups made from the admin UI (Settings → Backups) live here.
+    volumes:
+      - backups:/var/lib/mmp/backups
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
       interval: 10s
@@ -122,3 +125,4 @@ networks:
 
 volumes:
   pgdata:
+  backups:

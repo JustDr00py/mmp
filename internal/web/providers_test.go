@@ -199,6 +199,16 @@ func (f *fakeRefresher) SeriesEpisodesByID(ctx context.Context, id int64, _ time
 	return s, eps, err
 }
 
+func (f *fakeRefresher) RefreshEPGSource(_ context.Context, src db.EpgSource) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, -src.ID) // negative: a guide source, not a provider
+	if f.err != nil {
+		return 0, f.err
+	}
+	return 4321, nil
+}
+
 func (f *fakeRefresher) RefreshEPG(_ context.Context, p db.Provider) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

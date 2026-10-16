@@ -15,6 +15,7 @@ const guideRowsPerPage = 100
 func (ui *UI) mountEPG(r chi.Router) {
 	r.Get("/epg", ui.epgPage)
 	r.Post("/epg/providers/{id}/refresh", ui.epgRefresh)
+	ui.mountEPGExtra(r)
 }
 
 // epgSource is one guide-capable provider and its source, if fetched yet.
@@ -26,6 +27,9 @@ type epgSource struct {
 
 type epgData struct {
 	Sources     []epgSource
+	Extras      []extraRow
+	ExtraForm   extraForm
+	Flash       string
 	Guide       []db.ChannelGuideStatusRow
 	Query       string
 	MissingOnly bool
@@ -66,7 +70,18 @@ func (ui *UI) epgSources(r *http.Request) ([]epgSource, error) {
 	return out, nil
 }
 
+var epgFlashes = map[string]string{
+	"extra-added":   "Guide source added. It is downloading now; reload in a minute to see its programs.",
+	"extra-saved":   "Guide source saved.",
+	"extra-deleted": "Guide source deleted.",
+}
+
 func (ui *UI) epgPage(w http.ResponseWriter, r *http.Request) {
+	ui.epgPageWith(w, r, http.StatusOK, extraForm{Enabled: true}, "")
+}
+
+// epgPageWith renders the Guide page, with the add-source form's state.
+func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, form extraForm, formErr string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	missing := r.URL.Query().Get("missing") == "1"
 	offset := max(atoi(r.URL.Query().Get("offset")), 0)
@@ -93,7 +108,14 @@ func (ui *UI) epgPage(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "epg sources", err)
 		return
 	}
-	ui.render(w, r, http.StatusOK, "epg", "Guide (EPG)", d)
+	if d.Extras, err = ui.extraRows(r); err != nil {
+		ui.fail(w, "guide sources", err)
+		return
+	}
+	form.Error, form.ProviderPriorities = formErr, ui.providerPriorities(r)
+	d.ExtraForm = form
+	d.Flash = epgFlashes[r.URL.Query().Get("msg")]
+	ui.render(w, r, status, "epg", "Guide (EPG)", d)
 }
 
 // epgRefresh downloads a provider's guide now and returns its updated row.

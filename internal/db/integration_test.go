@@ -70,7 +70,7 @@ func TestMigrateRoundTrip(t *testing.T) {
 	tables := []string{
 		"providers", "provider_streams", "channels", "channel_streams",
 		"channel_groups", "bouquets", "bouquet_channels", "stream_profiles",
-		"epg_sources", "epg_programmes", "users", "user_bouquets", "events",
+		"epg_sources", "epg_programs", "users", "user_bouquets", "events",
 	}
 	pool, err := Open(ctx, PoolConfig{DSN: dsn})
 	if err != nil {
@@ -145,11 +145,11 @@ func TestProviderQueriesSmoke(t *testing.T) {
 	}
 }
 
-// TestListGuideProgrammes covers the guide query: case-insensitive tvg-id
+// TestListGuidePrograms covers the guide query: case-insensitive tvg-id
 // match, one source per channel (best provider priority with data in the
 // window, provider sources ahead of manual ones), the time window, and
 // disabled sources.
-func TestListGuideProgrammes(t *testing.T) {
+func TestListGuidePrograms(t *testing.T) {
 	dsn := testDSN(t)
 	recreate(t, dsn)
 	ctx := context.Background()
@@ -188,9 +188,9 @@ func TestListGuideProgrammes(t *testing.T) {
 
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	h := func(n int) time.Time { return now.Add(time.Duration(n) * time.Hour) }
-	var rows []InsertEpgProgrammesParams
+	var rows []InsertEpgProgramsParams
 	add := func(src int64, tvg, title string, start, stop time.Time) {
-		rows = append(rows, InsertEpgProgrammesParams{EpgSourceID: src, ChannelTvgID: tvg, Title: title, StartTime: start, StopTime: stop})
+		rows = append(rows, InsertEpgProgramsParams{EpgSourceID: src, ChannelTvgID: tvg, Title: title, StartTime: start, StopTime: stop})
 	}
 	add(sBest, "News.US", "best-news-2", h(1), h(2))
 	add(sBest, "News.US", "best-news-1", h(0), h(1))
@@ -202,11 +202,11 @@ func TestListGuideProgrammes(t *testing.T) {
 	add(sBest, "movies", "best-movies-far", h(200), h(201)) // after the window
 	add(sWorse, "movies", "worse-movies", h(0), h(2))
 	add(sOff, "kids", "off-kids", h(0), h(1))
-	if _, err := q.InsertEpgProgrammes(ctx, rows); err != nil {
+	if _, err := q.InsertEpgPrograms(ctx, rows); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := q.ListGuideProgrammes(ctx, ListGuideProgrammesParams{
+	got, err := q.ListGuidePrograms(ctx, ListGuideProgramsParams{
 		TvgKeys: []string{"news.us", "sports", "movies", "kids", "missing"},
 		Since:   h(-24), Until: h(7 * 24),
 	})

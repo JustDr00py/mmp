@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/auth"
+	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/proxy"
@@ -83,6 +84,10 @@ type Store interface {
 	DeleteStreamProfile(ctx context.Context, id int64) (int64, error)
 	ProfileChannelCounts(ctx context.Context) ([]db.ProfileChannelCountsRow, error)
 	ListEpgSourceStats(ctx context.Context) ([]db.ListEpgSourceStatsRow, error)
+	GetEpgSource(ctx context.Context, id int64) (db.EpgSource, error)
+	CreateExtraEpgSource(ctx context.Context, arg db.CreateExtraEpgSourceParams) (db.EpgSource, error)
+	UpdateExtraEpgSource(ctx context.Context, arg db.UpdateExtraEpgSourceParams) (db.EpgSource, error)
+	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
@@ -140,6 +145,7 @@ type Matcher interface {
 type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
 	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
+	RefreshEPGSource(ctx context.Context, src db.EpgSource) (int, error)
 	RefreshVOD(ctx context.Context, p db.Provider, force bool) (source.VODResult, error)
 	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
@@ -164,6 +170,10 @@ type Deps struct {
 	DefaultRefresh time.Duration
 	// EpisodeTTL is how long a series' episode list is reused (vod.episode_ttl).
 	EpisodeTTL time.Duration
+	// Backups is the backup service; nil hides the page.
+	Backups *backup.Service
+	// Restart restarts MMP after a restore (nil: no restart).
+	Restart func()
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
@@ -195,10 +205,11 @@ var nav = []navItem{
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
 	{Prefix + "/profiles", "Profiles", "sliders", "Settings"},
+	{Prefix + "/backups", "Backups", "archive", ""},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "channel_groups"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -231,6 +242,8 @@ func New(d Deps) (*UI, error) {
 		"list":       func(xs ...int) []int { return xs },
 		"field":      func(id, label, value string) copyField { return copyField{id, label, value} },
 		"last":       func(i, n int) bool { return i == n-1 },
+		"size":       humanSize,
+		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
 	}
 	for _, page := range pageNames {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials/*.html", "templates/"+page+".html")
@@ -302,6 +315,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountEPG(r)
 			ui.mountProfiles(r)
 			ui.mountVOD(r)
+			ui.mountBackups(r)
 		})
 	})
 }
@@ -605,4 +619,18 @@ func cacheStatic(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// humanSize formats a byte count: "512 B", "3.4 MB".
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
