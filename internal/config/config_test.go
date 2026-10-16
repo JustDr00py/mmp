@@ -181,6 +181,7 @@ func TestValidate(t *testing.T) {
 		{"zero match providers", func(c *Config) { c.Match.MinProviders = 0 }, "min_providers"},
 		{"negative attempts", func(c *Config) { c.Auth.MaxAttempts = -1 }, "max_attempts"},
 		{"limiting without lockout", func(c *Config) { c.Auth.Lockout.Duration = 0 }, "lockout"},
+		{"bad trusted proxy", func(c *Config) { c.HTTP.TrustedProxies = []string{"10.89.0.0/24", "caddy"} }, "trusted_proxies"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -194,5 +195,35 @@ func TestValidate(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestTrustedProxies(t *testing.T) {
+	p := writeTemp(t, "http: {trusted_proxies: [\"10.89.0.0/24\"]}\n")
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := c.TrustedProxyPrefixes(); len(got) != 1 || got[0].String() != "10.89.0.0/24" {
+		t.Errorf("yaml prefixes = %v", got)
+	}
+
+	t.Setenv("MMP_HTTP_TRUSTED_PROXIES", " 172.18.0.5 , fd00::/8,10.0.0.7/8,::ffff:192.168.1.2")
+	if c, err = Load(p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s []string
+	for _, p := range got {
+		s = append(s, p.String())
+	}
+	if want := "172.18.0.5/32 fd00::/8 10.0.0.0/8 192.168.1.2/32"; strings.Join(s, " ") != want {
+		t.Errorf("env prefixes = %v, want %s (env replaces yaml; single IPs and masked CIDRs)", s, want)
+	}
+	if d := Defaults(); len(d.HTTP.TrustedProxies) != 0 {
+		t.Error("headers trusted by default")
 	}
 }
