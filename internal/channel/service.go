@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,7 +56,7 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 	for i, r := range rows {
 		streams[i] = Stream{
 			ID: r.ID, ProviderID: r.ProviderID, ProviderPriority: r.ProviderPriority,
-			Name: r.Name, TvgID: r.TvgID, LogoURL: r.LogoUrl,
+			Name: r.Name, TvgID: r.TvgID, LogoURL: r.LogoUrl, Group: r.GroupTitle,
 		}
 	}
 	existing := make([]Existing, len(chans))
@@ -83,6 +85,19 @@ type ApplyOptions struct {
 	// AttachAlways exempts proposals for existing channels from
 	// MinProviders, so a new provider's streams join channels that exist.
 	AttachAlways bool
+
+	// Names overrides the name of a new channel, by proposal key.
+	Names map[string]string
+	// Streams limits a proposal (by key) to these stream ids; streams not
+	// listed stay unassigned. A key mapped to no ids skips the proposal.
+	Streams map[string][]int64
+	// New channels go into ChannelGroupID, or with GroupFromSource into a
+	// channel group named after the proposal's provider group (created
+	// when missing).
+	ChannelGroupID  *int64
+	GroupFromSource bool
+	// BouquetID, if set, receives every channel the apply touched.
+	BouquetID *int64
 }
 
 // ApplyResult summarises an Apply.
@@ -114,6 +129,8 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		want[k] = true
 	}
 
+	groups := map[string]int64{} // provider group title -> channel group (GroupFromSource)
+	var touched []int64
 	for _, p := range proposals {
 		if len(want) > 0 && !want[p.Key] {
 			continue
@@ -121,14 +138,37 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		if p.Providers < opts.MinProviders && !(opts.AttachAlways && p.ChannelID != 0) {
 			continue
 		}
+		if only, ok := opts.Streams[p.Key]; ok {
+			p.StreamIDs = slices.DeleteFunc(slices.Clone(p.StreamIDs), func(id int64) bool { return !slices.Contains(only, id) })
+			if len(p.StreamIDs) == 0 {
+				continue
+			}
+		}
 		chID := p.ChannelID
 		if chID == 0 {
 			num, err := q.NextChannelNumber(ctx)
 			if err != nil {
 				return res, fmt.Errorf("match apply %q: number: %w", p.Key, err)
 			}
+			name := p.Name
+			if n := strings.TrimSpace(opts.Names[p.Key]); n != "" {
+				name = n
+			}
+			groupID := opts.ChannelGroupID
+			if groupID == nil && opts.GroupFromSource && strings.TrimSpace(p.Group) != "" {
+				g, ok := groups[p.Group]
+				if !ok {
+					cg, err := q.EnsureChannelGroup(ctx, strings.TrimSpace(p.Group))
+					if err != nil {
+						return res, fmt.Errorf("match apply %q: channel group: %w", p.Key, err)
+					}
+					g = cg.ID
+					groups[p.Group] = g
+				}
+				groupID = &g
+			}
 			c, err := q.CreateChannel(ctx, db.CreateChannelParams{
-				Number: &num, Name: p.Name, TvgID: p.TvgID, LogoUrl: p.LogoURL,
+				Number: &num, Name: name, TvgID: p.TvgID, LogoUrl: p.LogoURL, GroupID: groupID,
 			})
 			if err != nil {
 				return res, fmt.Errorf("match apply %q: create channel: %w", p.Key, err)
@@ -147,6 +187,12 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 				return res, fmt.Errorf("match apply %q: add stream %d: %w", p.Key, sid, err)
 			}
 			res.Attached++
+		}
+		touched = append(touched, chID)
+	}
+	if opts.BouquetID != nil && len(touched) > 0 {
+		if _, err := q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: *opts.BouquetID, ChannelIds: touched}); err != nil {
+			return res, fmt.Errorf("match apply: bouquet: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

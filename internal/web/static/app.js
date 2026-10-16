@@ -37,6 +37,17 @@
     if (order(li.parentNode) !== before) li.closest('[data-sortable-form]')?.requestSubmit();
   });
 
+  // [data-count-of="name"] shows how many name checkboxes are ticked.
+  const counts = () => document.querySelectorAll('[data-count-of]').forEach((el) => {
+    const n = el.closest('form').querySelectorAll(`input[type=checkbox][name="${el.dataset.countOf}"]:checked`).length;
+    el.textContent = `${n} ${el.dataset.countLabel || ''}`.trim();
+  });
+  document.addEventListener('htmx:afterSwap', counts);
+  document.addEventListener('input', (e) => {
+    const row = e.target.closest?.('[data-row]');
+    if (row && e.target.matches('input[type=text], input:not([type])')) { const k = row.querySelector('input[name=key]'); if (k) { k.checked = true; counts(); } }
+  });
+
   // <input data-filter="#list"> hides the list's <li>s whose text does not
   // contain what was typed.
   document.addEventListener('input', (e) => {
@@ -46,9 +57,9 @@
     document.querySelectorAll(`${box.dataset.filter} > li`).forEach((li) => { li.hidden = q !== '' && !li.textContent.toLowerCase().includes(q); });
   });
 
-  // <form data-confirm="question"> asks before submitting.
+  // <form data-confirm="question"> (or its clicked button) asks before submitting.
   document.addEventListener('submit', (e) => {
-    const msg = e.target.dataset?.confirm;
+    const msg = e.submitter?.dataset?.confirm || e.target.dataset?.confirm;
     if (msg && !window.confirm(msg)) e.preventDefault();
   }, true);
 
@@ -98,6 +109,10 @@
       t.form.querySelectorAll(`input[type=checkbox][name="${t.dataset.checkAll}"]`).forEach((c) => { if (!c.closest('[hidden]')) c.checked = t.checked; });
     }
     if (t.matches('[data-autosubmit]')) t.form.requestSubmit();
+    // Editing a row of [data-row] (other than its key box) selects the row.
+    const row = t.closest('[data-row]');
+    if (row && t.name !== 'key') { const k = row.querySelector('input[name=key]'); if (k) k.checked = true; }
+    counts();
     // Ticking inside [data-check-on-change="#radio"] also checks that radio.
     const on = t.closest('[data-check-on-change]');
     if (on && t.type === 'checkbox') document.querySelector(on.dataset.checkOnChange).checked = true;

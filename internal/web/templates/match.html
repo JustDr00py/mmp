@@ -1,66 +1,115 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head">
-  <h1>Match suggestions</h1>
-  <form method="get" action="/admin/match" class="row">
-    <label class="inline">Seen at ≥
-      <select name="min" data-autosubmit>
-        {{range $n := list 1 2 3 4}}<option value="{{$n}}"{{if eq $n $d.MinProv}} selected{{end}}>{{$n}} provider{{if ne $n 1}}s{{end}}</option>{{end}}
-      </select>
-    </label>
-    <noscript><button type="submit" class="small">Filter</button></noscript>
-  </form>
-</div>
+<div class="head"><h1>Match</h1></div>
+<p class="muted">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
+  Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
+  <a href="/admin/providers">Groups</a> first.</p>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-<p class="muted">Streams from different providers that look like the same channel (same tvg-id, same normalised name, or a rule below).
-  Applying creates the channel, or adds the streams to an existing one, ordered by provider priority.</p>
-{{if $d.Proposals}}
-<form method="post" action="/admin/match/apply">
-  <input type="hidden" name="min" value="{{$d.MinProv}}">
-  <div class="row bar">
-    <label class="check"><input type="checkbox" data-check-all="key"> Select all</label>
-    <button type="submit">Apply selected</button>
-    <span class="muted">{{len $d.Proposals}} shown{{if gt $d.Total (len $d.Proposals)}} of {{$d.Total}}{{end}}{{if $d.Hidden}} · {{$d.Hidden}} below the provider filter{{end}}</span>
-  </div>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th></th><th>Channel</th><th>Matched by</th><th class="num">Providers</th><th>Streams (failover order)</th></tr></thead>
-    <tbody>
-    {{range $d.Proposals}}
-    <tr>
-      <td><input type="checkbox" name="key" value="{{.Key}}" aria-label="Apply {{.Name}}"></td>
-      <td><strong>{{.Name}}</strong>{{if .ChannelID}} <span class="pill ok">existing</span>{{else}} <span class="pill warn">new</span>{{end}}
-        {{with .TvgID}}<div class="sub mono">{{.}}</div>{{end}}</td>
-      <td class="sub">{{range $i, $m := .MatchedBy}}{{if $i}}, {{end}}{{$m}}{{end}}</td>
-      <td class="num">{{.Providers}}</td>
-      <td><ol class="compact">{{range .Streams}}<li>{{.Name}} <span class="sub">· {{.Provider}}</span></li>{{end}}</ol></td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  </div>
+{{with $d.Applied}}<p class="flash" role="status">Done: {{.Created}} channel{{if ne .Created 1}}s{{end}} created, {{.Attached}} stream{{if ne .Attached 1}}s{{end}} added{{with .Bouquet}}, all in bouquet “{{.}}”{{end}}.
+  <a href="/admin/channels">View channels</a></p>{{end}}
+
+<form method="get" action="/admin/match" class="match-filters" role="search">
+  <label class="grow">Search
+    <input type="search" name="q" value="{{$d.Filter.Query}}" placeholder="Channel or stream name, e.g. ESPN" autocomplete="off"
+      hx-get="/admin/match" hx-include="closest form" hx-target="#match-results" hx-swap="outerHTML" hx-push-url="true"
+      hx-trigger="input changed delay:300ms, search"></label>
+  <label>Provider group
+    <select name="group" data-autosubmit>
+      <option value="">All groups</option>
+      {{range $d.Groups}}<option value="{{.Name}}"{{if eq .Name $d.Filter.Group}} selected{{end}}>{{if .Name}}{{.Name}}{{else}}(no group){{end}} ({{.Count}})</option>{{end}}
+    </select></label>
+  <label>Carried by
+    <select name="min" data-autosubmit>
+      <option value="1"{{if eq $d.Filter.MinProv 1}} selected{{end}}>any provider</option>
+      {{range $n := list 2 3 4}}<option value="{{$n}}"{{if eq $n $d.Filter.MinProv}} selected{{end}}>{{$n}}+ providers</option>{{end}}
+    </select></label>
+  <noscript><button type="submit">Filter</button></noscript>
 </form>
-{{else}}
-<div class="card empty"><p>Nothing to suggest{{if $d.Hidden}} at this provider filter ({{$d.Hidden}} hidden){{end}}.</p>
-  <p class="muted">Every stream seen at {{$d.MinProv}}+ providers is already on a channel.</p></div>
+
+<form method="post" action="/admin/match/apply" id="apply-form">
+  <fieldset class="apply-opts card">
+    <legend>When applying</legend>
+    <label>Put new channels in
+      <select name="cg">
+        <option value="">no channel group</option>
+        <option value="source"{{if eq $d.ApplyGroup "source"}} selected{{end}}>a group named after the provider group</option>
+        {{range $d.ChannelGroups}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $d.ApplyGroup}} selected{{end}}>group “{{.Name}}”</option>{{end}}
+      </select></label>
+    <label>Add channels to
+      <select name="bq">
+        <option value="">no bouquet</option>
+        {{range $d.Bouquets}}<option value="{{.ID}}"{{if eq .ID $d.ApplyBouquet}} selected{{end}}>bouquet “{{.Name}}”</option>{{end}}
+      </select></label>
+    <span class="sub">Customers only see channels in their bouquets.</span>
+  </fieldset>
+  {{template "match-results" $d}}
+</form>
+
+<details class="rules"{{if $d.RuleError}} open{{end}}>
+  <summary><h2>Advanced: matching rules</h2> <span class="muted">{{len $d.Rules}} rule{{if ne (len $d.Rules) 1}}s{{end}}</span></summary>
+  <p class="muted">For a channel the automatic matching misses because providers name it too differently. A rule puts every stream whose
+    name matches a regular expression under one channel name. Example: pattern <code>lakers</code>, channel name <code>Lakers TV</code>.
+    Matching ignores case.</p>
+  {{if $d.Rules}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Pattern</th><th>Channel name</th><th class="num">Priority</th><th></th></tr></thead>
+    <tbody>{{range $d.Rules}}<tr><td class="mono">{{.Pattern}}</td><td>{{.ChannelName}}</td><td class="num">{{.Priority}}</td>
+      <td><form method="post" action="/admin/match/rules/{{.ID}}/delete"><button type="submit" class="small secondary">Delete</button></form></td></tr>{{end}}</tbody>
+  </table></div>
+  {{end}}
+  <form class="card form rule" method="post" action="/admin/match/rules">
+    {{with $d.RuleError}}<p class="error" role="alert">{{.}}</p>{{end}}
+    <div class="grid3">
+      <label>Pattern<input name="pattern" class="mono" value="{{$d.RuleForm.Pattern}}" placeholder="^(uk|gb)[: ]+bbc ?one" required></label>
+      <label>Channel name<input name="channel_name" value="{{$d.RuleForm.ChannelName}}" placeholder="BBC One" required></label>
+      <label>Priority<input name="priority" type="number" value="{{$d.RuleForm.Priority}}"><span class="hint">Higher wins when several rules match.</span></label>
+    </div>
+    <div class="row"><button type="submit">Add rule</button></div>
+  </form>
+</details>
 {{end}}
 
-<h2>Rules</h2>
-<p class="muted">A rule groups streams whose name matches a regular expression under one channel name, for channels the automatic matching misses.</p>
-{{if $d.Rules}}
-<div class="table-wrap"><table>
-  <thead><tr><th>Pattern</th><th>Channel name</th><th class="num">Priority</th><th></th></tr></thead>
-  <tbody>{{range $d.Rules}}<tr><td class="mono">{{.Pattern}}</td><td>{{.ChannelName}}</td><td class="num">{{.Priority}}</td>
-    <td><form method="post" action="/admin/match/rules/{{.ID}}/delete"><button type="submit" class="small secondary">Delete</button></form></td></tr>{{end}}</tbody>
-</table></div>
-{{end}}
-<form class="card form rule" method="post" action="/admin/match/rules">
-  {{with $d.RuleError}}<p class="error" role="alert">{{.}}</p>{{end}}
-  <div class="grid3">
-    <label>Pattern<input name="pattern" class="mono" value="{{$d.RuleForm.Pattern}}" placeholder="(?i)^(uk|gb)[: ]+bbc ?one" required></label>
-    <label>Channel name<input name="channel_name" value="{{$d.RuleForm.ChannelName}}" placeholder="BBC One" required></label>
-    <label>Priority<input name="priority" type="number" value="{{$d.RuleForm.Priority}}"></label>
+{{define "match-results"}}
+<div id="match-results">
+  <input type="hidden" name="q" value="{{.Filter.Query}}">
+  <input type="hidden" name="group" value="{{.Filter.Group}}">
+  <input type="hidden" name="min" value="{{.Filter.MinProv}}">
+  <input type="hidden" name="offset" value="{{.Filter.Offset}}">
+  {{if .Proposals}}
+  <div class="match-bar">
+    <label class="check"><input type="checkbox" data-check-all="key"> Select this page</label>
+    <span class="muted" data-count-of="key" data-count-label="selected">0 selected</span>
+    <button type="submit" name="scope" value="selected">Apply selected</button>
+    <button type="submit" name="scope" value="all" class="secondary" data-confirm="Apply all {{.Matching}} suggestions matching this filter? This creates or fills that many channels.">Apply all {{.Matching}} matching</button>
+    <span class="muted push">{{.From}}–{{.To}} of {{.Matching}}{{if ne .Matching .AtMin}} (filtered from {{.AtMin}}){{end}}{{if .Hidden}} · {{.Hidden}} more with “any provider”{{end}}</span>
   </div>
-  <div class="row"><button type="submit">Add rule</button></div>
-</form>
+  <ul class="proposals">
+  {{range .Proposals}}
+    <li class="proposal" data-row>
+      <input type="hidden" name="row" value="{{.Key}}">
+      <label class="pick"><input type="checkbox" name="key" value="{{.Key}}" aria-label="Apply {{.Name}}"></label>
+      <div class="logo-box">{{if .LogoURL}}<img src="{{.LogoURL}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}</div>
+      <div class="what">
+        {{if .ChannelID}}<div><span class="pill ok">adds to</span> <a href="/admin/channels/{{.ChannelID}}">{{.Existing}}</a></div>
+        {{else}}<div class="name-row"><span class="pill warn">new</span> <input class="name-edit" name="name|{{.Key}}" value="{{.Name}}" aria-label="Channel name for {{.Name}}"></div>{{end}}
+        <div class="sub">{{.Why}}{{with .TvgID}} · <span class="mono">{{.}}</span>{{end}} · {{.Providers}} provider{{if ne .Providers 1}}s{{end}}</div>
+      </div>
+      <ol class="streams">{{$k := .Key}}{{range .Streams}}
+        <li><label class="check"><input type="checkbox" name="stream|{{$k}}" value="{{.ID}}" checked> {{.Name}} <span class="sub">{{.Provider}}{{with .Group}} · {{.}}{{end}}</span></label></li>{{end}}
+      </ol>
+    </li>
+  {{end}}
+  </ul>
+  <nav class="pager">
+    {{if ge .Prev 0}}<a href="{{.Filter.PageURL .Prev}}">← Previous</a>{{end}}
+    {{if ge .Next 0}}<a href="{{.Filter.PageURL .Next}}">Next →</a>{{end}}
+  </nav>
+  {{else if or .Filter.Query .Filter.Group}}
+  <div class="card empty"><p>No suggestions match{{with .Filter.Query}} “{{.}}”{{end}}{{with .Filter.Group}} in {{.}}{{end}}.</p>
+    <p class="muted">Try another spelling, “All groups”, or “any provider”. A channel only one provider carries shows with “any provider”.</p></div>
+  {{else}}
+  <div class="card empty"><p>Nothing left to match{{if .Hidden}} at {{.Filter.MinProv}}+ providers ({{.Hidden}} more with “any provider”){{end}}.</p>
+    <p class="muted">Every stream in your providers' chosen groups is already on a channel.</p></div>
+  {{end}}
+</div>
 {{end}}

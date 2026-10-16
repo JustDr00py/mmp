@@ -93,7 +93,7 @@ ORDER BY ps.name, pr.priority, ps.id
 LIMIT sqlc.arg('limit');
 
 -- name: GetStreamsByIDs :many
-SELECT ps.id, ps.name, ps.tvg_id, pr.id AS provider_id, pr.name AS provider_name
+SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, pr.id AS provider_id, pr.name AS provider_name
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE ps.id = ANY(sqlc.arg('ids')::bigint[]);

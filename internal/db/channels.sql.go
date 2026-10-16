@@ -116,6 +116,21 @@ func (q *Queries) DeleteChannelGroup(ctx context.Context, id int64) error {
 	return err
 }
 
+const ensureChannelGroup = `-- name: EnsureChannelGroup :one
+INSERT INTO channel_groups (name, sort_order)
+VALUES ($1, (SELECT COALESCE(max(sort_order), 0) + 1 FROM channel_groups))
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING id, name, sort_order
+`
+
+// The group with this name, created (sorted last) if it does not exist.
+func (q *Queries) EnsureChannelGroup(ctx context.Context, name string) (ChannelGroup, error) {
+	row := q.db.QueryRow(ctx, ensureChannelGroup, name)
+	var i ChannelGroup
+	err := row.Scan(&i.ID, &i.Name, &i.SortOrder)
+	return i, err
+}
+
 const getChannel = `-- name: GetChannel :one
 SELECT id, number, name, tvg_id, logo_url, group_id, stream_profile_id, enabled, created_at, updated_at FROM channels WHERE id = $1
 `

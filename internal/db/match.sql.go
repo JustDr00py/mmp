@@ -113,7 +113,7 @@ func (q *Queries) ListMatchRules(ctx context.Context) ([]MatchRule, error) {
 }
 
 const listUnassignedStreams = `-- name: ListUnassignedStreams :many
-SELECT ps.id, ps.provider_id, ps.name, ps.tvg_id, ps.logo_url,
+SELECT ps.id, ps.provider_id, ps.name, ps.tvg_id, ps.logo_url, ps.group_title,
        pr.priority AS provider_priority
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
@@ -131,6 +131,7 @@ type ListUnassignedStreamsRow struct {
 	Name             string `json:"name"`
 	TvgID            string `json:"tvg_id"`
 	LogoUrl          string `json:"logo_url"`
+	GroupTitle       string `json:"group_title"`
 	ProviderPriority int32  `json:"provider_priority"`
 }
 
@@ -151,6 +152,7 @@ func (q *Queries) ListUnassignedStreams(ctx context.Context) ([]ListUnassignedSt
 			&i.Name,
 			&i.TvgID,
 			&i.LogoUrl,
+			&i.GroupTitle,
 			&i.ProviderPriority,
 		); err != nil {
 			return nil, err

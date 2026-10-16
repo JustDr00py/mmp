@@ -161,3 +161,28 @@ ul.slots li { background: var(--card); border: 1px solid var(--line); border-rad
 .groups-form .pane-head input[type=search] { flex: 1 1 14rem; }
 .group-list { columns: 2 20rem; column-gap: 2rem; }
 .group-list li { break-inside: avoid; }
+.match-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin: 1rem 0; }
+.match-filters label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; color: var(--muted); }
+.match-filters .grow { flex: 1 1 18rem; }
+.apply-opts { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+.apply-opts legend { font-weight: 600; padding: 0 .25rem; }
+.apply-opts label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; color: var(--muted); }
+.match-bar { position: sticky; top: 0; z-index: 2; background: var(--bg); display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.match-bar .push { margin-left: auto; }
+.proposals { list-style: none; margin: 0; padding: 0; }
+.proposal { display: grid; grid-template-columns: auto 3rem minmax(12rem, 1fr) minmax(14rem, 1.4fr); gap: .75rem; align-items: start; padding: .75rem .25rem; border-bottom: 1px solid var(--line); }
+.proposal .pick { padding-top: .35rem; }
+.proposal .logo-box { width: 3rem; height: 2rem; display: flex; align-items: center; justify-content: center; }
+.proposal .logo-box img { max-width: 3rem; max-height: 2rem; object-fit: contain; }
+.proposal .name-row { display: flex; gap: .4rem; align-items: center; }
+.proposal .name-edit { flex: 1; min-width: 0; font-weight: 600; padding: .2rem .4rem; }
+.proposal .streams { margin: 0; padding-left: 1.2rem; font-size: .9rem; }
+.proposal .streams li { margin: .1rem 0; }
+.rules { margin-top: 2rem; }
+.rules summary { cursor: pointer; display: flex; gap: .75rem; align-items: baseline; }
+.rules summary h2 { display: inline; margin: 0; }
+@media (max-width: 760px) {
+  .proposal { grid-template-columns: auto 1fr; }
+  .proposal .logo-box { display: none; }
+  .proposal .streams { grid-column: 1 / -1; }
+}

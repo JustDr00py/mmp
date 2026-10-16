@@ -3,6 +3,13 @@
 -- name: CreateChannelGroup :one
 INSERT INTO channel_groups (name, sort_order) VALUES ($1, $2) RETURNING *;
 
+-- name: EnsureChannelGroup :one
+-- The group with this name, created (sorted last) if it does not exist.
+INSERT INTO channel_groups (name, sort_order)
+VALUES ($1, (SELECT COALESCE(max(sort_order), 0) + 1 FROM channel_groups))
+ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+RETURNING *;
+
 -- name: ListChannelGroups :many
 SELECT * FROM channel_groups ORDER BY sort_order, name;
 

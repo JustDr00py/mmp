@@ -123,7 +123,7 @@ func (q *Queries) GetBouquet(ctx context.Context, id int64) (Bouquet, error) {
 }
 
 const getStreamsByIDs = `-- name: GetStreamsByIDs :many
-SELECT ps.id, ps.name, ps.tvg_id, pr.id AS provider_id, pr.name AS provider_name
+SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, pr.id AS provider_id, pr.name AS provider_name
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE ps.id = ANY($1::bigint[])
@@ -133,6 +133,7 @@ type GetStreamsByIDsRow struct {
 	ID           int64  `json:"id"`
 	Name         string `json:"name"`
 	TvgID        string `json:"tvg_id"`
+	GroupTitle   string `json:"group_title"`
 	ProviderID   int64  `json:"provider_id"`
 	ProviderName string `json:"provider_name"`
 }
@@ -150,6 +151,7 @@ func (q *Queries) GetStreamsByIDs(ctx context.Context, ids []int64) ([]GetStream
 			&i.ID,
 			&i.Name,
 			&i.TvgID,
+			&i.GroupTitle,
 			&i.ProviderID,
 			&i.ProviderName,
 		); err != nil {

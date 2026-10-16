@@ -17,6 +17,7 @@ type Stream struct {
 	Name             string
 	TvgID            string
 	LogoURL          string
+	Group            string // the provider's group title ("US| SPORTS")
 }
 
 // Existing is an already-created channel streams can be attached to.
@@ -51,6 +52,35 @@ type Proposal struct {
 	MatchedBy []string `json:"matched_by"` // which methods linked the streams
 	StreamIDs []int64  `json:"stream_ids"` // failover order
 	Providers int      `json:"providers"`  // distinct providers in the group
+	// Group is the provider group of the first stream; Groups every
+	// distinct provider group in the proposal (for filtering).
+	Group  string   `json:"group"`
+	Groups []string `json:"groups"`
+	// Per stream, in failover order: raw name, provider group and provider
+	// (for searching and narrowing a proposal to one provider group).
+	StreamNames     []string `json:"-"`
+	StreamGroups    []string `json:"-"`
+	StreamProviders []int64  `json:"-"`
+}
+
+// InGroup narrows p to its streams in provider group g. ok is false when
+// none of its streams are in g.
+func (p Proposal) InGroup(g string) (Proposal, bool) {
+	q := p
+	q.StreamIDs, q.StreamNames, q.StreamGroups, q.StreamProviders = nil, nil, nil, nil
+	provs := map[int64]bool{}
+	for i, sg := range p.StreamGroups {
+		if sg != g {
+			continue
+		}
+		q.StreamIDs = append(q.StreamIDs, p.StreamIDs[i])
+		q.StreamNames = append(q.StreamNames, p.StreamNames[i])
+		q.StreamGroups = append(q.StreamGroups, sg)
+		q.StreamProviders = append(q.StreamProviders, p.StreamProviders[i])
+		provs[p.StreamProviders[i]] = true
+	}
+	q.Providers, q.Group, q.Groups = len(provs), g, []string{g}
+	return q, len(q.StreamIDs) > 0
 }
 
 // Match groups streams that are the same channel across providers. Streams
@@ -141,6 +171,15 @@ func buildProposal(streams []Stream, idx []int, ruleOf []*Rule,
 	for _, i := range idx {
 		s := streams[i]
 		p.StreamIDs = append(p.StreamIDs, s.ID)
+		p.StreamNames = append(p.StreamNames, s.Name)
+		p.StreamGroups = append(p.StreamGroups, s.Group)
+		p.StreamProviders = append(p.StreamProviders, s.ProviderID)
+		if len(p.StreamIDs) == 1 {
+			p.Group = s.Group
+		}
+		if !slices.Contains(p.Groups, s.Group) {
+			p.Groups = append(p.Groups, s.Group)
+		}
 		providers[s.ProviderID] = true
 		if t := tvgKey(s.TvgID); t != "" {
 			tvgKeys = append(tvgKeys, t)

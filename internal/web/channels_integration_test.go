@@ -262,7 +262,7 @@ func TestMatchPage(t *testing.T) {
 	if !strings.Contains(body, "BBC One") || !strings.Contains(body, "CNN") || strings.Contains(body, ">Only A<") {
 		t.Fatalf("proposals (min 2):\n%s", body)
 	}
-	if !strings.Contains(body, "2 below the provider filter") {
+	if !strings.Contains(body, "2 more with “any provider”") {
 		t.Errorf("hidden count missing")
 	}
 	keys := regexp.MustCompile(`name="key" value="([^"]+)" aria-label="Apply ([^"]+)"`).FindAllStringSubmatch(body, -1)
@@ -280,7 +280,7 @@ func TestMatchPage(t *testing.T) {
 		t.Fatalf("apply = %d %q", resp.StatusCode, loc)
 	}
 	_, body = b.get(resp.Header.Get("Location"))
-	if !strings.Contains(body, "1 channels created, 2 streams attached.") || strings.Contains(body, `aria-label="Apply BBC One`) {
+	if !strings.Contains(body, "Done: 1 channel created, 2 streams added.") || strings.Contains(body, `aria-label="Apply BBC One`) {
 		t.Errorf("after apply:\n%s", body)
 	}
 	chans, _ := q.ListChannels(context.Background(), db.ListChannelsParams{Limit: 10})

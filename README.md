@@ -86,9 +86,18 @@ groups the provider adds later stay hidden until you tick them. Channels already
 
 Two ways to build channels:
 
-- **Match** (fastest): MMP suggests channels that several providers carry, matching them by tvg-id, by
-  normalised name (`UK: BBC One HD` ≈ `BBC One`), or by your own regex rules. Tick the suggestions you want
-  and press **Apply selected**. With a single provider, set the filter to *Seen at ≥ 1 provider*.
+- **Match** (fastest): MMP finds the same channel at your different providers (same tvg-id, same name once
+  prefixes like `US:` and tags like `HD` are ignored, or one of your rules) and builds it with failover in one step.
+  1. Narrow the list: type in **Search**, pick a **Provider group** (e.g. `US| SPORTS`: only that group's
+     streams are used), and choose **Carried by** (*2+ providers* = channels that get failover; *any provider*
+     also lists channels only one provider has).
+  2. Under **When applying**, optionally put new channels in a channel group (a chosen one, or one named after
+     the provider group) and add them to a bouquet, so customers see them right away.
+  3. Check the suggestions. You can rename a new channel or untick individual streams on its row (editing a row
+     selects it). Then press **Apply selected**, or **Apply all N matching** for everything the filter shows,
+     across pages.
+  Applied suggestions leave the list. **Advanced: matching rules** handles channels whose names differ too much
+  between providers: a regular expression (e.g. `lakers`) puts every matching stream under one channel name.
 - **By hand**: **Channels → New channel**, then search streams across all providers and **Add** them.
 
 On a channel's page, drag streams (or use ↑/↓) to set the failover order. The first available stream
