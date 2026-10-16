@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 )
 
@@ -548,6 +550,7 @@ func (ui *UI) channelPicker(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "search streams", err)
 			return
 		}
+		d.Results = slices.DeleteFunc(d.Results, func(s db.SearchStreamsAllProvidersRow) bool { return channel.IsPlaceholder(s.Name) })
 		rows, err := ui.Store.ListChannelStreams(r.Context(), c.ID)
 		if err != nil {
 			ui.fail(w, "channel streams", err)

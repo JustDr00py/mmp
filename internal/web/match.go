@@ -42,12 +42,16 @@ type proposalView struct {
 type matchFilter struct {
 	Query   string
 	Group   string // provider group title; "" = any
+	Show    string // "" = all, "new" = new channels, "existing" = additions to existing ones
 	MinProv int
 	Offset  int
 }
 
 func parseMatchFilter(v url.Values) matchFilter {
 	f := matchFilter{Query: strings.TrimSpace(v.Get("q")), Group: v.Get("group"), MinProv: 2, Offset: max(atoi(v.Get("offset")), 0)}
+	if s := v.Get("show"); s == "new" || s == "existing" {
+		f.Show = s
+	}
 	if m := v.Get("min"); m != "" {
 		f.MinProv = max(atoi(m), 1)
 	}
@@ -62,6 +66,9 @@ func (f matchFilter) Values() url.Values {
 	}
 	if f.Group != "" {
 		v.Set("group", f.Group)
+	}
+	if f.Show != "" {
+		v.Set("show", f.Show)
 	}
 	return v
 }
@@ -123,6 +130,9 @@ func filterProposals(props []channel.Proposal, f matchFilter) (out []channel.Pro
 		atMin++
 		for _, g := range p.Groups {
 			counts[g]++
+		}
+		if (f.Show == "new" && p.ChannelID != 0) || (f.Show == "existing" && p.ChannelID == 0) {
+			continue
 		}
 		if f.Group != "" {
 			// Only the group's own streams: "US: News 5" and "UK: News 5"

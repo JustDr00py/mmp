@@ -153,8 +153,28 @@ func TestMatchApplyOptions(t *testing.T) {
 	if len(chans) != 61 || inSports != 60 {
 		t.Errorf("channels = %d, in Sports = %d", len(chans), inSports)
 	}
+	// Show: additions to existing channels only. A new stream named like
+	// an existing channel, and a placeholder named the same, arrive.
+	provs, _ := q.ListProviders(ctx)
+	for _, n := range []string{"US: CNN USA FHD", "##### CNN USA #####"} {
+		if _, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: provs[0].ID, ExternalID: n, Name: n,
+			GroupTitle: "US| NEWS", StreamUrl: "http://x/" + n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, body = b.get("/admin/match?min=1&show=existing")
+	if k := keysOn(body); len(k) != 1 || k["CNN USA"] == "" {
+		t.Errorf("show=existing: %v\n%s", k, body)
+	}
+	if strings.Contains(body, "##### CNN USA #####") {
+		t.Error("placeholder offered")
+	}
+	if _, body = b.get("/admin/match?min=1&show=new"); keysOn(body)["CNN USA"] != "" || keysOn(body)["Fox News"] == "" {
+		t.Errorf("show=new: %v", keysOn(body))
+	}
+
 	// Fox News was outside the filter and is untouched.
-	if _, body = b.get("/admin/match"); len(keysOn(body)) != 1 || keysOn(body)["Fox News"] == "" {
+	if _, body = b.get("/admin/match?min=2"); len(keysOn(body)) != 1 || keysOn(body)["Fox News"] == "" {
 		t.Errorf("left after apply all: %v", keysOn(body))
 	}
 }

@@ -90,6 +90,9 @@ type Config struct {
 	Match struct {
 		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
 		MinProviders int  `yaml:"min_providers"` // auto-create channels only for groups at >= N providers
+		// AutoNewChannels lets auto-match create channels; false only adds
+		// streams to channels that exist.
+		AutoNewChannels bool `yaml:"auto_new_channels"`
 	} `yaml:"match"`
 	// HLS is the customer .m3u8 output (a segmenter over each channel's
 	// shared session).
@@ -161,6 +164,7 @@ func Defaults() Config {
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Refresh.MaxDisablePct = 80
 	c.Match.MinProviders = 2
+	c.Match.AutoNewChannels = true
 	c.VOD.InfoTTL = Duration{24 * time.Hour}
 	c.VOD.EpisodeTTL = Duration{6 * time.Hour}
 	c.Metrics.Enabled = true
@@ -301,6 +305,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		intv("MMP_PROXY_HLS_MAX_HEIGHT", &c.Proxy.HLSMaxHeight),
 		boolv("MMP_PROXY_SORT_BY_HEALTH", &c.Proxy.SortByHealth),
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
+		boolv("MMP_MATCH_AUTO_NEW_CHANNELS", &c.Match.AutoNewChannels),
 		dur("MMP_VOD_INFO_TTL", &c.VOD.InfoTTL),
 		dur("MMP_VOD_EPISODE_TTL", &c.VOD.EpisodeTTL),
 		boolv("MMP_METRICS_ENABLED", &c.Metrics.Enabled),

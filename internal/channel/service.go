@@ -52,12 +52,15 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 		return nil, fmt.Errorf("match: list rules: %w", err)
 	}
 
-	streams := make([]Stream, len(rows))
-	for i, r := range rows {
-		streams[i] = Stream{
+	streams := make([]Stream, 0, len(rows))
+	for _, r := range rows {
+		if IsPlaceholder(r.Name) { // section headers, not channels
+			continue
+		}
+		streams = append(streams, Stream{
 			ID: r.ID, ProviderID: r.ProviderID, ProviderPriority: r.ProviderPriority,
 			Name: r.Name, TvgID: r.TvgID, LogoURL: r.LogoUrl, Group: r.GroupTitle,
-		}
+		})
 	}
 	existing := make([]Existing, len(chans))
 	for i, c := range chans {
@@ -98,6 +101,9 @@ type ApplyOptions struct {
 	GroupFromSource bool
 	// BouquetID, if set, receives every channel the apply touched.
 	BouquetID *int64
+	// ExistingOnly attaches streams to channels that exist and never
+	// creates one.
+	ExistingOnly bool
 }
 
 // ApplyResult summarises an Apply.
@@ -136,6 +142,9 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			continue
 		}
 		if p.Providers < opts.MinProviders && !(opts.AttachAlways && p.ChannelID != 0) {
+			continue
+		}
+		if opts.ExistingOnly && p.ChannelID == 0 {
 			continue
 		}
 		if only, ok := opts.Streams[p.Key]; ok {
@@ -204,11 +213,12 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 
 // AutoMatchHook returns a source.Refresher AfterRefresh hook: after a
 // provider refresh it attaches new streams to matching existing channels
-// and creates channels for groups seen at >= minProviders providers.
-// Failures are logged; the refresh itself already succeeded.
-func (s *Service) AutoMatchHook(minProviders int) func(context.Context, db.Provider) {
+// and, with newChannels, creates channels for groups seen at >=
+// minProviders providers. Failures are logged; the refresh itself already
+// succeeded.
+func (s *Service) AutoMatchHook(minProviders int, newChannels bool) func(context.Context, db.Provider) {
 	return func(ctx context.Context, p db.Provider) {
-		res, err := s.Apply(ctx, ApplyOptions{MinProviders: minProviders, AttachAlways: true})
+		res, err := s.Apply(ctx, ApplyOptions{MinProviders: minProviders, AttachAlways: true, ExistingOnly: !newChannels})
 		if err != nil {
 			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
 			return

@@ -3,7 +3,7 @@
 <div class="head"><h1>Match</h1></div>
 <p class="lede">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
   Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
-  <a href="/admin/providers">Groups</a> first.</p>
+  <a href="/admin/providers">Groups</a> first. Placeholder entries such as <code>##### ABC IDAHO #####</code> are left out.</p>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Applied}}<p class="flash" role="status">Done: {{.Created}} channel{{if ne .Created 1}}s{{end}} created, {{.Attached}} stream{{if ne .Attached 1}}s{{end}} added{{with .Bouquet}}, all in bouquet “{{.}}”{{end}}.
   <a href="/admin/channels">View channels</a></p>{{end}}
@@ -17,6 +17,12 @@
     <select name="group" data-autosubmit>
       <option value="">All groups</option>
       {{range $d.Groups}}<option value="{{.Name}}"{{if eq .Name $d.Filter.Group}} selected{{end}}>{{if .Name}}{{.Name}}{{else}}(no group){{end}} ({{.Count}})</option>{{end}}
+    </select></label>
+  <label>Show
+    <select name="show" data-autosubmit>
+      <option value="">all suggestions</option>
+      <option value="new"{{if eq $d.Filter.Show "new"}} selected{{end}}>new channels</option>
+      <option value="existing"{{if eq $d.Filter.Show "existing"}} selected{{end}}>additions to my channels</option>
     </select></label>
   <label>Carried by
     <select name="min" data-autosubmit>
@@ -74,6 +80,7 @@
   <input type="hidden" name="q" value="{{.Filter.Query}}">
   <input type="hidden" name="group" value="{{.Filter.Group}}">
   <input type="hidden" name="min" value="{{.Filter.MinProv}}">
+  <input type="hidden" name="show" value="{{.Filter.Show}}">
   <input type="hidden" name="offset" value="{{.Filter.Offset}}">
   {{if .Proposals}}
   <div class="match-bar">
@@ -104,7 +111,10 @@
     {{if ge .Prev 0}}<a href="{{.Filter.PageURL .Prev}}">← Previous</a>{{end}}
     {{if ge .Next 0}}<a href="{{.Filter.PageURL .Next}}">Next →</a>{{end}}
   </nav>
-  {{else if or .Filter.Query .Filter.Group}}
+  {{else if eq .Filter.Show "existing"}}
+  <div class="card empty"><p>No new streams for your channels.</p>
+    <p class="muted">Every matching stream from your providers' chosen groups is already on the channel it belongs to.</p></div>
+  {{else if or .Filter.Query .Filter.Group .Filter.Show}}
   <div class="card empty"><p>No suggestions match{{with .Filter.Query}} “{{.}}”{{end}}{{with .Filter.Group}} in {{.}}{{end}}.</p>
     <p class="muted">Try another spelling, “All groups”, or “any provider”. A channel only one provider carries shows with “any provider”.</p></div>
   {{else}}

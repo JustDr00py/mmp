@@ -238,6 +238,7 @@ admin:                        # only used to create the first admin
 | `refresh.max_disable_pct` | `MMP_REFRESH_MAX_DISABLE_PCT` | `80` | a refresh that would remove more than this % of a provider's streams is refused (probably a truncated answer); `100` turns the guard off; each provider can override it |
 | `match.auto` | `MMP_MATCH_AUTO` | `false` | apply match suggestions automatically after every refresh |
 | `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | auto-match only creates channels seen at this many providers |
+| `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
 
 ### Customer output
 

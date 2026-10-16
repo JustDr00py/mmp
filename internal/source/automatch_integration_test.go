@@ -34,7 +34,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2)
+	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2, true)
 
 	mk := func(name, url, ua string, prio int32) db.Provider {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "m3u", Url: url, UserAgent: ua,
@@ -108,5 +108,49 @@ func TestRefreshAutoMatch(t *testing.T) {
 	}
 	if got := channelStreams(abc.ID); len(got) != 1 {
 		t.Errorf("ABC streams after re-refresh = %v", got)
+	}
+}
+
+// TestRefreshAutoMatchAttachOnly: with auto_new_channels off, a refresh only
+// adds streams to channels that exist, and placeholder entries named like
+// a channel ("##### ABC #####") are never attached.
+func TestRefreshAutoMatchAttachOnly(t *testing.T) {
+	w, q := newTestDB(t)
+	tsA, _ := newM3UServer(t) // ABC HD (us.abc), NBC (us.nbc), News 24
+	tsB := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(rw, "#EXTM3U\n"+
+			"#EXTINF:-1 group-title=\"US\",##### ABC #####\nhttp://b.tv/sep.ts\n"+
+			"#EXTINF:-1 tvg-id=\"US.NBC\",NBC FHD\nhttp://b.tv/nbc.ts\n"+
+			"#EXTINF:-1,ABC FHD\nhttp://b.tv/abc.ts\n")
+	}))
+	t.Cleanup(tsB.Close)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	abc, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "ABC", TvgID: "us.abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := NewRefresher(log, w.pool, 80)
+	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2, false)
+	for i, url := range []string{tsA.URL, tsB.URL} {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url, UserAgent: "MMP-Test/1.0",
+			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ref.RefreshProvider(ctx, p, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 100}); len(chans) != 1 {
+		t.Errorf("channels = %d, want only ABC (NBC at 2 providers must not be created)", len(chans))
+	}
+	cs, _ := q.ListChannelStreams(ctx, abc.ID)
+	var urls []string
+	for _, s := range cs {
+		urls = append(urls, s.StreamUrl)
+	}
+	if len(urls) != 2 || urls[0] != "http://fake.tv/abc.ts" || urls[1] != "http://b.tv/abc.ts" {
+		t.Errorf("ABC streams = %v, want A's ABC HD and B's ABC FHD, not the placeholder", urls)
 	}
 }
