@@ -155,6 +155,15 @@ On a channel's page, drag streams (or use ↑/↓) to set the failover order. Th
 plays. Set the channel's **tvg-id** to the guide's channel id to get program data (see the **Guide**
 page for coverage).
 
+**Guide sources:** Xtream providers bring their own guide, M3U providers can have an EPG URL, and on the
+**Guide** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
+guide with better coverage. They download on the guide schedule (`refresh.epg_interval`). When several
+sources list a channel, the lowest priority number wins (providers use their own priority).
+
+**East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
+Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are
+separate channels), so a channel never fails over into a feed that airs hours later.
+
 ### 3. Put channels in a bouquet
 
 Customers only see channels from the **bouquets** granted to them. **Bouquets → New bouquet**, then tick

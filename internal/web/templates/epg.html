@@ -1,6 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Guide (EPG)</h1></div>
+<div class="head"><h1>Guide (EPG)</h1><a class="button secondary" href="#extra">Add a guide source</a></div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
   A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source; if several sources have it, the highest-priority provider wins.</p>
 <h2>Sources</h2>
@@ -14,6 +15,32 @@
 {{else}}
 <div class="card empty"><p>No provider offers a guide.</p><p class="muted">Add an Xtream provider, or set an EPG URL on an M3U provider.</p></div>
 {{end}}
+
+<h2 id="extra">Extra guide sources</h2>
+<p class="muted">Add any XMLTV guide (<span class="mono">.xml</span> or <span class="mono">.xml.gz</span>), for example a community
+  guide with better coverage than your providers'. It downloads with the other guides. When several sources list a channel,
+  the lowest priority number wins; your providers use their own priority.</p>
+{{if $d.Extras}}
+<div class="table-wrap">
+<table class="stack">
+  <thead><tr><th>Guide</th><th class="num">Priority</th><th class="num">Programs</th><th class="num">Channels</th><th>Last download</th><th></th></tr></thead>
+  <tbody>{{range $d.Extras}}{{template "extra-row" .}}{{end}}</tbody>
+</table>
+</div>
+{{end}}
+<form class="card form" method="post" action="/admin/epg/sources">
+  {{with $d.ExtraForm.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <div class="grid3">
+    <label>Name<input name="name" value="{{$d.ExtraForm.Name}}" placeholder="e.g. US guide" required maxlength="100"></label>
+    <label class="span2">XMLTV URL<input name="url" type="url" value="{{$d.ExtraForm.URL}}" placeholder="https://example.com/guide.xml.gz" required></label>
+  </div>
+  <div class="grid3">
+    <label>Priority<input name="priority" type="number" value="{{if $d.ExtraForm.Priority}}{{$d.ExtraForm.Priority}}{{else}}0{{end}}">
+      <span class="hint">lower wins{{with $d.ExtraForm.ProviderPriorities}}; providers: {{.}}{{end}}</span></label>
+  </div>
+  <input type="hidden" name="enabled" value="on">
+  <div class="row"><button type="submit">Add guide source</button></div>
+</form>
 
 <h2>Channel coverage</h2>
 <form class="search row" method="get" action="/admin/epg" hx-get="/admin/epg" hx-target="#guide" hx-swap="outerHTML" hx-push-url="true"
@@ -40,6 +67,26 @@
       <button type="submit" class="small">Download now</button>
     </form>
     <span id="epg-{{.Provider.ID}}-busy" class="htmx-indicator sub">downloading…</span>
+    {{with .Refresh}}{{if .OK}}<span class="okmsg small">{{.Result.Seen}} programs · {{.Elapsed}}</span>{{else}}<span class="errmsg small">{{.Error}}</span>{{end}}{{end}}
+  </div></td>
+</tr>
+{{end}}
+
+{{define "extra-row"}}
+<tr id="extra-{{.ID}}"{{if not .Enabled}} class="dim"{{end}}>
+  <td class="cell-title">{{.Name}}{{if not .Enabled}} <span class="pill off">off</span>{{end}}<div class="sub url">{{redact .Url}}</div></td>
+  <td class="num" data-label="Priority">{{with .Priority}}{{.}}{{end}}</td>
+  <td class="num" data-label="Programs">{{.Programs}}</td>
+  <td class="num" data-label="Channels">{{.Channels}}</td>
+  <td data-label="Last download">{{if .LastRefreshedAt}}{{ago .LastRefreshedAt}}{{else}}<span class="pill warn">not yet</span>{{end}}</td>
+  <td class="cell-actions"><div class="actions">
+    <form method="post" action="/admin/epg/sources/{{.ID}}/refresh" hx-post="/admin/epg/sources/{{.ID}}/refresh"
+      hx-target="#extra-{{.ID}}" hx-swap="outerHTML" hx-indicator="#extra-{{.ID}}-busy" hx-disabled-elt="find button">
+      <button type="submit" class="small secondary">Download now</button></form>
+    <a class="button small secondary" href="/admin/epg/sources/{{.ID}}/edit">Edit</a>
+    <form method="post" action="/admin/epg/sources/{{.ID}}/delete" data-confirm="Delete the guide source {{.Name}} and its programs?">
+      <button type="submit" class="small secondary">Delete</button></form>
+    <span id="extra-{{.ID}}-busy" class="htmx-indicator sub">downloading…</span>
     {{with .Refresh}}{{if .OK}}<span class="okmsg small">{{.Result.Seen}} programs · {{.Elapsed}}</span>{{else}}<span class="errmsg small">{{.Error}}</span>{{end}}{{end}}
   </div></td>
 </tr>

@@ -103,7 +103,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 
 	ruleOf := make([]*Rule, n)
 	for i, s := range streams {
-		if t := tvgKey(s.TvgID); t != "" {
+		if t := feedTvgKey(s.TvgID, s.Name); t != "" {
 			link(i, t)
 		}
 	}
@@ -134,7 +134,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 	existingByID := make(map[int64]Existing, len(existing))
 	for _, c := range existing { // first (lowest ID) wins ties
 		existingByID[c.ID] = c
-		if t := tvgKey(c.TvgID); t != "" {
+		if t := feedTvgKey(c.TvgID, c.Name); t != "" {
 			if _, ok := byTvg[t]; !ok {
 				byTvg[t] = c.ID
 			}
@@ -181,7 +181,7 @@ func buildProposal(streams []Stream, idx []int, ruleOf []*Rule,
 			p.Groups = append(p.Groups, s.Group)
 		}
 		providers[s.ProviderID] = true
-		if t := tvgKey(s.TvgID); t != "" {
+		if t := feedTvgKey(s.TvgID, s.Name); t != "" {
 			tvgKeys = append(tvgKeys, t)
 			if p.TvgID == "" {
 				p.TvgID = strings.TrimSpace(s.TvgID)
@@ -294,6 +294,41 @@ func DisplayName(name string) string {
 		return strings.TrimSpace(name)
 	}
 	return out
+}
+
+// feedTvgKey is the tvg-id match key, split by feed: providers give the
+// East and West (or +1) feeds of a channel the same tvg-id, but they air
+// hours apart, so they must not become one channel or fail over into each
+// other. East and unlabelled feeds share the plain key.
+func feedTvgKey(tvg, name string) string {
+	t := tvgKey(tvg)
+	if t == "" {
+		return ""
+	}
+	if v := FeedVariant(name); v != "" {
+		return t + "|" + v
+	}
+	return t
+}
+
+var timeshiftRe = regexp.MustCompile(`\+\s?([1-9])(\s|$|h\b)`)
+
+// FeedVariant names a channel's time-shifted feed from its name: "west"
+// (also Pacific), "mountain", or "+1".."+9"; "" for East or no label.
+func FeedVariant(name string) string {
+	low := strings.ToLower(name)
+	if m := timeshiftRe.FindStringSubmatch(low); m != nil {
+		return "+" + m[1]
+	}
+	for _, w := range strings.Fields(NormalizeName(name)) {
+		switch w {
+		case "west", "pacific":
+			return "west"
+		case "mountain":
+			return "mountain"
+		}
+	}
+	return ""
 }
 
 func tvgKey(tvg string) string {

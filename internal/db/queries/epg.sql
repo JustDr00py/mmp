@@ -29,8 +29,8 @@ SELECT * FROM epg_sources WHERE provider_id = $1;
 -- name: ListGuidePrograms :many
 -- Programs overlapping [since, until) for the given lower-cased tvg-ids.
 -- Each tvg-id takes its whole schedule from one source: the one with the
--- best provider priority that has programs in the window, so overlapping
--- guides from different providers never interleave.
+-- best priority (an extra source's own, else its provider's) that has
+-- programs in the window, so overlapping guides never interleave.
 WITH best AS (
     SELECT DISTINCT ON (lower(p.channel_tvg_id))
            lower(p.channel_tvg_id) AS tvg_key, p.epg_source_id
@@ -39,7 +39,7 @@ WITH best AS (
     LEFT JOIN providers pr ON pr.id = s.provider_id
     WHERE lower(p.channel_tvg_id) = ANY(sqlc.arg('tvg_keys')::text[])
       AND p.stop_time > sqlc.arg('since') AND p.start_time < sqlc.arg('until')
-    ORDER BY lower(p.channel_tvg_id), COALESCE(pr.priority, 2147483647), s.id
+    ORDER BY lower(p.channel_tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
 )
 SELECT b.tvg_key::text AS tvg_key, p.id, p.title, p.sub_title, p.description, p.start_time, p.stop_time
 FROM best b
@@ -50,13 +50,13 @@ ORDER BY b.tvg_key, p.start_time;
 
 -- name: ListEpgSourceStats :many
 -- Admin overview of guide sources.
-SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at,
+SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at, s.priority,
        pr.id AS provider_id, COALESCE(pr.name, '')::text AS provider_name,
        (SELECT count(*) FROM epg_programs p WHERE p.epg_source_id = s.id) AS programs,
        (SELECT count(DISTINCT lower(p.channel_tvg_id)) FROM epg_programs p WHERE p.epg_source_id = s.id) AS channels
 FROM epg_sources s
 LEFT JOIN providers pr ON pr.id = s.provider_id
-ORDER BY pr.priority NULLS LAST, s.name;
+ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name;
 
 -- name: ChannelGuideStatus :many
 -- Per-channel guide coverage: programs in the next 24h from enabled
@@ -79,3 +79,26 @@ SELECT * FROM (
 WHERE NOT sqlc.arg('missing_only')::bool OR g.upcoming = 0
 ORDER BY g.number NULLS LAST, g.name
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- Extra guide sources: XMLTV URLs not tied to a provider (e.g. a
+-- community guide), managed on the Guide page.
+
+-- name: GetEpgSource :one
+SELECT * FROM epg_sources WHERE id = $1;
+
+-- name: CreateExtraEpgSource :one
+INSERT INTO epg_sources (name, url, priority, enabled) VALUES ($1, $2, $3, $4) RETURNING *;
+
+-- name: UpdateExtraEpgSource :one
+UPDATE epg_sources SET name = $2, url = $3, priority = $4, enabled = $5
+WHERE id = $1 AND provider_id IS NULL
+RETURNING *;
+
+-- name: DeleteExtraEpgSource :execrows
+DELETE FROM epg_sources WHERE id = $1 AND provider_id IS NULL;
+
+-- name: ListExtraEpgSourcesDue :many
+SELECT * FROM epg_sources
+WHERE provider_id IS NULL AND enabled
+  AND (last_refreshed_at IS NULL OR last_refreshed_at <= now() - make_interval(secs => $1::double precision))
+ORDER BY priority NULLS LAST, id;

@@ -106,8 +106,75 @@ func (q *Queries) CountEpgPrograms(ctx context.Context, epgSourceID int64) (int6
 	return count, err
 }
 
+const createExtraEpgSource = `-- name: CreateExtraEpgSource :one
+INSERT INTO epg_sources (name, url, priority, enabled) VALUES ($1, $2, $3, $4) RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
+`
+
+type CreateExtraEpgSourceParams struct {
+	Name     string `json:"name"`
+	Url      string `json:"url"`
+	Priority *int32 `json:"priority"`
+	Enabled  bool   `json:"enabled"`
+}
+
+func (q *Queries) CreateExtraEpgSource(ctx context.Context, arg CreateExtraEpgSourceParams) (EpgSource, error) {
+	row := q.db.QueryRow(ctx, createExtraEpgSource,
+		arg.Name,
+		arg.Url,
+		arg.Priority,
+		arg.Enabled,
+	)
+	var i EpgSource
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.ProviderID,
+		&i.Enabled,
+		&i.LastRefreshedAt,
+		&i.CreatedAt,
+		&i.Priority,
+	)
+	return i, err
+}
+
+const deleteExtraEpgSource = `-- name: DeleteExtraEpgSource :execrows
+DELETE FROM epg_sources WHERE id = $1 AND provider_id IS NULL
+`
+
+func (q *Queries) DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExtraEpgSource, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getEpgSource = `-- name: GetEpgSource :one
+
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources WHERE id = $1
+`
+
+// Extra guide sources: XMLTV URLs not tied to a provider (e.g. a
+// community guide), managed on the Guide page.
+func (q *Queries) GetEpgSource(ctx context.Context, id int64) (EpgSource, error) {
+	row := q.db.QueryRow(ctx, getEpgSource, id)
+	var i EpgSource
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.ProviderID,
+		&i.Enabled,
+		&i.LastRefreshedAt,
+		&i.CreatedAt,
+		&i.Priority,
+	)
+	return i, err
+}
+
 const getEpgSourceByProvider = `-- name: GetEpgSourceByProvider :one
-SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at FROM epg_sources WHERE provider_id = $1
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources WHERE provider_id = $1
 `
 
 func (q *Queries) GetEpgSourceByProvider(ctx context.Context, providerID *int64) (EpgSource, error) {
@@ -121,6 +188,7 @@ func (q *Queries) GetEpgSourceByProvider(ctx context.Context, providerID *int64)
 		&i.Enabled,
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
+		&i.Priority,
 	)
 	return i, err
 }
@@ -136,13 +204,13 @@ type InsertEpgProgramsParams struct {
 }
 
 const listEpgSourceStats = `-- name: ListEpgSourceStats :many
-SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at,
+SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at, s.priority,
        pr.id AS provider_id, COALESCE(pr.name, '')::text AS provider_name,
        (SELECT count(*) FROM epg_programs p WHERE p.epg_source_id = s.id) AS programs,
        (SELECT count(DISTINCT lower(p.channel_tvg_id)) FROM epg_programs p WHERE p.epg_source_id = s.id) AS channels
 FROM epg_sources s
 LEFT JOIN providers pr ON pr.id = s.provider_id
-ORDER BY pr.priority NULLS LAST, s.name
+ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name
 `
 
 type ListEpgSourceStatsRow struct {
@@ -151,6 +219,7 @@ type ListEpgSourceStatsRow struct {
 	Url             string     `json:"url"`
 	Enabled         bool       `json:"enabled"`
 	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
+	Priority        *int32     `json:"priority"`
 	ProviderID      *int64     `json:"provider_id"`
 	ProviderName    string     `json:"provider_name"`
 	Programs        int64      `json:"programs"`
@@ -173,10 +242,47 @@ func (q *Queries) ListEpgSourceStats(ctx context.Context) ([]ListEpgSourceStatsR
 			&i.Url,
 			&i.Enabled,
 			&i.LastRefreshedAt,
+			&i.Priority,
 			&i.ProviderID,
 			&i.ProviderName,
 			&i.Programs,
 			&i.Channels,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExtraEpgSourcesDue = `-- name: ListExtraEpgSourcesDue :many
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources
+WHERE provider_id IS NULL AND enabled
+  AND (last_refreshed_at IS NULL OR last_refreshed_at <= now() - make_interval(secs => $1::double precision))
+ORDER BY priority NULLS LAST, id
+`
+
+func (q *Queries) ListExtraEpgSourcesDue(ctx context.Context, dollar_1 float64) ([]EpgSource, error) {
+	rows, err := q.db.Query(ctx, listExtraEpgSourcesDue, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpgSource
+	for rows.Next() {
+		var i EpgSource
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.ProviderID,
+			&i.Enabled,
+			&i.LastRefreshedAt,
+			&i.CreatedAt,
+			&i.Priority,
 		); err != nil {
 			return nil, err
 		}
@@ -197,7 +303,7 @@ WITH best AS (
     LEFT JOIN providers pr ON pr.id = s.provider_id
     WHERE lower(p.channel_tvg_id) = ANY($3::text[])
       AND p.stop_time > $1 AND p.start_time < $2
-    ORDER BY lower(p.channel_tvg_id), COALESCE(pr.priority, 2147483647), s.id
+    ORDER BY lower(p.channel_tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
 )
 SELECT b.tvg_key::text AS tvg_key, p.id, p.title, p.sub_title, p.description, p.start_time, p.stop_time
 FROM best b
@@ -225,8 +331,8 @@ type ListGuideProgramsRow struct {
 
 // Programs overlapping [since, until) for the given lower-cased tvg-ids.
 // Each tvg-id takes its whole schedule from one source: the one with the
-// best provider priority that has programs in the window, so overlapping
-// guides from different providers never interleave.
+// best priority (an extra source's own, else its provider's) that has
+// programs in the window, so overlapping guides never interleave.
 func (q *Queries) ListGuidePrograms(ctx context.Context, arg ListGuideProgramsParams) ([]ListGuideProgramsRow, error) {
 	rows, err := q.db.Query(ctx, listGuidePrograms, arg.Since, arg.Until, arg.TvgKeys)
 	if err != nil {
@@ -264,6 +370,42 @@ func (q *Queries) MarkEpgSourceRefreshed(ctx context.Context, id int64) error {
 	return err
 }
 
+const updateExtraEpgSource = `-- name: UpdateExtraEpgSource :one
+UPDATE epg_sources SET name = $2, url = $3, priority = $4, enabled = $5
+WHERE id = $1 AND provider_id IS NULL
+RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
+`
+
+type UpdateExtraEpgSourceParams struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Url      string `json:"url"`
+	Priority *int32 `json:"priority"`
+	Enabled  bool   `json:"enabled"`
+}
+
+func (q *Queries) UpdateExtraEpgSource(ctx context.Context, arg UpdateExtraEpgSourceParams) (EpgSource, error) {
+	row := q.db.QueryRow(ctx, updateExtraEpgSource,
+		arg.ID,
+		arg.Name,
+		arg.Url,
+		arg.Priority,
+		arg.Enabled,
+	)
+	var i EpgSource
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.ProviderID,
+		&i.Enabled,
+		&i.LastRefreshedAt,
+		&i.CreatedAt,
+		&i.Priority,
+	)
+	return i, err
+}
+
 const upsertEpgSource = `-- name: UpsertEpgSource :one
 
 INSERT INTO epg_sources (name, url, provider_id)
@@ -271,7 +413,7 @@ VALUES ($1, $2, $3)
 ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
     name = EXCLUDED.name,
     url  = EXCLUDED.url
-RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at
+RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
 `
 
 type UpsertEpgSourceParams struct {
@@ -293,6 +435,7 @@ func (q *Queries) UpsertEpgSource(ctx context.Context, arg UpsertEpgSourceParams
 		&i.Enabled,
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
+		&i.Priority,
 	)
 	return i, err
 }

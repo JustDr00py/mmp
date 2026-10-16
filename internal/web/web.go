@@ -76,6 +76,10 @@ type Store interface {
 	DeleteStreamProfile(ctx context.Context, id int64) (int64, error)
 	ProfileChannelCounts(ctx context.Context) ([]db.ProfileChannelCountsRow, error)
 	ListEpgSourceStats(ctx context.Context) ([]db.ListEpgSourceStatsRow, error)
+	GetEpgSource(ctx context.Context, id int64) (db.EpgSource, error)
+	CreateExtraEpgSource(ctx context.Context, arg db.CreateExtraEpgSourceParams) (db.EpgSource, error)
+	UpdateExtraEpgSource(ctx context.Context, arg db.UpdateExtraEpgSourceParams) (db.EpgSource, error)
+	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
@@ -133,6 +137,7 @@ type Matcher interface {
 type Refresher interface {
 	RefreshProvider(ctx context.Context, p db.Provider, force bool) (source.Result, error)
 	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
+	RefreshEPGSource(ctx context.Context, src db.EpgSource) (int, error)
 	RefreshVOD(ctx context.Context, p db.Provider, force bool) (source.VODResult, error)
 	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
@@ -195,7 +200,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {

@@ -86,6 +86,7 @@ type EpgSource struct {
 	Enabled         bool       `json:"enabled"`
 	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
 	CreatedAt       time.Time  `json:"created_at"`
+	Priority        *int32     `json:"priority"`
 }
 
 type Event struct {
@@ -186,6 +187,12 @@ type SeriesEpisode struct {
 	DurationSecs       int32      `json:"duration_secs"`
 	Image              string     `json:"image"`
 	AddedAt            *time.Time `json:"added_at"`
+}
+
+type Setting struct {
+	Key       string    `json:"key"`
+	Value     []byte    `json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type StreamProfile struct {
