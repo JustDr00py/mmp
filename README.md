@@ -30,15 +30,25 @@ You need Docker (or Podman) with Compose.
    git clone <this repository> mmp && cd mmp
    ```
 
-2. **Edit `docker-compose.yml`**, in the `mmp` service:
+2. **Create your `.env`** (it holds the secrets and is ignored by git):
 
+   ```sh
+   cp .env.example .env
+   ```
+
+   Then edit it:
+
+   - `POSTGRES_PASSWORD`: a long random password, e.g. the output of `openssl rand -hex 24`.
    - `MMP_BASE_URL`: the address **players** will use to reach MMP, e.g. `http://192.168.1.10:8080`
      or `https://tv.example.com`. Every playlist, guide and stream URL MMP hands out is built from it, so
      `localhost` only works for players on the same machine.
-   - Uncomment `MMP_ADMIN_USERNAME` / `MMP_ADMIN_PASSWORD` and choose your admin login. They are only used
-     to create the first admin when none exists; you can remove them afterwards.
-   - Optional: uncomment `target: mmp-ffmpeg` for the image with ffmpeg (needed only for
-     [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode and the prober's ffprobe check).
+   - `MMP_ADMIN_USERNAME` / `MMP_ADMIN_PASSWORD`: your admin login. They are only used to create the first
+     admin when none exists; change passwords later on the **Users** page. Keep values containing `$` in
+     single quotes.
+
+   Optional, in `docker-compose.yml`: uncomment `target: mmp-ffmpeg` for the image with ffmpeg (needed
+   only for [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode and the prober's ffprobe check).
+   Postgres listens on `127.0.0.1` only.
 
 3. **Start it**
 
@@ -48,7 +58,7 @@ You need Docker (or Podman) with Compose.
 
    MMP applies its database migrations on start; `docker compose logs mmp` shows `server listening` when it is ready.
 
-4. **Open the admin UI** at `http://<your-host>:8080/admin` and sign in with the admin login from step 2.
+4. **Open the admin UI** at `http://<your-host>:8080/admin` and sign in with the admin login from your `.env`.
 
 Before exposing MMP beyond your own network, read [Deployment notes](#deployment-notes) (Postgres
 password and port, TLS).
@@ -153,6 +163,7 @@ watching. Each title playing uses one of the customer's connections and one of t
 Requirements: Go 1.26+ and PostgreSQL (tested with 17, which the compose file uses).
 
 ```sh
+cp .env.example .env         # set POSTGRES_PASSWORD; make and compose both read it
 make up                      # starts only Postgres via compose (COMPOSE="podman compose" for Podman)
 make build                   # → ./mmp
 
@@ -348,9 +359,10 @@ uses one of their connections and one of the provider's.
 
 - **`base_url` must be right.** Players follow the URLs MMP generates. If playlists open but channels
   don't play, check it first.
-- **Postgres:** the compose file publishes port 5432 and uses the password `mmp`, which is convenient for
-  development. For production, remove the postgres `ports:` entry and set a real password (in both
-  `POSTGRES_PASSWORD` and `MMP_DB_DSN`). Back up with `pg_dump`. All state lives in Postgres.
+- **Postgres:** the password comes from `POSTGRES_PASSWORD` in `.env`, and the port is published on
+  `127.0.0.1` only (for local tools and tests); remove the postgres `ports:` entry if nothing on the host
+  needs it. Postgres stores the password in its volume on first start, so changing it later also needs
+  `ALTER ROLE mmp PASSWORD '...'` inside the database. Back up with `pg_dump`. All state lives in Postgres.
 - **TLS / reverse proxy:** put MMP behind nginx, Caddy or Traefik for HTTPS, and set `base_url` to the
   `https://` address (the admin cookie then becomes `Secure` automatically). Turn off response buffering
   for streams and the dashboard (`proxy_buffering off;` in nginx; MMP also sends `X-Accel-Buffering: no`)
@@ -380,7 +392,7 @@ uses one of their connections and one of the provider's.
 ```sh
 make test              # unit tests (with -race)
 make up                # Postgres for integration tests
-make test-integration  # integration tests against Postgres
+make test-integration  # integration tests against Postgres (password from .env; MMP_TEST_PG overrides)
 make lint              # go vet + staticcheck
 make generate          # regenerate sqlc code after editing internal/db/queries/*.sql
 ```

@@ -21,12 +21,13 @@ import (
 	"github.com/sysadmin/mmp/internal/auth"
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/testpg"
 )
 
 // pgUI is the UI over a fresh Postgres database with a signed-in admin.
 func pgUI(t *testing.T) (*browser, *db.Queries) {
 	t.Helper()
-	dsn := "postgres://mmp:mmp@localhost:5432/mmp_web_test?sslmode=disable"
+	dsn := testpg.DSN("mmp_web_test")
 	cfg, _ := pgx.ParseConfig(dsn)
 	target := cfg.Database
 	cfg.Database = "postgres"
@@ -34,7 +35,7 @@ func pgUI(t *testing.T) (*browser, *db.Queries) {
 	defer cancel()
 	mconn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		t.Skipf("postgres not reachable (%v)", err)
+		testpg.Unreachable(t, err)
 	}
 	for _, q := range []string{
 		`DROP DATABASE IF EXISTS ` + pgx.Identifier{target}.Sanitize() + ` WITH (FORCE)`,

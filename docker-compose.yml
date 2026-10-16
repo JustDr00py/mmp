@@ -3,10 +3,11 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: mmp
-      POSTGRES_PASSWORD: mmp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: mmp
+    # Only this machine can reach Postgres (for local development and tests).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -27,15 +28,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      MMP_DB_DSN: postgres://mmp:mmp@postgres:5432/mmp?sslmode=disable
-      MMP_BASE_URL: http://localhost:8080
+      MMP_DB_DSN: postgres://mmp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mmp?sslmode=disable
+      MMP_BASE_URL: ${MMP_BASE_URL:-http://localhost:8080}
       # After each provider refresh, add new matching streams to existing
       # channels as extra failover; never create channels on its own.
       MMP_MATCH_AUTO: "true"
       MMP_MATCH_AUTO_NEW_CHANNELS: "false"
-      # Bootstrap the first admin on first start:
-      MMP_ADMIN_USERNAME: sysadmin
-      MMP_ADMIN_PASSWORD: change-me
+      # First admin, created only when none exists (values from .env):
+      MMP_ADMIN_USERNAME: ${MMP_ADMIN_USERNAME:-}
+      MMP_ADMIN_PASSWORD: ${MMP_ADMIN_PASSWORD:-}
     ports:
       - "8080:8080"
     healthcheck:

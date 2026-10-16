@@ -27,11 +27,12 @@ import (
 	"github.com/sysadmin/mmp/internal/channel"
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/proxy"
+	"github.com/sysadmin/mmp/internal/testpg"
 )
 
 func newAPITestEnv(t *testing.T) *Env {
 	t.Helper()
-	dsn := "postgres://mmp:mmp@localhost:5432/mmp_api_test?sslmode=disable"
+	dsn := testpg.DSN("mmp_api_test")
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +43,7 @@ func newAPITestEnv(t *testing.T) *Env {
 	defer cancel()
 	mconn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		t.Skipf("postgres not reachable (%v); start it with `make up`", err)
+		testpg.Unreachable(t, err)
 	}
 	for _, q := range []string{
 		`DROP DATABASE IF EXISTS ` + pgx.Identifier{target}.Sanitize() + ` WITH (FORCE)`,

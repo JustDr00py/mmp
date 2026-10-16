@@ -3,7 +3,12 @@
 BIN      := mmp
 GO       ?= go
 GOFLAGS  ?=
-DSN      ?= postgres://mmp:mmp@localhost:5432/mmp?sslmode=disable
+# Postgres password from .env (read literally, not as make syntax), falling
+# back to the example password of a bare `make up` without .env.
+POSTGRES_PASSWORD ?= $(or $(shell sed -n 's/^POSTGRES_PASSWORD=//p' .env 2>/dev/null),mmp)
+DSN      ?= postgres://mmp:$(POSTGRES_PASSWORD)@localhost:5432/mmp?sslmode=disable
+# Server the integration tests create their databases on.
+export MMP_TEST_PG ?= postgres://mmp:$(POSTGRES_PASSWORD)@localhost:5432
 
 # Prefer a locally installed sqlc; fall back to go run (slower first time).
 SQLC     := $(shell command -v sqlc 2>/dev/null || echo "$(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@latest")

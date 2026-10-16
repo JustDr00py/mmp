@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sysadmin/mmp/internal/testpg"
 )
 
 // testDSN returns the DSN under test. The round-trip test is destructive, so
@@ -18,7 +20,7 @@ func testDSN(t *testing.T) string {
 	if v := os.Getenv("MMP_TEST_DSN"); v != "" {
 		return v
 	}
-	return "postgres://mmp:mmp@localhost:5432/mmp_test?sslmode=disable"
+	return testpg.DSN("mmp_test")
 }
 
 // recreate drops and re-creates the target database using the maintenance
@@ -35,7 +37,7 @@ func recreate(t *testing.T, dsn string) {
 	defer cancel()
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		t.Skipf("postgres not reachable (%v); start it with `make up`", err)
+		testpg.Unreachable(t, err)
 	}
 	defer conn.Close(context.Background())
 	for _, q := range []string{

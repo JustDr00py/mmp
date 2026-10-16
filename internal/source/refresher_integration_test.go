@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sysadmin/mmp/internal/db"
+	"github.com/sysadmin/mmp/internal/testpg"
 )
 
 type pgxpoolWrapper struct{ pool *pgxpool.Pool }
@@ -27,7 +28,7 @@ func newTestDB(t *testing.T) (*pgxpoolWrapper, *db.Queries) {
 	t.Helper()
 	// Dedicated database per package: concurrent package tests must not
 	// recreate each other's database.
-	dsn := "postgres://mmp:mmp@localhost:5432/mmp_source_test?sslmode=disable"
+	dsn := testpg.DSN("mmp_source_test")
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +39,7 @@ func newTestDB(t *testing.T) (*pgxpoolWrapper, *db.Queries) {
 	defer cancel()
 	mconn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		t.Skipf("postgres not reachable (%v); start it with `make up`", err)
+		testpg.Unreachable(t, err)
 	}
 	for _, q := range []string{
 		`DROP DATABASE IF EXISTS ` + pgx.Identifier{target}.Sanitize() + ` WITH (FORCE)`,

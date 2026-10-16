@@ -15,6 +15,7 @@ import (
 
 	"github.com/sysadmin/mmp/internal/db"
 	"github.com/sysadmin/mmp/internal/source"
+	"github.com/sysadmin/mmp/internal/testpg"
 )
 
 func fakeVODXtream(t *testing.T) *httptest.Server {
@@ -47,7 +48,7 @@ func fakeVODXtream(t *testing.T) *httptest.Server {
 func TestVODAdminAndAccess(t *testing.T) {
 	env := newAPITestEnv(t)
 	q := env.Store.(*db.Queries)
-	pool, err := db.Open(context.Background(), db.PoolConfig{DSN: "postgres://mmp:mmp@localhost:5432/mmp_api_test?sslmode=disable"})
+	pool, err := db.Open(context.Background(), db.PoolConfig{DSN: testpg.DSN("mmp_api_test")})
 	if err != nil {
 		t.Fatal(err)
 	}
