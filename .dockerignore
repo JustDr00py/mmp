@@ -4,6 +4,9 @@
 .dockerignore
 Dockerfile
 docker-compose.yml
+# secrets stay out of every build layer
+.env
+.env.*
 Makefile
 Plan/
 *.md
