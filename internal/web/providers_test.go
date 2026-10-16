@@ -90,6 +90,13 @@ func (f *fakeStore) SetProviderEnabled(_ context.Context, a db.SetProviderEnable
 	return nil
 }
 
+// SetupProgress counts the fake's providers; the rest is tested against Postgres.
+func (f *fakeStore) SetupProgress(context.Context) (db.SetupProgressRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return db.SetupProgressRow{Providers: int64(len(f.providers))}, nil
+}
+
 // ProviderGroupSummary: groups are tested against Postgres.
 func (f *fakeStore) ProviderGroupSummary(context.Context) ([]db.ProviderGroupSummaryRow, error) {
 	return nil, nil

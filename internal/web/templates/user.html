@@ -39,6 +39,7 @@
     <form class="danger" method="post" action="/admin/users/{{$d.Form.ID}}/delete"
       data-confirm="Delete {{$d.Form.Username}}?{{if $d.ConfirmSelf}} This is your own account: you will be signed out.{{end}}">
       <button type="submit" class="danger">Delete user</button>
+      <p class="danger-text">Their logins and links stop working at once.</p>
     </form>
   </section>
 </div>

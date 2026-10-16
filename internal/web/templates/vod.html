@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><h1>Movies &amp; series</h1></div>
-<p class="muted">Imported from Xtream providers with “Import movies &amp; series” turned on. Customers see the categories granted in their
+<p class="lede">Imported from Xtream providers with “Import movies &amp; series” turned on. Customers see the categories granted in their
   <a href="/admin/bouquets">bouquets</a>; each title they play uses one of their connections and one of the provider's.</p>
 <nav class="tabs">
   <a href="/admin/vod?kind=movie"{{if eq $d.Kind "movie"}} aria-current="page"{{end}}>Movies</a>

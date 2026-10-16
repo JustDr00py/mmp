@@ -108,7 +108,7 @@ func TestBouquetPages(t *testing.T) {
 
 	// Counts on the list, rename, delete.
 	_, body = b.get("/admin/bouquets")
-	if !strings.Contains(body, ">UK Basic</a>") || !strings.Contains(body, `<td class="num">2</td>`) {
+	if !strings.Contains(body, ">UK Basic</a>") || !strings.Contains(body, `<td class="num" data-label="Channels">2</td>`) {
 		t.Errorf("list counts:\n%s", body)
 	}
 	if resp, _ := b.post(base, url.Values{"name": {"UK Plus"}, "sort_order": {"1"}}, b.base); resp.Header.Get("Location") != base+"?msg=saved" {

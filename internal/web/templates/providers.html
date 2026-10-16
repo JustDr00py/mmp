@@ -1,12 +1,12 @@
 {{define "content"}}
 <div class="head">
-  <h1>Providers</h1>
+  <div><h1>Providers</h1><p class="lede">Your IPTV sources. MMP imports their streams on a schedule, and fails over between them when a stream stops. Use <strong>Groups</strong> to hide regional groups you don't need.</p></div>
   <a class="button" href="/admin/providers/new">Add provider</a>
 </div>
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{if .Data.Rows}}
 <div class="table-wrap">
-<table>
+<table class="stack">
   <thead><tr>
     <th>Name</th><th>Type</th><th class="num">Priority</th><th class="num">Slots</th>
     <th class="num">Streams</th><th>Last refresh</th><th>Status</th><th></th>
@@ -20,28 +20,29 @@
 <div class="card empty">
   <p>No providers yet.</p>
   <p class="muted">Add an M3U playlist or an Xtream Codes account to start importing streams.</p>
+  <a class="button" href="/admin/providers/new">Add your first provider</a>
 </div>
 {{end}}
 {{end}}
 
 {{define "provider-row"}}
 <tr id="provider-{{.ID}}">
-  <td><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub">{{redact .Url}}</div></td>
-  <td>{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
-  <td class="num">{{.Priority}}</td>
-  <td class="num">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
-  <td class="num">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
+  <td class="name-col cell-title"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub url">{{redact .Url}}</div></td>
+  <td data-label="Type">{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
+  <td class="num" data-label="Priority">{{.Priority}}</td>
+  <td class="num" data-label="Slots">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
+  <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
     {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if .GroupFilter}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}all {{.Groups}} groups{{end}}</a></div>{{end}}</td>
-  <td>{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
+  <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
     {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}</div>{{end}}</td>
-  <td>
+  <td data-label="Status">
     <form method="post" action="/admin/providers/{{.ID}}/toggle" hx-post="/admin/providers/{{.ID}}/toggle" hx-target="#provider-{{.ID}}" hx-swap="outerHTML">
       <button type="submit" class="pill {{if .Enabled}}ok{{else}}off{{end}}" title="Click to {{if .Enabled}}disable{{else}}enable{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</button>
     </form>
   </td>
-  <td><div class="actions">
+  <td class="cell-actions"><div class="actions">
     <form method="post" action="/admin/providers/{{.ID}}/refresh" hx-post="/admin/providers/{{.ID}}/refresh" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
-      <button type="submit" class="small">Refresh</button>
+      <button type="submit" class="small secondary">Refresh</button>
     </form>
     {{if .VodEnabled}}<form method="post" action="/admin/providers/{{.ID}}/vod" hx-post="/admin/providers/{{.ID}}/vod" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
       <button type="submit" class="small secondary" title="Import movies &amp; series now">Import catalog</button>

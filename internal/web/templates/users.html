@@ -1,6 +1,6 @@
 {{define "content"}}
 <div class="head">
-  <h1>Users</h1>
+  <div><h1>Users</h1><p class="lede">Customers who watch through MMP, and admins who manage it. Open a customer to copy their player login or playlist link.</p></div>
   <a class="button" href="/admin/users/new">New user</a>
 </div>
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
@@ -15,22 +15,22 @@
 <div id="users">
 {{if .Rows}}
 <div class="table-wrap">
-<table>
+<table class="stack">
   <thead><tr><th>Username</th><th>Role</th><th class="num">Connections</th><th>Expires</th><th>Status</th></tr></thead>
   <tbody>
   {{range .Rows}}
   <tr{{if ne .Status "active"}} class="dim"{{end}}>
-    <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
-    <td>{{.Role}}</td>
-    <td class="num">{{.Active}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
-    <td>{{with .ExpiresAt}}{{.UTC.Format "2006-01-02"}}{{else}}<span class="muted">never</span>{{end}}</td>
-    <td>{{if eq .Status "active"}}<span class="pill ok">active</span>{{else if eq .Status "expired"}}<span class="pill warn">expired</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
+    <td class="cell-title"><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
+    <td data-label="Role">{{.Role}}</td>
+    <td class="num" data-label="Connections">{{.Active}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
+    <td data-label="Expires">{{with .ExpiresAt}}{{.UTC.Format "2006-01-02"}}{{else}}<span class="muted">never</span>{{end}}</td>
+    <td data-label="Status">{{if eq .Status "active"}}<span class="pill ok">active</span>{{else if eq .Status "expired"}}<span class="pill warn">expired</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
   </tr>
   {{end}}
   </tbody>
 </table>
 </div>
 {{else if .Query}}<div class="card empty"><p>No users match.</p></div>
-{{else}}<div class="card empty"><p>No users yet.</p></div>{{end}}
+{{else}}<div class="card empty"><p>No users yet.</p><p class="muted">Add a customer, give them a bouquet, and send them their login.</p><a class="button" href="/admin/users/new">Add a customer</a></div>{{end}}
 </div>
 {{end}}

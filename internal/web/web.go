@@ -52,6 +52,7 @@ type Store interface {
 	DeleteProvider(ctx context.Context, id int64) error
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
 	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
+	SetupProgress(ctx context.Context) (db.SetupProgressRow, error)
 	ProviderGroupSummary(ctx context.Context) ([]db.ProviderGroupSummaryRow, error)
 	ListProviderGroups(ctx context.Context, providerID int64) ([]db.ListProviderGroupsRow, error)
 	ClearProviderGroups(ctx context.Context, providerID int64) error
@@ -169,22 +170,22 @@ type UI struct {
 	assetHash string // busts browser caches when the embedded assets change
 }
 
-// navItem is one entry of the top navigation. Pages add themselves here
-// as they are built.
+// navItem is one entry of the sidebar navigation; Section starts a new
+// labelled group, Icon names a symbol in the layout's icon sprite.
 type navItem struct {
-	Path, Label string
+	Path, Label, Icon, Section string
 }
 
 var nav = []navItem{
-	{Prefix + "/", "Dashboard"},
-	{Prefix + "/providers", "Providers"},
-	{Prefix + "/channels", "Channels"},
-	{Prefix + "/bouquets", "Bouquets"},
-	{Prefix + "/vod", "Movies & Series"},
-	{Prefix + "/match", "Match"},
-	{Prefix + "/users", "Users"},
-	{Prefix + "/epg", "Guide"},
-	{Prefix + "/profiles", "Profiles"},
+	{Prefix + "/", "Dashboard", "home", ""},
+	{Prefix + "/providers", "Providers", "server", "Sources"},
+	{Prefix + "/epg", "Guide", "guide", ""},
+	{Prefix + "/match", "Match", "match", "Lineup"},
+	{Prefix + "/channels", "Channels", "tv", ""},
+	{Prefix + "/bouquets", "Bouquets", "stack", ""},
+	{Prefix + "/vod", "Movies & Series", "film", ""},
+	{Prefix + "/users", "Users", "users", "Customers"},
+	{Prefix + "/profiles", "Profiles", "sliders", "Settings"},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
@@ -456,7 +457,71 @@ func (ui *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "dashboard snapshot", err)
 		return
 	}
-	ui.render(w, r, http.StatusOK, "dashboard", "Dashboard", snap)
+	d := dashboardData{Live: snap}
+	prog, err := ui.Store.SetupProgress(r.Context())
+	if err != nil {
+		ui.fail(w, "setup progress", err)
+		return
+	}
+	d.Setup = setupSteps(prog)
+	d.Totals = prog
+	ui.render(w, r, http.StatusOK, "dashboard", "Dashboard", d)
+}
+
+type dashboardData struct {
+	Live   liveSnapshot
+	Setup  *setupView // nil once every required step is done
+	Totals db.SetupProgressRow
+}
+
+type setupStep struct {
+	Title, Text, Link, Action string
+	Done, Next, Optional      bool
+}
+
+type setupView struct {
+	Steps       []setupStep
+	Done, Total int
+	Percent     int
+}
+
+// setupSteps is the getting-started checklist, worked out from what exists.
+func setupSteps(p db.SetupProgressRow) *setupView {
+	steps := []setupStep{
+		{Title: "Add a provider", Text: "An Xtream Codes account or an M3U playlist from your IPTV supplier.",
+			Link: Prefix + "/providers/new", Action: "Add provider", Done: p.Providers > 0},
+		{Title: "Import its streams", Text: "Press Refresh on the provider; it also refreshes on its own schedule.",
+			Link: Prefix + "/providers", Action: "Open providers", Done: p.Streams > 0},
+		{Title: "Choose the groups you want", Text: "Hide the regional groups you will never use, so matching only offers what you need.",
+			Link: Prefix + "/providers", Action: "Choose groups", Done: p.FilteredProviders > 0, Optional: true},
+		{Title: "Create channels", Text: "Match builds channels with failover from the same channel at several providers.",
+			Link: Prefix + "/match", Action: "Open Match", Done: p.Channels > 0},
+		{Title: "Put channels in a bouquet", Text: "A bouquet is the channel package a customer gets.",
+			Link: Prefix + "/bouquets", Action: "Open bouquets", Done: p.Bouquets > 0},
+		{Title: "Add a customer", Text: "Give them a bouquet, then copy their player login or playlist link.",
+			Link: Prefix + "/users/new", Action: "Add customer", Done: p.Customers > 0},
+	}
+	v := &setupView{}
+	next := false
+	for i := range steps {
+		if steps[i].Optional {
+			continue
+		}
+		v.Total++
+		if steps[i].Done {
+			v.Done++
+		}
+	}
+	for i := range steps {
+		if !steps[i].Done && !next {
+			steps[i].Next, next = true, true
+		}
+	}
+	if v.Done == v.Total {
+		return nil
+	}
+	v.Steps, v.Percent = steps, v.Done*100/v.Total
+	return v
 }
 
 // safeNext keeps post-login redirects inside the admin UI: anything that

@@ -2,6 +2,7 @@
 {{$f := .Data}}
 <p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
 <h1>{{.Title}}</h1>
+<p class="lede">{{if $f.ID}}Changes apply from the next refresh.{{else}}Enter what your IPTV supplier gave you. After saving, press <strong>Refresh</strong> to import the streams, then choose the groups you want.{{end}}</p>
 <form class="card form" method="post" action="{{if $f.ID}}/admin/providers/{{$f.ID}}/edit{{else}}/admin/providers/new{{end}}">
   {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
   <div class="grid2">
@@ -45,6 +46,7 @@
 <form class="danger" method="post" action="/admin/providers/{{$f.ID}}/delete"
   hx-post="/admin/providers/{{$f.ID}}/delete" hx-confirm="Delete {{$f.Name}}? Its streams leave every channel that uses them.">
   <button type="submit" class="danger">Delete provider</button>
+  <p class="danger-text">Removes the provider and its streams from every channel that uses them. Channels themselves stay.</p>
 </form>
 {{end}}
 {{end}}

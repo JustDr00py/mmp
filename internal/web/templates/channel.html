@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <p class="crumbs"><a href="/admin/channels">Channels</a> /</p>
-<h1>{{.Title}}</h1>
+<div class="head"><h1>{{.Title}}</h1></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <div class="split">
   <section>
@@ -21,6 +21,7 @@
     <form class="danger" method="post" action="/admin/channels/{{$d.Form.ID}}/delete"
       hx-post="/admin/channels/{{$d.Form.ID}}/delete" hx-confirm="Delete this channel? Customers lose it from their playlists.">
       <button type="submit" class="danger">Delete channel</button>
+      <p class="danger-text">Customers lose it from their playlists. The provider streams stay available for other channels.</p>
     </form>
   </section>
 </div>

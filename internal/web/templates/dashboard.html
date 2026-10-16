@@ -1,18 +1,34 @@
 {{define "content"}}
+{{$d := .Data}}
 <div class="head">
-  <h1>Dashboard</h1>
+  <div><h1>Dashboard</h1><p class="lede">What is playing now, and how your providers are holding up.</p></div>
   <span class="live-state" id="live-state">● live</span>
 </div>
+{{with $d.Setup}}
+<section class="card setup" aria-labelledby="setup-title">
+  <div class="setup-head">
+    <div><h2 id="setup-title">Get set up</h2><p class="muted small">Work down the list; each step unlocks the next. This card disappears when you are done.</p></div>
+    <div class="setup-progress"><span>{{.Done}} of {{.Total}} done</span><div class="bar"><span class="fill" data-pct="{{.Percent}}"></span></div></div>
+  </div>
+  <ol class="steps">{{range .Steps}}
+    <li class="{{if .Done}}done{{else if .Next}}next{{end}}">
+      <span class="dot"><svg aria-hidden="true"><use href="#i-check"/></svg></span>
+      <div><div class="step-title">{{.Title}}{{if .Optional}} <span class="hint">optional</span>{{end}}{{if .Done}} <span class="sr-only">(done)</span>{{end}}</div><div class="step-text">{{.Text}}</div></div>
+      {{if not .Done}}<a class="button small{{if not .Next}} secondary{{end}}" href="{{.Link}}">{{.Action}}</a>{{end}}
+    </li>{{end}}
+  </ol>
+</section>
+{{end}}
 <div id="live" data-sse="/admin/live" data-sse-state="#live-state">
-{{template "live" .Data}}
+{{template "live" $d.Live}}
 </div>
 {{end}}
 
 {{define "live"}}
 <section class="stats">
-  <div class="card stat"><span class="num">{{.Streaming}}<span class="of"> / {{.Sessions}}</span></span><span class="label">channels streaming</span></div>
-  <div class="card stat"><span class="num">{{.Viewers}}</span><span class="label">viewers on sessions</span></div>
-  <div class="card stat"><span class="num">{{.Customers}}</span><span class="label">customer connections</span></div>
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-play"/></svg></span><span class="num">{{.Streaming}}<span class="of"> / {{.Sessions}}</span></span><span class="label">channels streaming</span></div>
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-eye"/></svg></span><span class="num">{{.Viewers}}</span><span class="label">viewers on sessions</span></div>
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></span><span class="num">{{.Customers}}</span><span class="label">customer connections</span></div>
 </section>
 <div class="split">
   <section>
@@ -30,7 +46,7 @@
         <td class="num">{{.Viewers}}</td>
       </tr>{{end}}</tbody>
     </table></div>
-    {{else}}<div class="card empty"><p class="muted">Nobody is watching right now.</p></div>{{end}}
+    {{else}}<div class="card empty"><p>Nobody is watching right now.</p><p class="muted">Channels appear here as soon as a customer starts playing one.</p></div>{{end}}
 
     <h2>Recent events</h2>
     {{if .Events}}
@@ -43,14 +59,14 @@
     {{else}}<p class="muted">No failovers or upstream errors recorded.</p>{{end}}
   </section>
   <section>
-    <h2>Provider slots</h2>
+    <h2>Provider connections</h2>
     {{if .Providers}}
     <ul class="slots">{{range .Providers}}
       <li><div class="slot-head"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a>{{if .Disabled}} <span class="pill off">disabled</span>{{end}}
-        <span class="muted">{{.Used}} / {{if .Max}}{{.Max}}{{else}}∞{{end}}</span></div>
+        <span class="muted">{{.Used}} / {{if .Max}}{{.Max}}{{else}}∞{{end}} in use</span></div>
         {{if .Max}}<div class="bar"><span class="fill{{if ge .Percent 100}} full{{end}}" data-pct="{{.Percent}}"></span></div>{{end}}</li>{{end}}
     </ul>
-    {{else}}<p class="muted">No providers.</p>{{end}}
+    {{else}}<div class="card empty"><p>No providers yet.</p><a class="button small" href="/admin/providers/new">Add provider</a></div>{{end}}
   </section>
 </div>
 {{end}}

@@ -1,8 +1,8 @@
 {{define "content"}}
-<p class="crumbs"><a href="/admin/providers">Providers</a> / {{.Data.Provider.Name}}</p>
+<p class="crumbs"><a href="/admin/providers">Providers</a> / streams</p>
 <div class="head">
-  <h1>Streams</h1>
-  <a class="button small secondary" href="/admin/providers/{{.Data.Provider.ID}}/edit">Edit provider</a>
+  <div><h1>{{.Data.Provider.Name}}</h1><p class="lede">Every stream this provider lists. “Gone” streams disappeared in the last refresh and are skipped.</p></div>
+  <div class="row"><a class="button small secondary" href="/admin/providers/{{.Data.Provider.ID}}/groups">Groups</a><a class="button small secondary" href="/admin/providers/{{.Data.Provider.ID}}/edit">Edit provider</a></div>
 </div>
 <form class="search" method="get" action="/admin/providers/{{.Data.Provider.ID}}/streams"
   hx-get="/admin/providers/{{.Data.Provider.ID}}/streams" hx-target="#streams" hx-swap="outerHTML"

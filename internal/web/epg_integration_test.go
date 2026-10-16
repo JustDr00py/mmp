@@ -114,7 +114,7 @@ func TestProfilePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, body = b.get("/admin/profiles")
-	if !strings.Contains(body, ">remux</a>") || !strings.Contains(body, `<td class="num">1</td>`) {
+	if !strings.Contains(body, ">remux</a>") || !strings.Contains(body, `<td class="num" data-label="Channels">1</td>`) {
 		t.Errorf("channel count missing:\n%s", body)
 	}
 	path := "/admin/profiles/" + strconv.FormatInt(remux.ID, 10)

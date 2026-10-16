@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><h1>Guide (EPG)</h1></div>
-<p class="muted">Programme data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
+<p class="lede">Programme data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
   A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source; if several sources have it, the highest-priority provider wins.</p>
 <h2>Sources</h2>
 {{if $d.Sources}}

@@ -2,25 +2,25 @@
 {{$d := .Data}}
 <div class="head"><h1>Bouquets</h1></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-<p class="muted">A bouquet is a set of channels. Customers see exactly the channels in the bouquets granted to them on the <a href="/admin/users">Users</a> page; admins see everything.</p>
+<p class="lede">A bouquet is a set of channels. Customers see exactly the channels in the bouquets granted to them on the <a href="/admin/users">Users</a> page; admins see everything.</p>
 {{if $d.Rows}}
 <div class="table-wrap">
-<table>
+<table class="stack">
   <thead><tr><th>Name</th><th class="num">Sort</th><th class="num">Channels</th><th class="num">Users</th></tr></thead>
   <tbody>
   {{range $d.Rows}}
   <tr>
-    <td><a href="/admin/bouquets/{{.ID}}">{{.Name}}</a></td>
-    <td class="num">{{.SortOrder}}</td>
-    <td class="num">{{if .Channels}}{{.Channels}}{{else}}<span class="pill warn">empty</span>{{end}}</td>
-    <td class="num">{{.Users}}</td>
+    <td class="cell-title"><a href="/admin/bouquets/{{.ID}}">{{.Name}}</a></td>
+    <td class="num" data-label="Sort">{{.SortOrder}}</td>
+    <td class="num" data-label="Channels">{{if .Channels}}{{.Channels}}{{else}}<span class="pill warn">empty</span>{{end}}</td>
+    <td class="num" data-label="Users">{{.Users}}</td>
   </tr>
   {{end}}
   </tbody>
 </table>
 </div>
 {{else}}
-<div class="card empty"><p>No bouquets yet: customers see no channels until they are granted one.</p></div>
+<div class="card empty"><p>No bouquets yet.</p><p class="muted">Customers see no channels until they are granted a bouquet. Create one below, e.g. “Basic”.</p></div>
 {{end}}
 <h2>New bouquet</h2>
 <form class="card form narrow" method="post" action="/admin/bouquets">

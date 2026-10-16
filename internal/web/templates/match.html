@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><h1>Match</h1></div>
-<p class="muted">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
+<p class="lede">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
   Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
   <a href="/admin/providers">Groups</a> first.</p>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}

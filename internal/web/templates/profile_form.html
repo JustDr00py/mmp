@@ -26,6 +26,7 @@
 {{if $f.ID}}
 <form class="danger" method="post" action="/admin/profiles/{{$f.ID}}/delete" data-confirm="Delete {{$f.Name}}? Its channels go back to passthrough.">
   <button type="submit" class="danger">Delete profile</button>
+  <p class="danger-text">Channels using it go back to passthrough.</p>
 </form>
 {{end}}
 {{end}}

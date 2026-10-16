@@ -58,6 +58,7 @@
     <form class="danger" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/delete"
       data-confirm="Delete {{$d.Bouquet.Name}}? {{$d.Users}} user(s) lose its channels.">
       <button type="submit" class="danger">Delete bouquet</button>
+      <p class="danger-text">Customers who have it lose its channels. The channels themselves stay.</p>
     </form>
   </section>
 </div>

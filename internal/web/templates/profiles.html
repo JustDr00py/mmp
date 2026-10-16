@@ -1,19 +1,19 @@
 {{define "content"}}
 <div class="head"><h1>Stream profiles</h1><a class="button" href="/admin/profiles/new">New profile</a></div>
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-<p class="muted">A profile changes how a channel is fetched: <strong>passthrough</strong> relays the provider's stream as is;
+<p class="lede">A profile changes how a channel is fetched: <strong>passthrough</strong> relays the provider's stream as is;
   <strong>ffmpeg</strong> pipes it through ffmpeg (e.g. <span class="mono">-c copy</span> to repair timestamps, or a transcode). A profile can also set the user agent sent to providers.</p>
 <div class="table-wrap">
-<table>
+<table class="stack">
   <thead><tr><th>Name</th><th>Mode</th><th>ffmpeg arguments</th><th>User agent</th><th class="num">Channels</th></tr></thead>
   <tbody>
   {{range .Data.Rows}}
   <tr>
-    <td><a href="/admin/profiles/{{.ID}}">{{.Name}}</a></td>
-    <td>{{if eq .Mode "ffmpeg"}}<span class="pill warn">ffmpeg</span>{{else}}<span class="pill ok">passthrough</span>{{end}}</td>
-    <td class="mono">{{.FfmpegArgs}}</td>
-    <td class="sub">{{.UserAgent}}</td>
-    <td class="num">{{.Channels}}</td>
+    <td class="cell-title"><a href="/admin/profiles/{{.ID}}">{{.Name}}</a></td>
+    <td data-label="Mode">{{if eq .Mode "ffmpeg"}}<span class="pill warn">ffmpeg</span>{{else}}<span class="pill ok">passthrough</span>{{end}}</td>
+    <td class="mono" data-label="ffmpeg arguments">{{.FfmpegArgs}}</td>
+    <td class="sub" data-label="User agent">{{.UserAgent}}</td>
+    <td class="num" data-label="Channels">{{.Channels}}</td>
   </tr>
   {{end}}
   </tbody>

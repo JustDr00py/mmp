@@ -87,3 +87,14 @@ SELECT EXISTS (
 
 -- name: ChannelNamesByIDs :many
 SELECT id, name FROM channels WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: SetupProgress :one
+-- Counts behind the dashboard's setup checklist.
+SELECT
+    (SELECT count(*) FROM providers)::bigint AS providers,
+    (SELECT count(*) FROM provider_streams WHERE NOT disabled)::bigint AS streams,
+    (SELECT count(*) FROM providers WHERE group_filter)::bigint AS filtered_providers,
+    (SELECT count(*) FROM channels)::bigint AS channels,
+    (SELECT count(*) FROM bouquets b WHERE EXISTS (SELECT 1 FROM bouquet_channels bc WHERE bc.bouquet_id = b.id))::bigint AS bouquets,
+    (SELECT count(*) FROM users u WHERE u.role = 'customer'
+        AND EXISTS (SELECT 1 FROM user_bouquets ub WHERE ub.user_id = u.id))::bigint AS customers;

@@ -1,7 +1,7 @@
 {{define "content"}}
 <form class="card login" method="post" action="/admin/login">
-  <h1>MMP</h1>
-  <p class="muted">Sign in with an admin account.</p>
+  <h1><svg class="logo-mark" aria-hidden="true"><use href="#i-logo"/></svg>MMP</h1>
+  <p class="muted">Sign in to manage your channels and customers.</p>
   {{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
   <input type="hidden" name="next" value="{{.Data.Next}}">
   <label>Username

@@ -57,6 +57,18 @@
     document.querySelectorAll(`${box.dataset.filter} > li`).forEach((li) => { li.hidden = q !== '' && !li.textContent.toLowerCase().includes(q); });
   });
 
+  // [data-nav-toggle] opens and closes the sidebar on small screens.
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest?.('[data-nav-toggle]');
+    if (!t) return;
+    const open = document.body.classList.toggle('nav-open');
+    document.querySelectorAll('button[data-nav-toggle]').forEach((b) => b.setAttribute('aria-expanded', String(open)));
+    document.querySelector('.scrim')?.toggleAttribute('hidden', !open);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('nav-open')) document.querySelector('button[data-nav-toggle]')?.click();
+  });
+
   // <form data-confirm="question"> (or its clicked button) asks before submitting.
   document.addEventListener('submit', (e) => {
     const msg = e.submitter?.dataset?.confirm || e.target.dataset?.confirm;

@@ -400,6 +400,41 @@ func (q *Queries) NextChannelNumber(ctx context.Context) (int32, error) {
 	return column_1, err
 }
 
+const setupProgress = `-- name: SetupProgress :one
+SELECT
+    (SELECT count(*) FROM providers)::bigint AS providers,
+    (SELECT count(*) FROM provider_streams WHERE NOT disabled)::bigint AS streams,
+    (SELECT count(*) FROM providers WHERE group_filter)::bigint AS filtered_providers,
+    (SELECT count(*) FROM channels)::bigint AS channels,
+    (SELECT count(*) FROM bouquets b WHERE EXISTS (SELECT 1 FROM bouquet_channels bc WHERE bc.bouquet_id = b.id))::bigint AS bouquets,
+    (SELECT count(*) FROM users u WHERE u.role = 'customer'
+        AND EXISTS (SELECT 1 FROM user_bouquets ub WHERE ub.user_id = u.id))::bigint AS customers
+`
+
+type SetupProgressRow struct {
+	Providers         int64 `json:"providers"`
+	Streams           int64 `json:"streams"`
+	FilteredProviders int64 `json:"filtered_providers"`
+	Channels          int64 `json:"channels"`
+	Bouquets          int64 `json:"bouquets"`
+	Customers         int64 `json:"customers"`
+}
+
+// Counts behind the dashboard's setup checklist.
+func (q *Queries) SetupProgress(ctx context.Context) (SetupProgressRow, error) {
+	row := q.db.QueryRow(ctx, setupProgress)
+	var i SetupProgressRow
+	err := row.Scan(
+		&i.Providers,
+		&i.Streams,
+		&i.FilteredProviders,
+		&i.Channels,
+		&i.Bouquets,
+		&i.Customers,
+	)
+	return i, err
+}
+
 const updateChannel = `-- name: UpdateChannel :one
 UPDATE channels SET
     number = $2, name = $3, tvg_id = $4, logo_url = $5, group_id = $6,
