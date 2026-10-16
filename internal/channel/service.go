@@ -99,8 +99,8 @@ type ApplyOptions struct {
 	// when missing).
 	ChannelGroupID  *int64
 	GroupFromSource bool
-	// BouquetID, if set, receives every channel the apply touched.
-	BouquetID *int64
+	// BouquetIDs each receive every channel the apply touched.
+	BouquetIDs []int64
 	// ExistingOnly attaches streams to channels that exist and never
 	// creates one.
 	ExistingOnly bool
@@ -199,9 +199,12 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		}
 		touched = append(touched, chID)
 	}
-	if opts.BouquetID != nil && len(touched) > 0 {
-		if _, err := q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: *opts.BouquetID, ChannelIds: touched}); err != nil {
-			return res, fmt.Errorf("match apply: bouquet: %w", err)
+	for _, bq := range opts.BouquetIDs {
+		if len(touched) == 0 {
+			break
+		}
+		if _, err := q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: bq, ChannelIds: touched}); err != nil {
+			return res, fmt.Errorf("match apply: bouquet %d: %w", bq, err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

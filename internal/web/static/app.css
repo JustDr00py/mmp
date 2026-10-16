@@ -322,7 +322,10 @@ details summary { cursor: pointer; color: var(--muted); margin: .25rem 0; }
 .match-filters .grow { flex: 1 1 18rem; }
 .apply-opts { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
 .apply-opts legend { font-weight: 650; padding: 0 .3rem; }
-.apply-opts label { display: flex; flex-direction: column; gap: .3rem; }
+.apply-opts > label { display: flex; flex-direction: column; gap: .3rem; }
+.bq-pick { display: flex; flex-direction: column; gap: .3rem; }
+.bq-pick .bq-label { font-size: .85rem; font-weight: 550; }
+.bq-pick .row { gap: .4rem 1rem; }
 .match-bar { position: sticky; top: 0; z-index: 3; background: var(--bg); display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; padding: .65rem 0; border-bottom: 1px solid var(--line); }
 .match-bar .push { margin-left: auto; }
 @media (max-width: 900px) { .match-bar { top: 54px; } }

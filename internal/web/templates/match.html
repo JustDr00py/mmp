@@ -5,7 +5,7 @@
   Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
   <a href="/admin/providers">Groups</a> first. Placeholder entries such as <code>##### ABC IDAHO #####</code> are left out.</p>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-{{with $d.Applied}}<p class="flash" role="status">Done: {{.Created}} channel{{if ne .Created 1}}s{{end}} created, {{.Attached}} stream{{if ne .Attached 1}}s{{end}} added{{with .Bouquet}}, all in bouquet “{{.}}”{{end}}.
+{{with $d.Applied}}<p class="flash" role="status">Done: {{.Created}} channel{{if ne .Created 1}}s{{end}} created, {{.Attached}} stream{{if ne .Attached 1}}s{{end}} added{{with .Bouquets}}, all in bouquet{{if gt (len .) 1}}s{{end}} {{range $i, $b := .}}{{if $i}}, {{end}}“{{$b}}”{{end}}{{end}}.
   <a href="/admin/channels">View channels</a></p>{{end}}
 
 <form method="get" action="/admin/match" class="match-filters" role="search">
@@ -41,12 +41,16 @@
         <option value="source"{{if eq $d.ApplyGroup "source"}} selected{{end}}>a group named after the provider group</option>
         {{range $d.ChannelGroups}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $d.ApplyGroup}} selected{{end}}>group “{{.Name}}”</option>{{end}}
       </select></label>
-    <label>Add channels to
-      <select name="bq">
-        <option value="">no bouquet</option>
-        {{range $d.Bouquets}}<option value="{{.ID}}"{{if eq .ID $d.ApplyBouquet}} selected{{end}}>bouquet “{{.Name}}”</option>{{end}}
-      </select></label>
-    <span class="sub">Customers only see channels in their bouquets.</span>
+    <div class="bq-pick">
+      <span class="bq-label">Add channels to bouquets</span>
+      {{if $d.Bouquets}}
+      <div class="row">
+        {{if gt (len $d.Bouquets) 1}}<label class="check small"><input type="checkbox" data-check-all="bq"> all</label>{{end}}
+        {{range $d.Bouquets}}<label class="check"><input type="checkbox" name="bq" value="{{.ID}}"{{if index $d.ApplyBouquets .ID}} checked{{end}}> {{.Name}}</label>{{end}}
+      </div>
+      {{else}}<span class="muted">No bouquets yet. <a href="/admin/bouquets">Create one</a>.</span>{{end}}
+      <span class="sub">None ticked: channels go in no bouquet. Customers only see channels in their bouquets.</span>
+    </div>
   </fieldset>
   {{template "match-results" $d}}
 </form>
