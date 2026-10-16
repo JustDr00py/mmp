@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -55,6 +56,10 @@ type Config struct {
 	HTTP struct {
 		ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
 		ShutdownTimeout   Duration `yaml:"shutdown_timeout"`
+		// TrustedProxies are reverse proxies (IPs or CIDRs) whose
+		// X-Forwarded-For names the real client. Connections from anywhere
+		// else are taken at their own address; headers are ignored.
+		TrustedProxies []string `yaml:"trusted_proxies"`
 	} `yaml:"http"`
 	Proxy struct {
 		StallTimeout   Duration `yaml:"stall_timeout"`     // no upstream bytes before failover
@@ -288,6 +293,14 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
 	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
 	str("MMP_BACKUP_DIR", &c.Backup.Dir)
+	if v, ok := getenv("MMP_HTTP_TRUSTED_PROXIES"); ok {
+		c.HTTP.TrustedProxies = nil
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				c.HTTP.TrustedProxies = append(c.HTTP.TrustedProxies, p)
+			}
+		}
+	}
 	for _, e := range []error{
 		int32v("MMP_DB_MAX_CONNS", &c.DB.MaxConns),
 		dur("MMP_HTTP_READ_HEADER_TIMEOUT", &c.HTTP.ReadHeaderTimeout),
@@ -335,6 +348,25 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	return nil
 }
 
+// TrustedProxyPrefixes parses http.trusted_proxies: CIDRs, or single
+// addresses (a /32 or /128).
+func (c *Config) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, s := range c.HTTP.TrustedProxies {
+		if p, err := netip.ParsePrefix(s); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("config: http.trusted_proxies: %q is not an IP address or CIDR", s)
+		}
+		a = a.Unmap()
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
+}
+
 // Validate checks semantic constraints that YAML/env parsing cannot.
 func (c *Config) Validate() error {
 	if c.Listen == "" {
@@ -349,6 +381,9 @@ func (c *Config) Validate() error {
 	}
 	if c.DB.DSN == "" {
 		return errors.New("config: db.dsn is empty")
+	}
+	if _, err := c.TrustedProxyPrefixes(); err != nil {
+		return err
 	}
 	if c.Auth.SessionTTL.Duration <= 0 {
 		return errors.New("config: auth.session_ttl must be > 0")

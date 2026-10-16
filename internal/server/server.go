@@ -39,6 +39,8 @@ type Server struct {
 // pinger may be nil (health reports OK without a dependency check).
 func New(cfg config.Config, log *slog.Logger, pinger Pinger) *Server {
 	mux := chi.NewMux()
+	trusted, _ := cfg.TrustedProxyPrefixes() // checked by cfg.Validate
+	mux.Use(RealIP(trusted))                 // first: everything after sees the real client
 	mux.Use(RequestID)
 	mux.Use(RequestLogger(log))
 

@@ -271,6 +271,7 @@ admin:                        # only used to create the first admin
 | `db.max_conns` | `MMP_DB_MAX_CONNS` | `8` | connection pool size |
 | `http.read_header_timeout` | `MMP_HTTP_READ_HEADER_TIMEOUT` | `10s` | |
 | `http.shutdown_timeout` | `MMP_HTTP_SHUTDOWN_TIMEOUT` | `15s` | grace period for open requests on stop |
+| `http.trusted_proxies` | `MMP_HTTP_TRUSTED_PROXIES` | none | reverse proxies (IPs or CIDRs, comma-separated in the env var) whose `X-Forwarded-For` names the real client; see below |
 | `admin.username` / `admin.password` | `MMP_ADMIN_USERNAME` / `MMP_ADMIN_PASSWORD` | — | create the first admin if no enabled admin exists; never logged |
 
 ### Proxy and failover
@@ -449,8 +450,21 @@ uses one of their connections and one of the provider's.
   `https://` address (the admin cookie then becomes `Secure` automatically). Turn off response buffering
   for streams and the dashboard (`proxy_buffering off;` in nginx; MMP also sends `X-Accel-Buffering: no`)
   and allow long-lived responses.
-- **Login rate limiting uses the client address MMP sees.** Behind a reverse proxy that address is the
-  proxy's, so all clients share one lockout bucket. Raise `auth.max_attempts`, or rate-limit at the proxy.
+- **Client addresses behind a reverse proxy:** MMP sees the proxy's address on every connection, so the
+  dashboard lists every viewer under it and all clients share one login-lockout bucket. List the proxy
+  in `http.trusted_proxies` (e.g. `MMP_HTTP_TRUSTED_PROXIES=10.89.0.0/24` for a Caddy container on that
+  network, or the proxy's exact IP). MMP then takes the client from `X-Forwarded-For`, which Caddy,
+  nginx (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`) and Traefik set. Only
+  connections from those addresses are believed; anyone else's headers are ignored, so trust nothing
+  that clients can reach directly. With Caddy:
+
+  ```
+  tv.example.com {
+      reverse_proxy mmp:8080 {
+          flush_interval -1
+      }
+  }
+  ```
 - **Provider connection limits are enforced.** Set each provider's *Max connections* to what your
   subscription allows: MMP never opens more, and fails over to another provider when one is full.
 - **Secrets:** customer passwords are bcrypt-hashed and shown once. Provider credentials and stream URLs
