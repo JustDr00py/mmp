@@ -39,7 +39,8 @@ services:
       MMP_MATCH_AUTO: ${MMP_MATCH_AUTO:-true}
       MMP_MATCH_AUTO_NEW_CHANNELS: ${MMP_MATCH_AUTO_NEW_CHANNELS:-false}
       # With new channels on: their group (source = named after the provider
-      # group, none, or a name) and bouquets (comma-separated names).
+      # group, none, or a name) and bouquets (blank/auto = those most of the
+      # group's channels are in, none, or comma-separated names).
       MMP_MATCH_AUTO_GROUP: ${MMP_MATCH_AUTO_GROUP:-source}
       MMP_MATCH_AUTO_BOUQUETS: ${MMP_MATCH_AUTO_BOUQUETS:-}
       # First admin, created only when none exists (values from .env):

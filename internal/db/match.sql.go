@@ -51,6 +51,57 @@ func (q *Queries) DeleteMatchRule(ctx context.Context, id int64) error {
 	return err
 }
 
+const groupBouquetShares = `-- name: GroupBouquetShares :many
+SELECT c.group_id::bigint AS group_id, bc.bouquet_id, count(*) AS in_bouquet,
+       (SELECT count(*) FROM channels c2
+         WHERE c2.group_id = c.group_id AND NOT (c2.id = ANY($1::bigint[]))) AS group_size
+FROM channels c
+JOIN bouquet_channels bc ON bc.channel_id = c.id
+WHERE c.group_id = ANY($2::bigint[])
+  AND NOT (c.id = ANY($1::bigint[]))
+GROUP BY c.group_id, bc.bouquet_id
+`
+
+type GroupBouquetSharesParams struct {
+	Exclude  []int64 `json:"exclude"`
+	GroupIds []int64 `json:"group_ids"`
+}
+
+type GroupBouquetSharesRow struct {
+	GroupID   int64 `json:"group_id"`
+	BouquetID int64 `json:"bouquet_id"`
+	InBouquet int64 `json:"in_bouquet"`
+	GroupSize int64 `json:"group_size"`
+}
+
+// For each of the channel groups, the bouquets holding some of its channels:
+// how many, and how many channels the group has. Channels in exclude (the
+// ones an apply just created) are not counted.
+func (q *Queries) GroupBouquetShares(ctx context.Context, arg GroupBouquetSharesParams) ([]GroupBouquetSharesRow, error) {
+	rows, err := q.db.Query(ctx, groupBouquetShares, arg.Exclude, arg.GroupIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupBouquetSharesRow
+	for rows.Next() {
+		var i GroupBouquetSharesRow
+		if err := rows.Scan(
+			&i.GroupID,
+			&i.BouquetID,
+			&i.InBouquet,
+			&i.GroupSize,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChannelMatchKeys = `-- name: ListChannelMatchKeys :many
 SELECT id, name, tvg_id FROM channels ORDER BY id
 `

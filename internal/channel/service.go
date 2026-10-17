@@ -106,6 +106,11 @@ type ApplyOptions struct {
 	// NewChannelBouquetIDs each receive only the channels this apply
 	// created; channels that just gained streams keep their bouquets.
 	NewChannelBouquetIDs []int64
+	// NewChannelBouquetsFromGroup puts each created channel in the
+	// bouquets that hold most (over half) of the other channels in its
+	// group. A channel without a group, or in a group with no other
+	// channels, joins none.
+	NewChannelBouquetsFromGroup bool
 	// ExistingOnly attaches streams to channels that exist and never
 	// creates one.
 	ExistingOnly bool
@@ -142,6 +147,7 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 
 	groups := map[string]int64{} // group name -> channel group id
 	var touched, created []int64
+	createdIn := map[int64]int64{} // created channel -> its group
 	for _, p := range proposals {
 		if len(want) > 0 && !want[p.Key] {
 			continue
@@ -194,6 +200,9 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			chID = c.ID
 			res.Created++
 			created = append(created, chID)
+			if groupID != nil {
+				createdIn[chID] = *groupID
+			}
 		}
 		base, err := q.MaxChannelStreamPriority(ctx, chID)
 		if err != nil {
@@ -217,6 +226,11 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			return res, fmt.Errorf("match apply: bouquet %d: %w", bq, err)
 		}
 	}
+	if opts.NewChannelBouquetsFromGroup && len(createdIn) > 0 {
+		if err := bouquetsFromGroups(ctx, q, created, createdIn); err != nil {
+			return res, err
+		}
+	}
 	for _, bq := range opts.NewChannelBouquetIDs {
 		if len(created) == 0 {
 			break
@@ -232,6 +246,43 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	return res, nil
 }
 
+// bouquetsFromGroups adds each created channel to the bouquets holding
+// over half of the other channels in its group.
+func bouquetsFromGroups(ctx context.Context, q *db.Queries, created []int64, createdIn map[int64]int64) error {
+	var groupIDs []int64
+	for _, g := range createdIn {
+		if !slices.Contains(groupIDs, g) {
+			groupIDs = append(groupIDs, g)
+		}
+	}
+	shares, err := q.GroupBouquetShares(ctx, db.GroupBouquetSharesParams{Exclude: append([]int64{}, created...), GroupIds: groupIDs})
+	if err != nil {
+		return fmt.Errorf("match apply: group bouquets: %w", err)
+	}
+	byGroup := map[int64][]int64{} // group -> bouquets most of it is in
+	for _, r := range shares {
+		if r.InBouquet*2 > r.GroupSize {
+			byGroup[r.GroupID] = append(byGroup[r.GroupID], r.BouquetID)
+		}
+	}
+	add := map[int64][]int64{} // bouquet -> created channels
+	for _, ch := range created {
+		g, ok := createdIn[ch]
+		if !ok {
+			continue
+		}
+		for _, b := range byGroup[g] {
+			add[b] = append(add[b], ch)
+		}
+	}
+	for b, chans := range add {
+		if _, err := q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: b, ChannelIds: chans}); err != nil {
+			return fmt.Errorf("match apply: bouquet %d: %w", b, err)
+		}
+	}
+	return nil
+}
+
 // AutoMatch configures automatic matching after provider refreshes.
 type AutoMatch struct {
 	MinProviders int  // new channels only for groups seen at >= this many providers
@@ -240,9 +291,10 @@ type AutoMatch struct {
 	// the provider group, "none" or "" for no group, anything else a group
 	// of that name (created when missing).
 	Group string
-	// Bouquets (by name) receive the channels auto-match creates; existing
-	// channels that only gain streams are left alone. Unknown names are
-	// logged and skipped.
+	// Bouquets decides the bouquets of the channels auto-match creates:
+	// empty or "auto" for those holding most of the channel's group,
+	// "none" for none, otherwise bouquet names (unknown ones are logged and
+	// skipped). Existing channels that only gain streams are left alone.
 	Bouquets []string
 }
 
@@ -262,12 +314,17 @@ func (s *Service) AutoMatchHook(am AutoMatch) func(context.Context, db.Provider)
 			default:
 				opts.ChannelGroupName = g
 			}
-			ids, err := s.bouquetIDs(ctx, am.Bouquets)
-			if err != nil {
-				s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-				return
+			switch mode := bouquetMode(am.Bouquets); mode {
+			case "auto":
+				opts.NewChannelBouquetsFromGroup = true
+			case "names":
+				ids, err := s.bouquetIDs(ctx, am.Bouquets)
+				if err != nil {
+					s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
+					return
+				}
+				opts.NewChannelBouquetIDs = ids
 			}
-			opts.NewChannelBouquetIDs = ids
 		}
 		res, err := s.Apply(ctx, opts)
 		if err != nil {
@@ -276,6 +333,22 @@ func (s *Service) AutoMatchHook(am AutoMatch) func(context.Context, db.Provider)
 		}
 		s.log.Info("auto-match", "provider_id", p.ID, "created", res.Created, "attached", res.Attached)
 	}
+}
+
+// bouquetMode reads AutoMatch.Bouquets: "auto", "none" or "names".
+func bouquetMode(v []string) string {
+	if len(v) == 0 {
+		return "auto"
+	}
+	if len(v) == 1 {
+		switch strings.ToLower(strings.TrimSpace(v[0])) {
+		case "auto", "":
+			return "auto"
+		case "none":
+			return "none"
+		}
+	}
+	return "names"
 }
 
 // bouquetIDs resolves bouquet names (case-insensitively), warning about

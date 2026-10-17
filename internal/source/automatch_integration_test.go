@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/JustDr00py/mmp/internal/channel"
@@ -253,5 +254,76 @@ func TestRefreshAutoMatchGroupsAndBouquets(t *testing.T) {
 				t.Errorf("Premium = %v, want ABC alone", got)
 			}
 		})
+	}
+}
+
+// TestRefreshAutoMatchBouquetsFromGroup: by default a created channel joins
+// the bouquets that hold most of the other channels in its group, and none
+// when its group has no other channels.
+func TestRefreshAutoMatchBouquetsFromGroup(t *testing.T) {
+	m3u := func(body string) string {
+		ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(rw, "#EXTM3U\n"+body)
+		}))
+		t.Cleanup(ts.Close)
+		return ts.URL
+	}
+	body := func(host string) string {
+		return "#EXTINF:-1 tvg-id=\"us.nbc\" group-title=\"News\",NBC\nhttp://" + host + "/nbc.ts\n" +
+			"#EXTINF:-1 tvg-id=\"us.toons\" group-title=\"Toons\",Toons\nhttp://" + host + "/toons.ts\n"
+	}
+	urls := []string{m3u(body("a.tv")), m3u(body("b.tv"))}
+
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	news, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "News"})
+	basic, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Basic"})
+	premium, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Premium"})
+	var newsIDs []int64
+	for _, n := range []string{"CNN", "BBC", "Fox"} {
+		c, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: n, GroupID: &news.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		newsIDs = append(newsIDs, c.ID)
+	}
+	// Basic holds 2 of the 3 News channels, Premium only 1.
+	q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: basic.ID, ChannelIds: newsIDs[:2]})
+	q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: premium.ID, ChannelIds: newsIDs[2:]})
+
+	ref := NewRefresher(log, w.pool, 80)
+	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{
+		MinProviders: 2, NewChannels: true, Group: "source"}) // Bouquets unset: auto
+	for i, url := range urls {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url,
+			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ref.RefreshProvider(ctx, p, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	members := func(b int64) []string {
+		var out []string
+		cs, _ := q.ListBouquetChannels(ctx, b)
+		for _, c := range cs {
+			out = append(out, c.Name)
+		}
+		slices.Sort(out)
+		return out
+	}
+	// NBC landed in the existing News group, so it follows News into Basic
+	// (2 of 3), not Premium (1 of 3). Toons got a new group: no bouquet.
+	if got := members(basic.ID); !slices.Equal(got, []string{"BBC", "CNN", "NBC"}) {
+		t.Errorf("Basic = %v, want BBC CNN NBC", got)
+	}
+	if got := members(premium.ID); !slices.Equal(got, []string{"Fox"}) {
+		t.Errorf("Premium = %v, want Fox alone", got)
+	}
+	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 100})
+	if len(chans) != 5 {
+		t.Errorf("channels = %d, want 3 + NBC + Toons", len(chans))
 	}
 }
