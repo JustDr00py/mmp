@@ -44,6 +44,36 @@ func (q *Queries) AddStreamToChannel(ctx context.Context, arg AddStreamToChannel
 	return err
 }
 
+const channelBouquetCounts = `-- name: ChannelBouquetCounts :many
+SELECT channel_id, count(*) AS bouquets FROM bouquet_channels GROUP BY channel_id
+`
+
+type ChannelBouquetCountsRow struct {
+	ChannelID int64 `json:"channel_id"`
+	Bouquets  int64 `json:"bouquets"`
+}
+
+// Bouquets per channel, for the admin list.
+func (q *Queries) ChannelBouquetCounts(ctx context.Context) ([]ChannelBouquetCountsRow, error) {
+	rows, err := q.db.Query(ctx, channelBouquetCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelBouquetCountsRow
+	for rows.Next() {
+		var i ChannelBouquetCountsRow
+		if err := rows.Scan(&i.ChannelID, &i.Bouquets); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelStreamCounts = `-- name: ChannelStreamCounts :many
 SELECT channel_id, count(*) AS streams FROM channel_streams GROUP BY channel_id
 `

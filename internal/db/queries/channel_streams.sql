@@ -79,6 +79,10 @@ ORDER BY cs.priority, pr.priority, ps.id;
 -- Failover-list length per channel, for the admin list.
 SELECT channel_id, count(*) AS streams FROM channel_streams GROUP BY channel_id;
 
+-- name: ChannelBouquetCounts :many
+-- Bouquets per channel, for the admin list.
+SELECT channel_id, count(*) AS bouquets FROM bouquet_channels GROUP BY channel_id;
+
 -- name: SearchStreamsAllProviders :many
 -- Admin stream picker: live streams of every provider matching a name, in
 -- the groups selected for their provider.

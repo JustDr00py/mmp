@@ -316,21 +316,28 @@ const listChannels = `-- name: ListChannels :many
 SELECT id, number, name, tvg_id, logo_url, group_id, stream_profile_id, enabled, created_at, updated_at FROM channels
 WHERE ($1::bigint IS NULL OR group_id IS NOT DISTINCT FROM NULLIF($1::bigint, 0))
   AND ($2::text IS NULL OR name ILIKE $2)
-ORDER BY number NULLS LAST, name LIMIT $4 OFFSET $3
+  AND ($3::bigint IS NULL
+       OR ($3::bigint = 0) <> EXISTS (
+           SELECT 1 FROM bouquet_channels bc WHERE bc.channel_id = channels.id
+             AND ($3::bigint = 0 OR bc.bouquet_id = $3::bigint)))
+ORDER BY number NULLS LAST, name LIMIT $5 OFFSET $4
 `
 
 type ListChannelsParams struct {
-	GroupID *int64  `json:"group_id"`
-	Search  *string `json:"search"`
-	Offset  int32   `json:"offset"`
-	Limit   int32   `json:"limit"`
+	GroupID   *int64  `json:"group_id"`
+	Search    *string `json:"search"`
+	BouquetID *int64  `json:"bouquet_id"`
+	Offset    int32   `json:"offset"`
+	Limit     int32   `json:"limit"`
 }
 
-// group_id 0 lists the channels without a group.
+// group_id 0 lists the channels without a group, bouquet_id 0 those in no
+// bouquet.
 func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]Channel, error) {
 	rows, err := q.db.Query(ctx, listChannels,
 		arg.GroupID,
 		arg.Search,
+		arg.BouquetID,
 		arg.Offset,
 		arg.Limit,
 	)

@@ -40,16 +40,19 @@ func (ui *UI) mountChannels(r chi.Router) {
 
 type channelRow struct {
 	db.Channel
-	Group   string
-	Streams int64
-	Playing bool
+	Group    string
+	Streams  int64
+	Bouquets int64
+	Playing  bool
 }
 
 type channelsData struct {
 	Rows       []channelRow
 	Groups     []db.ChannelGroup
+	Bouquets   []db.Bouquet
 	Query      string
 	GroupID    int64 // -1 = channels without a group
+	BouquetID  int64 // -1 = channels in no bouquet
 	Offset     int
 	NextOffset int
 	PrevOffset int
@@ -65,6 +68,7 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	offset := max(atoi(r.URL.Query().Get("offset")), 0)
 	gid, _ := strconv.ParseInt(r.URL.Query().Get("group"), 10, 64)
+	bid, _ := strconv.ParseInt(r.URL.Query().Get("bouquet"), 10, 64)
 	params := db.ListChannelsParams{Limit: channelsPerPage + 1, Offset: int32(offset)}
 	if q != "" {
 		pat := "%" + likeEscape(q) + "%"
@@ -76,6 +80,13 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	case gid == -1:
 		none := int64(0)
 		params.GroupID = &none
+	}
+	switch {
+	case bid > 0:
+		params.BouquetID = &bid
+	case bid == -1:
+		none := int64(0)
+		params.BouquetID = &none
 	}
 	ctx := r.Context()
 	chans, err := ui.Store.ListChannels(ctx, params)
@@ -97,12 +108,26 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	for _, c := range counts {
 		nStreams[c.ChannelID] = c.Streams
 	}
+	bouquets, err := ui.Store.ListBouquets(ctx)
+	if err != nil {
+		ui.fail(w, "list bouquets", err)
+		return
+	}
+	bcounts, err := ui.Store.ChannelBouquetCounts(ctx)
+	if err != nil {
+		ui.fail(w, "channel bouquet counts", err)
+		return
+	}
+	nBouquets := map[int64]int64{}
+	for _, c := range bcounts {
+		nBouquets[c.ChannelID] = c.Bouquets
+	}
 	groupName := map[int64]string{}
 	for _, g := range groups {
 		groupName[g.ID] = g.Name
 	}
 	playing := ui.playing()
-	d := channelsData{Groups: groups, Query: q, GroupID: gid, Offset: offset, PrevOffset: max(offset-channelsPerPage, 0),
+	d := channelsData{Groups: groups, Bouquets: bouquets, Query: q, GroupID: gid, BouquetID: bid, Offset: offset, PrevOffset: max(offset-channelsPerPage, 0),
 		Flash: channelFlashes[r.URL.Query().Get("msg")]}
 	if q := r.URL.Query(); q.Get("msg") == "grouped" {
 		d.Flash = "Updated " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " of " + strconv.Itoa(atoi(q.Get("of"))) + " selected."
@@ -111,7 +136,7 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
 	}
 	for _, c := range chans {
-		row := channelRow{Channel: c, Streams: nStreams[c.ID], Playing: playing[c.ID] != 0}
+		row := channelRow{Channel: c, Streams: nStreams[c.ID], Bouquets: nBouquets[c.ID], Playing: playing[c.ID] != 0}
 		if c.GroupID != nil {
 			row.Group = groupName[*c.GroupID]
 		}
@@ -135,7 +160,7 @@ func (ui *UI) channelsSetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	f := r.PostForm
 	back := url.Values{}
-	for _, k := range []string{"q", "group", "offset"} {
+	for _, k := range []string{"q", "group", "bouquet", "offset"} {
 		if v := f.Get(k); v != "" && v != "0" {
 			back.Set(k, v)
 		}
