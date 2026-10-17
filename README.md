@@ -176,6 +176,10 @@ sources list a channel, the lowest priority number wins (providers use their own
 Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are
 separate channels), so a channel never fails over into a feed that airs hours later.
 
+**One tvg-id, several channels:** some providers also reuse a tvg-id for different channels, such as
+Spectrum SportsNet's Lakers and Dodgers feeds. When a provider lists differently named streams under one
+tvg-id, Match only joins streams with that tvg-id if their names match too.
+
 **Channel groups** are the categories players show (Xtream categories, M3U `group-title`); a channel without
 one appears under *Uncategorized*. Bouquets decide *which* channels a customer gets, groups only arrange
 them. On **Groups**, create, rename, reorder (sort order = order in the player) and delete groups, or press

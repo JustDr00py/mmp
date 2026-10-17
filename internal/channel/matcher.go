@@ -86,12 +86,27 @@ func (p Proposal) InGroup(g string) (Proposal, bool) {
 // Match groups streams that are the same channel across providers. Streams
 // are linked transitively by a shared tvg-id (case-insensitive), then by a
 // shared NormalizeName key, then by the first rule (in slice order) their
-// name matches. Each group becomes one Proposal, attached to an existing
-// channel when the group shares a tvg-id or name key with it. Output is
-// deterministic for a given input.
+// name matches. A tvg-id that one provider gives to differently named
+// streams (Spectrum SportsNet's Lakers and Dodgers feeds) covers several
+// channels, so under it streams only link when their names match too. Each
+// group becomes one Proposal, attached to an existing channel when the
+// group shares a tvg-id or name key with it. Output is deterministic for a
+// given input.
 func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 	n := len(streams)
 	uf := newUnionFind(n)
+	shared := sharedTvgKeys(streams)
+	tvgKeyOf := func(tvg, name string) string {
+		t := feedTvgKey(tvg, name)
+		if t != "" && shared[t] {
+			t += "|" + feedlessName(name)
+		}
+		return t
+	}
+	tvgKeys := make([]string, n)
+	for i, s := range streams {
+		tvgKeys[i] = tvgKeyOf(s.TvgID, s.Name)
+	}
 	owner := map[string]int{} // match key -> first stream index carrying it
 	link := func(i int, key string) {
 		if j, ok := owner[key]; ok {
@@ -102,8 +117,8 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 	}
 
 	ruleOf := make([]*Rule, n)
-	for i, s := range streams {
-		if t := feedTvgKey(s.TvgID, s.Name); t != "" {
+	for i, t := range tvgKeys {
+		if t != "" {
 			link(i, t)
 		}
 	}
@@ -134,7 +149,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 	existingByID := make(map[int64]Existing, len(existing))
 	for _, c := range existing { // first (lowest ID) wins ties
 		existingByID[c.ID] = c
-		if t := feedTvgKey(c.TvgID, c.Name); t != "" {
+		if t := tvgKeyOf(c.TvgID, c.Name); t != "" {
 			if _, ok := byTvg[t]; !ok {
 				byTvg[t] = c.ID
 			}
@@ -148,13 +163,13 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 
 	out := make([]Proposal, 0, len(groups))
 	for _, idx := range groups {
-		out = append(out, buildProposal(streams, idx, ruleOf, byTvg, byName, existingByID))
+		out = append(out, buildProposal(streams, tvgKeys, idx, ruleOf, byTvg, byName, existingByID))
 	}
 	slices.SortFunc(out, func(a, b Proposal) int { return cmp.Compare(a.Key, b.Key) })
 	return out
 }
 
-func buildProposal(streams []Stream, idx []int, ruleOf []*Rule,
+func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf []*Rule,
 	byTvg, byName map[string]int64, existing map[int64]Existing) Proposal {
 	// Failover order: preferred providers first, then stream id.
 	slices.SortFunc(idx, func(a, b int) int {
@@ -181,7 +196,7 @@ func buildProposal(streams []Stream, idx []int, ruleOf []*Rule,
 			p.Groups = append(p.Groups, s.Group)
 		}
 		providers[s.ProviderID] = true
-		if t := feedTvgKey(s.TvgID, s.Name); t != "" {
+		if t := streamTvgKeys[i]; t != "" {
 			tvgKeys = append(tvgKeys, t)
 			if p.TvgID == "" {
 				p.TvgID = strings.TrimSpace(s.TvgID)
@@ -294,6 +309,39 @@ func DisplayName(name string) string {
 		return strings.TrimSpace(name)
 	}
 	return out
+}
+
+// sharedTvgKeys finds the tvg-id keys that some provider gives to streams
+// with different names. Copies of one channel (HD, FHD) normalize to the
+// same name and do not count.
+func sharedTvgKeys(streams []Stream) map[string]bool {
+	type provTvg struct {
+		provider int64
+		tvg      string
+	}
+	firstName := map[provTvg]string{}
+	shared := map[string]bool{}
+	for _, s := range streams {
+		t := feedTvgKey(s.TvgID, s.Name)
+		if t == "" || shared[t] {
+			continue
+		}
+		k, name := provTvg{s.ProviderID, t}, feedlessName(s.Name)
+		if prev, ok := firstName[k]; !ok {
+			firstName[k] = name
+		} else if prev != name {
+			shared[t] = true
+		}
+	}
+	return shared
+}
+
+// feedlessName is NormalizeName without an "east" label: East is the
+// default feed, so "A&E East" and "A&E" are one channel. Other feeds are
+// told apart by feedTvgKey already.
+func feedlessName(name string) string {
+	words := strings.Fields(NormalizeName(name))
+	return strings.Join(slices.DeleteFunc(words, func(w string) bool { return w == "east" }), " ")
 }
 
 // feedTvgKey is the tvg-id match key, split by feed: providers give the
