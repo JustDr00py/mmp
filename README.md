@@ -324,7 +324,7 @@ admin:                        # only used to create the first admin
 | `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | auto-match only creates channels seen at this many providers |
 | `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
 | `match.auto_group` | `MMP_MATCH_AUTO_GROUP` | `source` | channel group for channels auto-match creates: `source` (named after the provider group), `none`, or a group name (created if missing). Existing channels keep their group |
-| `match.auto_bouquets` | `MMP_MATCH_AUTO_BOUQUETS` | none | bouquet names (comma-separated in the env var) that channels auto-match creates are added to. Existing channels that only gain a stream keep their bouquets |
+| `match.auto_bouquets` | `MMP_MATCH_AUTO_BOUQUETS` | `auto` | bouquets for channels auto-match creates. `auto`: the bouquets holding most (over half) of the other channels in the new channel's group, none if the group has no other channels; `none`; or bouquet names (comma-separated in the env var). Existing channels that only gain a stream keep their bouquets |
 
 ### Customer output
 
