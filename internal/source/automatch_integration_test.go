@@ -34,7 +34,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2, true)
+	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{MinProviders: 2, NewChannels: true})
 
 	mk := func(name, url, ua string, prio int32) db.Provider {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "m3u", Url: url, UserAgent: ua,
@@ -131,7 +131,7 @@ func TestRefreshAutoMatchAttachOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(2, false)
+	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{MinProviders: 2})
 	for i, url := range []string{tsA.URL, tsB.URL} {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url, UserAgent: "MMP-Test/1.0",
 			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
@@ -152,5 +152,106 @@ func TestRefreshAutoMatchAttachOnly(t *testing.T) {
 	}
 	if len(urls) != 2 || urls[0] != "http://fake.tv/abc.ts" || urls[1] != "http://b.tv/abc.ts" {
 		t.Errorf("ABC streams = %v, want A's ABC HD and B's ABC FHD, not the placeholder", urls)
+	}
+}
+
+// TestRefreshAutoMatchGroupsAndBouquets: channels auto-match creates go in
+// the configured group and bouquets; an existing channel that only gains a
+// stream keeps its own group and bouquets.
+func TestRefreshAutoMatchGroupsAndBouquets(t *testing.T) {
+	m3u := func(body string) string {
+		ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(rw, "#EXTM3U\n"+body)
+		}))
+		t.Cleanup(ts.Close)
+		return ts.URL
+	}
+	urlA := m3u("#EXTINF:-1 tvg-id=\"us.abc\" group-title=\"US\",ABC HD\nhttp://a.tv/abc.ts\n" +
+		"#EXTINF:-1 tvg-id=\"us.nbc\" group-title=\"US| NEWS\",NBC\nhttp://a.tv/nbc.ts\n" +
+		"#EXTINF:-1 tvg-id=\"us.cbs\" group-title=\"US| NEWS\",CBS\nhttp://a.tv/cbs.ts\n")
+	urlB := m3u("#EXTINF:-1 tvg-id=\"us.abc\" group-title=\"Network\",ABC FHD\nhttp://b.tv/abc.ts\n" +
+		"#EXTINF:-1 tvg-id=\"us.nbc\" group-title=\"USA NEWS\",NBC FHD\nhttp://b.tv/nbc.ts\n" +
+		"#EXTINF:-1 tvg-id=\"us.cbs\" group-title=\"USA NEWS\",CBS\nhttp://b.tv/cbs.ts\n")
+
+	for _, tt := range []struct {
+		group     string
+		wantGroup string // of the created NBC and CBS; "" = none
+	}{
+		{"source", "US| NEWS"}, // the first (priority 0) provider's group
+		{"Auto added", "Auto added"},
+		{"none", ""},
+	} {
+		t.Run(tt.group, func(t *testing.T) {
+			w, q := newTestDB(t)
+			ctx := context.Background()
+			log := slog.New(slog.NewTextHandler(io.Discard, nil))
+			mine, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "My picks"})
+			abc, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "ABC", TvgID: "us.abc", GroupID: &mine.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			premium, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Premium"})
+			basic, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Basic"})
+			q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: premium.ID, ChannelIds: []int64{abc.ID}})
+
+			ref := NewRefresher(log, w.pool, 80)
+			ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{
+				MinProviders: 2, NewChannels: true, Group: tt.group, Bouquets: []string{"basic", "No such bouquet"}})
+			for i, url := range []string{urlA, urlB} {
+				p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url,
+					MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ref.RefreshProvider(ctx, p, false); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			groupName := func(c db.Channel) string {
+				if c.GroupID == nil {
+					return ""
+				}
+				g, _ := q.GetChannelGroup(ctx, *c.GroupID)
+				return g.Name
+			}
+			chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 100})
+			created := map[string]bool{}
+			for _, c := range chans {
+				if c.ID == abc.ID {
+					continue
+				}
+				created[c.Name] = true
+				if got := groupName(c); got != tt.wantGroup {
+					t.Errorf("created %q in group %q, want %q", c.Name, got, tt.wantGroup)
+				}
+			}
+			if len(created) != 2 || !created["NBC"] || !created["CBS"] {
+				t.Errorf("created channels = %v, want NBC and CBS", created)
+			}
+
+			// ABC only gained B's stream: same group, same bouquets.
+			abcNow, _ := q.GetChannel(ctx, abc.ID)
+			if cs, _ := q.ListChannelStreams(ctx, abc.ID); len(cs) != 2 {
+				t.Errorf("ABC streams = %d, want 2", len(cs))
+			}
+			if got := groupName(abcNow); got != "My picks" {
+				t.Errorf("ABC moved to group %q", got)
+			}
+			members := func(b int64) map[string]bool {
+				out := map[string]bool{}
+				cs, _ := q.ListBouquetChannels(ctx, b)
+				for _, c := range cs {
+					out[c.Name] = true
+				}
+				return out
+			}
+			if got := members(basic.ID); len(got) != 2 || !got["NBC"] || !got["CBS"] {
+				t.Errorf("Basic = %v, want only the created NBC and CBS", got)
+			}
+			if got := members(premium.ID); len(got) != 1 || !got["ABC"] {
+				t.Errorf("Premium = %v, want ABC alone", got)
+			}
+		})
 	}
 }

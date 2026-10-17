@@ -98,6 +98,11 @@ type Config struct {
 		// AutoNewChannels lets auto-match create channels; false only adds
 		// streams to channels that exist.
 		AutoNewChannels bool `yaml:"auto_new_channels"`
+		// AutoGroup is the channel group auto-created channels go in:
+		// "source" (named after the provider group), "none" or a name.
+		AutoGroup string `yaml:"auto_group"`
+		// AutoBouquets (names) receive the channels auto-match creates.
+		AutoBouquets []string `yaml:"auto_bouquets"`
 	} `yaml:"match"`
 	// HLS is the customer .m3u8 output (a segmenter over each channel's
 	// shared session).
@@ -175,6 +180,7 @@ func Defaults() Config {
 	c.Refresh.MaxDisablePct = 80
 	c.Match.MinProviders = 2
 	c.Match.AutoNewChannels = true
+	c.Match.AutoGroup = "source"
 	c.VOD.InfoTTL = Duration{24 * time.Hour}
 	c.Backup.Dir = "backups"
 	c.VOD.EpisodeTTL = Duration{6 * time.Hour}
@@ -293,14 +299,19 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
 	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
 	str("MMP_BACKUP_DIR", &c.Backup.Dir)
-	if v, ok := getenv("MMP_HTTP_TRUSTED_PROXIES"); ok {
-		c.HTTP.TrustedProxies = nil
-		for _, p := range strings.Split(v, ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				c.HTTP.TrustedProxies = append(c.HTTP.TrustedProxies, p)
+	list := func(key string, dst *[]string) {
+		if v, ok := getenv(key); ok {
+			*dst = nil
+			for _, p := range strings.Split(v, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					*dst = append(*dst, p)
+				}
 			}
 		}
 	}
+	list("MMP_HTTP_TRUSTED_PROXIES", &c.HTTP.TrustedProxies)
+	list("MMP_MATCH_AUTO_BOUQUETS", &c.Match.AutoBouquets)
+	str("MMP_MATCH_AUTO_GROUP", &c.Match.AutoGroup)
 	for _, e := range []error{
 		int32v("MMP_DB_MAX_CONNS", &c.DB.MaxConns),
 		dur("MMP_HTTP_READ_HEADER_TIMEOUT", &c.HTTP.ReadHeaderTimeout),
