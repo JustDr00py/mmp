@@ -200,3 +200,45 @@ func TestMatchSplitsFeeds(t *testing.T) {
 		}
 	}
 }
+
+// TestMatchSharedTvgID: some providers give one tvg-id to different
+// channels (Spectrum SportsNet's Lakers and Dodgers feeds). When a provider
+// carries differently named streams under one tvg-id, that tvg-id links
+// only streams whose names match too; elsewhere tvg-id matching is as
+// before (FS1 and Fox Sports 1 are one channel).
+func TestMatchSharedTvgID(t *testing.T) {
+	streams := []Stream{
+		{ID: 1, ProviderID: 1, Name: "US: Spectrum SportsNet Lakers HD", TvgID: "SpectrumSportsNet.us"},
+		{ID: 2, ProviderID: 1, Name: "US: Spectrum SportsNet Dodgers HD", TvgID: "SpectrumSportsNet.us"},
+		{ID: 3, ProviderID: 2, Name: "Spectrum SportsNet Lakers", TvgID: "spectrumsportsnet.us"},
+		{ID: 4, ProviderID: 2, Name: "Spectrum SportsNet Dodgers FHD", TvgID: "spectrumsportsnet.us"},
+		{ID: 5, ProviderID: 1, Name: "US: FS1", TvgID: "fs1.us"},
+		{ID: 6, ProviderID: 2, Name: "Fox Sports 1", TvgID: "FS1.us"},
+		{ID: 7, ProviderID: 1, Name: "US: A&E", TvgID: "aande.us"},      // East is the default feed:
+		{ID: 8, ProviderID: 1, Name: "US: A&E East", TvgID: "aande.us"}, // not two channels
+		{ID: 9, ProviderID: 2, Name: "A&E HD", TvgID: "aande.us"},
+	}
+	groups := map[string][]int64{}
+	for _, p := range Match(streams, nil, nil) {
+		groups[p.Name] = p.StreamIDs
+	}
+	for name, want := range map[string][]int64{
+		"Spectrum SportsNet Lakers":  {1, 3},
+		"Spectrum SportsNet Dodgers": {2, 4},
+		"FS1":                        {5, 6},
+		"A&E":                        {7, 8, 9},
+	} {
+		if got := groups[name]; !slices.Equal(got, want) {
+			t.Errorf("%s = %v, want %v (all: %v)", name, got, want, groups)
+		}
+	}
+
+	// An existing Dodgers channel with the shared tvg-id takes the Dodgers
+	// streams only.
+	for _, p := range Match(streams[:4], []Existing{{ID: 9, Name: "Spectrum SportsNet Dodgers", TvgID: "SpectrumSportsNet.us"}}, nil) {
+		dodgers := slices.Contains(p.StreamIDs, 2)
+		if dodgers != (p.ChannelID == 9) {
+			t.Errorf("proposal %v attached to channel %d", p.StreamIDs, p.ChannelID)
+		}
+	}
+}
