@@ -2,6 +2,7 @@ package output
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -78,5 +79,33 @@ func TestNoLimiterMeansNoLimiting(t *testing.T) {
 	}
 	if code, _, _ := get(t, h, "/get.php?username=alice&password=alice-pw1"); code != 200 {
 		t.Fatalf("correct password after failures = %d, want 200", code)
+	}
+}
+
+// TestLockoutSparesTheOwner: a stranger who knows a customer's username
+// locks it out for other networks only; the customer's player keeps
+// working from where it logged in.
+func TestLockoutSparesTheOwner(t *testing.T) {
+	_, h := newLimitedHandlers(t)
+	from := func(addr, path string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = addr
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := from("203.0.113.7:4000", "/get.php?username=alice&password=alice-pw1"); code != 200 {
+		t.Fatalf("alice at home = %d", code)
+	}
+	for i, addr := range []string{"198.51.100.1:1", "198.51.100.2:1", "198.51.100.3:1"} {
+		if code := from(addr, "/get.php?username=alice&password=bad"); code != http.StatusUnauthorized {
+			t.Fatalf("guess %d = %d", i, code)
+		}
+	}
+	if code := from("198.51.100.4:1", "/get.php?username=alice&password=alice-pw1"); code != http.StatusTooManyRequests {
+		t.Errorf("alice from a new network during the lockout = %d, want 429", code)
+	}
+	if code := from("203.0.113.7:4001", "/get.php?username=alice&password=alice-pw1"); code != 200 {
+		t.Errorf("alice at home during the lockout = %d, want 200", code)
 	}
 }

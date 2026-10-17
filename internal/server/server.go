@@ -37,6 +37,10 @@ type Server struct {
 
 // New builds the server with base middleware and /healthz registered.
 // pinger may be nil (health reports OK without a dependency check).
+// idleTimeout is how long a keep-alive connection may wait for its next
+// request. Players reload HLS playlists every few seconds, well within it.
+const idleTimeout = 2 * time.Minute
+
 func New(cfg config.Config, log *slog.Logger, pinger Pinger) *Server {
 	mux := chi.NewMux()
 	trusted, _ := cfg.TrustedProxyPrefixes() // checked by cfg.Validate
@@ -49,8 +53,11 @@ func New(cfg config.Config, log *slog.Logger, pinger Pinger) *Server {
 	s.http = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout.Duration,
-		// Streaming responses live for hours: no overall read/idle timeouts
-		// here; liveness is handled by session teardowns, not the server.
+		// Closes keep-alive connections left idle between requests, so
+		// idle sockets cannot pile up. It never cuts a response in flight.
+		IdleTimeout: idleTimeout,
+		// Streaming responses live for hours: no overall read/write
+		// timeouts here; liveness is handled by session teardowns.
 	}
 	return s
 }

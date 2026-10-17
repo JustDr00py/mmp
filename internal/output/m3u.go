@@ -119,19 +119,19 @@ func (h *Handlers) authFail(w http.ResponseWriter, err error) {
 }
 
 // authPassword authenticates a password-style request with failure lockout
-// (per client IP and per username). Locked-out attempts return a
+// (per client network and per username; see auth.Limiter). Locked-out attempts return a
 // *auth.LockedError; the caller picks the wire format its players expect.
 func (h *Handlers) authPassword(r *http.Request, user, pass string) (db.User, error) {
-	keys := auth.AttemptKeys(r, user)
-	if ok, retry := h.Limit.Allowed(keys...); !ok {
+	attempt := auth.NewAttempt(r, user)
+	if ok, retry := h.Limit.Allow(attempt); !ok {
 		return db.User{}, &auth.LockedError{RetryAfter: retry}
 	}
 	u, err := h.Access.Customers.ByPassword(r.Context(), user, pass)
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
-		h.Limit.Record(true, keys...)
+		h.Limit.Done(attempt, true)
 	case errors.Is(err, auth.ErrUnauthorized):
-		h.Limit.Record(false, keys...)
+		h.Limit.Done(attempt, false)
 	}
 	return u, err
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
@@ -31,7 +33,10 @@ type HLSConfig struct {
 // checks access, holds one of the user's connection slots in a lease and
 // redirects to /hls/{lease}/index.m3u8. Playlist reloads and segments are
 // addressed by the unguessable lease key, so they need no password check
-// and carry no credentials. A lease (and its slot) ends after Idle without
+// and carry no credentials. A lease only answers the client network that
+// opened it (and one more, for players that switch between IPv4 and IPv6),
+// so a shared lease link plays nowhere else: another network gets its own
+// lease and connection slot. A lease (and its slot) ends after Idle without
 // requests; a channel's segmenter stops when no lease uses it.
 type HLS struct {
 	cfg     HLSConfig
@@ -59,6 +64,7 @@ type hlsLease struct {
 	userID   int64
 	channel  *hlsChannel
 	slot     *proxy.Slot
+	nets     []string // client networks it answers (auth.ClientNetwork), at most maxLeaseNets
 	lastSeen time.Time
 	unlist   func() // drops it from the dashboard's viewers
 }
@@ -75,13 +81,16 @@ func NewHLS(ctx context.Context, cfg HLSConfig, streams StreamAttacher, access *
 // errHLSUnavailable means the channel's session could not be joined.
 var errHLSUnavailable = errors.New("hls: channel unavailable")
 
-// lease returns the key of u's lease on channel id, creating it (and
-// taking a connection slot) if u has none.
-func (h *HLS) lease(u db.User, id int64, addr string) (string, error) {
+// maxLeaseNets is how many client networks one lease answers.
+const maxLeaseNets = 2
+
+// lease returns the key of u's lease on channel id for client network
+// network, creating it (and taking a connection slot) if u has none there.
+func (h *HLS) lease(u db.User, id int64, addr, network string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, l := range h.leases {
-		if l.userID == u.ID && l.channel.id == id && !l.channel.stopped {
+		if l.userID == u.ID && l.channel.id == id && !l.channel.stopped && slices.Contains(l.nets, network) {
 			l.lastSeen = time.Now()
 			return l.key, nil
 		}
@@ -97,7 +106,7 @@ func (h *HLS) lease(u db.User, id int64, addr string) (string, error) {
 	}
 	var b [16]byte
 	rand.Read(b[:])
-	l := &hlsLease{key: hex.EncodeToString(b[:]), userID: u.ID, channel: ch, slot: slot, lastSeen: time.Now()}
+	l := &hlsLease{key: hex.EncodeToString(b[:]), userID: u.ID, channel: ch, slot: slot, nets: []string{network}, lastSeen: time.Now()}
 	_, l.unlist = h.access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username, Addr: addr,
 		Output: "hls", Since: l.lastSeen}, func() { h.drop(l.key) })
 	h.leases[l.key] = l
@@ -205,15 +214,24 @@ func (h *HLS) drop(key string) {
 	}
 }
 
-// touch finds a lease by key and marks it alive.
-func (h *HLS) touch(key string) (*hlsLease, bool) {
+// touch finds a lease by key for a request from client network network
+// and marks it alive. A lease does not answer a network beyond its
+// maxLeaseNets.
+func (h *HLS) touch(key, network string) (*hlsLease, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	l, ok := h.leases[key]
-	if ok {
-		l.lastSeen = time.Now()
+	if !ok {
+		return nil, false
 	}
-	return l, ok
+	if !slices.Contains(l.nets, network) {
+		if len(l.nets) >= maxLeaseNets {
+			return nil, false
+		}
+		l.nets = append(l.nets, network)
+	}
+	l.lastSeen = time.Now()
+	return l, true
 }
 
 // Mount registers the lease-addressed routes.
@@ -234,7 +252,7 @@ func allowCORS(w http.ResponseWriter) {
 
 func (h *HLS) playlist(w http.ResponseWriter, r *http.Request) {
 	allowCORS(w)
-	l, ok := h.touch(chi.URLParam(r, "key"))
+	l, ok := h.touch(chi.URLParam(r, "key"), auth.ClientNetwork(r))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -257,7 +275,7 @@ func (h *HLS) playlist(w http.ResponseWriter, r *http.Request) {
 
 func (h *HLS) segment(w http.ResponseWriter, r *http.Request) {
 	allowCORS(w)
-	l, ok := h.touch(chi.URLParam(r, "key"))
+	l, ok := h.touch(chi.URLParam(r, "key"), auth.ClientNetwork(r))
 	if !ok {
 		http.NotFound(w, r)
 		return

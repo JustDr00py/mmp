@@ -343,7 +343,7 @@ admin:                        # only used to create the first admin
 | `hls.enabled` | `MMP_HLS_ENABLED` | `true` | offer `.m3u8` (HLS) streams to players |
 | `hls.segment` | `MMP_HLS_SEGMENT` | `2s` | target segment length (shorter = faster start, more requests) |
 | `hls.window` | `MMP_HLS_WINDOW` | `6` | segments listed in a live playlist |
-| `hls.idle_timeout` | `MMP_HLS_IDLE_TIMEOUT` | `30s` | an HLS client silent this long has left (frees its connection slot) |
+| `hls.idle_timeout` | `MMP_HLS_IDLE_TIMEOUT` | `30s` | an HLS client silent this long has left (frees its connection slot). An HLS stream link only plays on the network that opened it (plus its IPv4/IPv6 counterpart), so sharing it does not get around *Max connections* |
 
 ### Health prober
 
@@ -372,7 +372,7 @@ because each probe uses one of the provider's connections.
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `auth.session_ttl` | `MMP_AUTH_SESSION_TTL` | `168h` | admin sign-in lifetime |
-| `auth.max_attempts` | `MMP_AUTH_MAX_ATTEMPTS` | `10` | failed logins (per client IP and per username) before a lockout; `0` disables it |
+| `auth.max_attempts` | `MMP_AUTH_MAX_ATTEMPTS` | `10` | failed logins before a lockout, counted per client address (IPv6 per /64) and per username; `0` disables it. A username lockout does not apply where that user logged in successfully in the last 30 days, so a stranger guessing a customer's password cannot lock the customer's own players out |
 | `auth.lockout` | `MMP_AUTH_LOCKOUT` | `5m` | lockout duration |
 | `metrics.enabled` | `MMP_METRICS_ENABLED` | `true` | serve `/metrics` |
 | `metrics.token` | `MMP_METRICS_TOKEN` | — | if set, scrapes need `Authorization: Bearer <token>` |

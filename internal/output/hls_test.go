@@ -82,10 +82,35 @@ func newHLSServer(t *testing.T, idle time.Duration) (*httptest.Server, *Handlers
 	hs.HLS = NewHLS(ctx, HLSConfig{Segment: time.Second, Window: 4, Idle: idle}, m, hs.Access, slog.New(slog.DiscardHandler))
 	srv := httptest.NewUnstartedServer(nil)
 	hs.BaseURL = "http://" + srv.Listener.Addr().String()
-	srv.Config.Handler = chiRouter(hs)
+	srv.Config.Handler = fromAddr(chiRouter(hs))
 	srv.Start()
 	t.Cleanup(func() { srv.Close(); cancel(); m.Shutdown() })
 	return srv, hs, hits
+}
+
+// fromAddr lets a test request come from another client address
+// (X-Test-Addr: host:port).
+func fromAddr(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a := r.Header.Get("X-Test-Addr"); a != "" {
+			r.RemoteAddr = a
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// getFrom is an un-followed GET from client address addr.
+func getFrom(t *testing.T, addr, u string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, u, nil)
+	req.Header.Set("X-Test-Addr", addr)
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp
 }
 
 const clipSecs = 15
@@ -149,6 +174,40 @@ func TestHLSOutputPlaylistAndSegments(t *testing.T) {
 	}
 	if n := hits.Load(); n != 1 {
 		t.Errorf("upstream requests = %d, want 1", n)
+	}
+}
+
+// TestHLSLeaseBoundToNetworks: a lease link answers the network that
+// opened it and one more (IPv4/IPv6), not a third it was shared with; a
+// start from that third network needs its own slot.
+func TestHLSLeaseBoundToNetworks(t *testing.T) {
+	srv, hs, _ := newHLSServer(t, 5*time.Second)
+	resp := getFrom(t, "203.0.113.7:4000", srv.URL+"/live/alice/alice-pw1/10.m3u8")
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("start = %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	for _, tt := range []struct {
+		addr string
+		want int
+	}{
+		{"203.0.113.7:4001", 200},            // the opener
+		{"[2001:db8:5:6::1]:4000", 200},      // its IPv6 side
+		{"[2001:db8:5:6:ffff::2]:4000", 200}, // same /64
+		{"198.51.100.20:4000", 404},          // shared elsewhere
+		{"203.0.113.7:4002", 200},            // still fine for the opener
+	} {
+		if resp := getFrom(t, tt.addr, loc); resp.StatusCode != tt.want {
+			t.Errorf("playlist from %s = %d, want %d", tt.addr, resp.StatusCode, tt.want)
+		}
+	}
+	// Reopening from the other network asks for a lease of its own, and
+	// alice's only slot is taken.
+	if resp := getFrom(t, "198.51.100.20:4000", srv.URL+"/live/alice/alice-pw1/10.m3u8"); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("start from another network = %d, want 403 (connection limit)", resp.StatusCode)
+	}
+	if n := hs.HLS.Leases(); n != 1 {
+		t.Errorf("leases = %d, want 1", n)
 	}
 }
 
