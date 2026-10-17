@@ -1,0 +1,28 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Events{{with $d.Channel}}: {{.}}{{end}}</h1>
+    <p class="lede">What happened to channels' streams: failovers and why they happened, switches by an admin, streams that would
+      not open and channels that went down. Kept for the number of days set on the <a href="/admin/settings">Settings</a> page.</p></div>
+</div>
+<form class="search row" method="get" action="/admin/events">
+  {{if $d.ChannelID}}<input type="hidden" name="channel" value="{{$d.ChannelID}}">{{end}}
+  <select name="type" aria-label="Type" data-autosubmit>
+    <option value="">All events</option>
+    {{range $d.Types}}<option value="{{.Value}}"{{if eq .Value $d.Type}} selected{{end}}>{{.Label}}</option>{{end}}
+  </select>
+  <select name="provider" aria-label="Provider" data-autosubmit>
+    <option value="0">All providers</option>
+    {{range $d.Providers}}<option value="{{.ID}}"{{if eq .ID $d.ProviderID}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  {{if $d.ChannelID}}<a class="small" href="{{$d.AllChannels}}">All channels</a>{{end}}
+  <noscript><button type="submit" class="small secondary">Filter</button></noscript>
+</form>
+{{if $d.Rows}}
+<ul class="events">{{range $d.Rows}}{{template "event-item" .}}{{end}}</ul>
+<nav class="pager">
+  {{if $d.Offset}}<a href="{{call $d.Query $d.PrevOffset}}">← Newer</a>{{end}}
+  {{if $d.NextOffset}}<a href="{{call $d.Query $d.NextOffset}}">Older →</a>{{end}}
+</nav>
+{{else}}<div class="card empty"><p>No events{{if or $d.ChannelID $d.ProviderID $d.Type}} match{{else}} yet{{end}}.</p></div>{{end}}
+{{end}}

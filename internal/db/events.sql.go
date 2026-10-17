@@ -40,6 +40,62 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 	return err
 }
 
+const listEvents = `-- name: ListEvents :many
+SELECT id, ts, type, channel_id, provider_id, from_stream_id, to_stream_id, message FROM events e
+WHERE ($1::bigint IS NULL OR e.channel_id = $1)
+  AND ($2::text IS NULL OR e.type = $2)
+  AND ($3::bigint IS NULL OR e.provider_id = $3
+       OR EXISTS (SELECT 1 FROM provider_streams ps WHERE ps.provider_id = $3
+                  AND ps.id IN (e.from_stream_id, e.to_stream_id)))
+ORDER BY e.ts DESC, e.id DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListEventsParams struct {
+	ChannelID  *int64  `json:"channel_id"`
+	Type       *string `json:"type"`
+	ProviderID *int64  `json:"provider_id"`
+	Offset     int32   `json:"offset"`
+	Limit      int32   `json:"limit"`
+}
+
+// The events page: newest first, optionally for one channel, one provider
+// (the event's own, or that of a stream it names) or one type.
+func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEvents,
+		arg.ChannelID,
+		arg.Type,
+		arg.ProviderID,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ts,
+			&i.Type,
+			&i.ChannelID,
+			&i.ProviderID,
+			&i.FromStreamID,
+			&i.ToStreamID,
+			&i.Message,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentEvents = `-- name: ListRecentEvents :many
 SELECT id, ts, type, channel_id, provider_id, from_stream_id, to_stream_id, message FROM events
 WHERE ($1::bigint IS NULL OR channel_id = $1)
@@ -79,4 +135,18 @@ func (q *Queries) ListRecentEvents(ctx context.Context, arg ListRecentEventsPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneEvents = `-- name: PruneEvents :execrows
+DELETE FROM events WHERE id IN (
+    SELECT old.id FROM events old WHERE old.ts < $1::timestamptz LIMIT 10000)
+`
+
+// Deletes up to 10000 events older than before (call until it returns 0).
+func (q *Queries) PruneEvents(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneEvents, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -139,6 +139,9 @@ type Store interface {
 	ListBouquetVODCategories(ctx context.Context, bouquetID int64) ([]db.ListBouquetVODCategoriesRow, error)
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
+	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
+	GetSetting(ctx context.Context, key string) ([]byte, error)
+	SetSetting(ctx context.Context, arg db.SetSettingParams) error
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
 	LiveChannelInfo(ctx context.Context, ids []int64) ([]db.LiveChannelInfoRow, error)
 	LiveChannelStreams(ctx context.Context, ids []int64) ([]db.LiveChannelStreamsRow, error)
@@ -213,6 +216,7 @@ type navItem struct {
 
 var nav = []navItem{
 	{Prefix + "/", "Dashboard", "home", ""},
+	{Prefix + "/events", "Events", "clock", ""},
 	{Prefix + "/providers", "Providers", "server", "Sources"},
 	{Prefix + "/epg", "Guide", "guide", ""},
 	{Prefix + "/match", "Match", "match", "Lineup"},
@@ -227,7 +231,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -332,6 +336,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountChannels(r)
 			ui.mountChannelGroups(r)
 			ui.mountSettings(r)
+			ui.mountEvents(r)
 			ui.mountMatch(r)
 			ui.mountUsers(r)
 			ui.mountBouquets(r)

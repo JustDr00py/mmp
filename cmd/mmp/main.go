@@ -25,6 +25,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/config"
 	"github.com/JustDr00py/mmp/internal/db"
+	eventlog "github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/health"
 	"github.com/JustDr00py/mmp/internal/metrics"
 	"github.com/JustDr00py/mmp/internal/output"
@@ -144,6 +145,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 
 	queries := db.New(pool)
+	go eventlog.RunPruner(ctx, queries, log, time.Hour) // keep events to their set age
 	if err := auth.EnsureAdmin(ctx, queries, log, cfg.Admin.Username, cfg.Admin.Password); err != nil {
 		return err
 	}

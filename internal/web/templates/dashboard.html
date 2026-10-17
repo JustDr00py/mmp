@@ -37,13 +37,9 @@
 {{else}}<div class="card empty"><p>Nobody is watching right now.</p><p class="muted">Channels appear here as soon as a customer starts playing one.</p></div>{{end}}
 <div class="split">
   <section>
-    <h2>Recent events</h2>
+    <div class="section-head"><h2>Recent events</h2><a class="small" href="/admin/events">View all</a></div>
     {{if .Events}}
-    <ul class="events">{{range .Events}}
-      <li><span class="mono muted">{{.At}}</span>
-        {{if eq .Type "failover"}}<span class="pill warn">failover</span>{{else if eq .Type "exhausted"}}<span class="pill bad">down</span>{{else if eq .Type "switch"}}<span class="pill ok">switch</span>{{else if eq .Type "open_failed"}}<span class="pill off">open failed</span>{{else}}<span class="pill off">{{.Type}}</span>{{end}}
-        {{if .ChannelID}}<a href="/admin/channels/{{.ChannelID}}">{{if .Channel}}{{.Channel}}{{else}}#{{.ChannelID}}{{end}}</a>{{end}}
-        <span class="sub">{{.Message}}</span></li>{{end}}
+    <ul class="events">{{range .Events}}{{template "event-item" .}}{{end}}
     </ul>
     {{else}}<p class="muted">No failovers or upstream errors recorded.</p>{{end}}
   </section>

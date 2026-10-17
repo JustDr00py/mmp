@@ -450,3 +450,7 @@ details.restore[open] .restore-form { position: absolute; right: 0; top: calc(10
 .lc-viewers td, .lc-viewers th { padding: .4rem .5rem; }
 .lc-viewers .icon-btn { width: 26px; height: 26px; }
 @media (max-width: 480px) { .lc-viewers .wide-only { display: none; } }
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; }
+.event-detail { display: flex; flex-direction: column; gap: .1rem; flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.settings-section + .settings-section { margin-top: 2rem; }
+label > input.short:not([type=checkbox]):not([type=radio]) { width: 8rem; }

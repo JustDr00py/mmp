@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -236,11 +237,12 @@ func TestSessionFailoverKeepsClientContinuous(t *testing.T) {
 		wantA       bool   // viewer sees A's packets first
 		wantFailEvt string // event type naming stream 1 as the failure
 		wantCoolA   bool
+		wantWhy     string // in the event's message
 	}{
-		{"stall", "stall", false, true, EventFailover, true},
-		{"eof", "eof", false, true, EventFailover, true},
-		{"503", "503", false, false, EventOpenFailed, true},
-		{"slot full", "ok", true, false, "", false},
+		{"stall", "stall", false, true, EventFailover, true, "no data for "},
+		{"eof", "eof", false, true, EventFailover, true, "the provider ended the stream"},
+		{"503", "503", false, false, EventOpenFailed, true, "503"},
+		{"slot full", "ok", true, false, "", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -308,6 +310,8 @@ func TestSessionFailoverKeepsClientContinuous(t *testing.T) {
 					t.Errorf("%s events = %+v", tt.wantFailEvt, evs)
 				} else if tt.wantFailEvt == EventFailover && evs[0].ToStreamID != 2 {
 					t.Errorf("failover to = %d, want 2", evs[0].ToStreamID)
+				} else if !strings.Contains(evs[0].Message, tt.wantWhy) {
+					t.Errorf("%s message = %q, want it to say %q", tt.wantFailEvt, evs[0].Message, tt.wantWhy)
 				}
 			}
 			if got := h.cool.Active(1, time.Now()); got != tt.wantCoolA {
@@ -369,8 +373,9 @@ func TestSessionExhausted(t *testing.T) {
 	if _, err := h.watch(t, time.Second, func([][]byte) bool { return false }); !errors.Is(err, io.EOF) {
 		t.Errorf("viewer = %v, want EOF once exhausted", err)
 	}
-	if n := len(h.eventsOf(EventExhausted)); n != 1 {
-		t.Errorf("exhausted events = %d", n)
+	if evs := h.eventsOf(EventExhausted); len(evs) != 1 || !strings.Contains(evs[0].Message, "no stream played for ") ||
+		!strings.Contains(evs[0].Message, "last problem: ") {
+		t.Errorf("exhausted events = %+v", evs)
 	}
 	if a.hits.Load() < 2 {
 		t.Errorf("A tried %d times; expected retries after cooldown", a.hits.Load())
@@ -573,5 +578,14 @@ func TestSessionSwitch(t *testing.T) {
 	h.sess.Switch(1)
 	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'A') >= 100 }); err != nil {
 		t.Fatalf("could not switch to a cooling stream: %v", err)
+	}
+}
+
+func TestShortDur(t *testing.T) {
+	for d, want := range map[time.Duration]string{12 * time.Second: "12s", 90 * time.Second: "1m30s",
+		2 * time.Minute: "2m", time.Hour: "1h", 1500 * time.Millisecond: "2s"} {
+		if got := shortDur(d); got != want {
+			t.Errorf("shortDur(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

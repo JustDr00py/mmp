@@ -1,0 +1,6 @@
+{{define "event-item"}}
+<li><span class="mono muted" title="{{.Full}}">{{.When}}</span>
+  {{if eq .Type "failover"}}<span class="pill warn">failover</span>{{else if eq .Type "exhausted"}}<span class="pill bad">down</span>{{else if eq .Type "switch"}}<span class="pill ok">switch</span>{{else if eq .Type "open_failed"}}<span class="pill off">open failed</span>{{else}}<span class="pill off">{{.Type}}</span>{{end}}
+  {{if .ChannelID}}<a href="/admin/channels/{{.ChannelID}}">{{if .Channel}}{{.Channel}}{{else}}#{{.ChannelID}}{{end}}</a>{{end}}
+  <span class="event-detail">{{with .Streams}}<span>{{.}}</span>{{end}}{{with .Message}}<span class="sub">{{.}}</span>{{end}}</span></li>
+{{end}}

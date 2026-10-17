@@ -462,7 +462,11 @@ uses one of their connections and one of the provider's.
   watching (IP, user, connected since). Stop a channel or disconnect a viewer from the card; players
   may reconnect. Codecs come from the stream itself; resolution, frame rate and audio layout need
   `ffprobe` (the `-ffmpeg` image, or `probe.ffprobe_path`). Also provider connection slots and recent
-  failovers. Updates live.
+  events. Updates live.
+- **Events** (`/admin/events`): every failover with the streams and providers involved and why it
+  happened (no data, low bitrate, a corrupted stream, the provider ending it), switches by an admin,
+  streams that would not open (with the error) and channels that went down. Filter by type, provider
+  or channel (a channel's page links to its own). Kept 30 days by default; change it on **Settings**.
 - **`/healthz`**: liveness for load balancers and the container healthcheck.
 - **`/metrics`**: Prometheus metrics: `mmp_sessions{state}`, `mmp_session_viewers`,
   `mmp_customer_connections`, `mmp_provider_slots_in_use{provider_id}`, `mmp_failovers_total`,
@@ -526,7 +530,7 @@ uses one of their connections and one of the provider's.
 
 | Symptom | Check |
 |---|---|
-| Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the Dashboard's recent events (open failures, *down*) |
+| Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the **Events** page (open failures with their error, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
 | A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps. `eof` right after a switch can be the provider kicking a connection over its limit |
 | Channel shows no guide | Guide page → *Only channels without a guide*; set the channel's tvg-id to the guide's channel id; check the source downloaded |

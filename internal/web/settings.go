@@ -4,11 +4,13 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/events"
 )
 
 // The Settings page holds settings that apply while MMP runs (stored in
@@ -18,10 +20,12 @@ import (
 func (ui *UI) mountSettings(r chi.Router) {
 	r.Get("/settings", ui.settingsPage)
 	r.Post("/settings/match", ui.settingsMatchSave)
+	r.Post("/settings/events", ui.settingsEventsSave)
 }
 
 type settingsData struct {
 	Match         channel.MatchSettings
+	Events        events.Retention
 	ChannelGroups []db.ChannelGroup
 	Bouquets      []db.Bouquet
 	Picked        map[int64]bool // ticked bouquets
@@ -46,6 +50,9 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 	} else if d.Match, err = ui.Match.MatchSettings(r.Context()); err != nil {
 		return d, err
 	}
+	if d.Events, err = events.LoadRetention(r.Context(), ui.Store); err != nil {
+		return d, err
+	}
 	if d.ChannelGroups, err = ui.Store.ListChannelGroups(r.Context()); err != nil {
 		return d, err
 	}
@@ -68,8 +75,11 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "settings", err)
 		return
 	}
-	if r.URL.Query().Get("msg") == "match" {
+	switch r.URL.Query().Get("msg") {
+	case "match":
 		d.Flash = "Matching settings saved. They apply from the next provider refresh."
+	case "events":
+		d.Flash = "Event history saved. Older events are deleted within the hour."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
@@ -110,4 +120,28 @@ func (ui *UI) settingsMatchSave(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: match settings saved", "auto", m.Auto, "new_channels", m.NewChannels)
 	ui.redirect(w, r, Prefix+"/settings?msg=match")
+}
+
+func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	ret := events.Retention{KeepDays: atoi(strings.TrimSpace(r.PostForm.Get("keep_days")))}
+	if err := ret.Validate(); err != nil {
+		d, derr := ui.settingsData(r, nil)
+		if derr != nil {
+			ui.fail(w, "settings", derr)
+			return
+		}
+		d.Events, d.Error = ret, err.Error()
+		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
+		return
+	}
+	if err := events.SaveRetention(r.Context(), ui.Store, ret); err != nil {
+		ui.fail(w, "save event retention", err)
+		return
+	}
+	ui.Log.Info("web: event retention saved", "keep_days", ret.KeepDays)
+	ui.redirect(w, r, Prefix+"/settings?msg=events")
 }
