@@ -164,9 +164,12 @@ label.inline { display: flex; align-items: center; gap: .5rem; flex-direction: r
 form.narrow { max-width: 560px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
 .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
+.grid2.top { align-items: start; }
 fieldset { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .65rem .9rem .85rem; margin: 0; }
 legend { font-size: .85rem; font-weight: 600; color: var(--fg); padding: 0 .35rem; }
 .checks { display: flex; flex-wrap: wrap; gap: .45rem 1.25rem; }
+.stack-tight { display: grid; gap: .5rem; }
+.indent { margin-left: 1.6rem; }
 .row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .search { margin-bottom: 1rem; }
 .search input[type=search] { width: 100%; max-width: 440px; }

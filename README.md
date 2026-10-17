@@ -185,6 +185,11 @@ them. On **Groups**, create, rename, reorder (sort order = order in the player) 
 
 ![Groups: the categories players show, with their sort order and channel counts](docs/screenshots/groups.png)
 
+**Keep it up to date automatically:** on **Settings**, turn on *Match channels after each provider refresh*.
+After every refresh, new streams join the channels they match as extra failover streams. With *Create
+channels for new streams* on, a channel is also created once enough providers offer it, in the group and
+bouquets you choose there. Existing channels never change group or bouquets.
+
 ### 3. Put channels in a bouquet
 
 Customers only see channels from the **bouquets** granted to them. **Bouquets → New bouquet**, then tick
@@ -256,6 +261,11 @@ Settings come from built-in defaults, then the YAML file given with `-config`, t
 variables. Later sources win. Durations use Go syntax: `500ms`, `5s`, `10m`, `6h`. Invalid values stop
 MMP at startup with a message naming the key.
 
+Some settings live on the admin UI's **Settings** page instead, and take effect without a restart. They are
+stored in the database, so backups include them. For those, the configuration file and environment only
+give the starting values: they are copied in on the first start, and later changes to them are ignored.
+These are marked *Settings page* below. Today that is automatic matching.
+
 <details>
 <summary><strong>Example <code>mmp.yaml</code></strong></summary>
 
@@ -320,11 +330,11 @@ admin:                        # only used to create the first admin
 | `refresh.interval` | `MMP_REFRESH_INTERVAL` | `6h` | refresh interval new providers start with; each provider then keeps its own (provider form) |
 | `refresh.epg_interval` | `MMP_REFRESH_EPG_INTERVAL` | `12h` | guide download interval |
 | `refresh.max_disable_pct` | `MMP_REFRESH_MAX_DISABLE_PCT` | `80` | a refresh that would remove more than this % of a provider's streams is refused (probably a truncated answer); `100` turns the guard off; each provider can override it |
-| `match.auto` | `MMP_MATCH_AUTO` | `false` | apply match suggestions automatically after every refresh |
-| `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | auto-match only creates channels seen at this many providers |
-| `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
-| `match.auto_group` | `MMP_MATCH_AUTO_GROUP` | `source` | channel group for channels auto-match creates: `source` (named after the provider group), `none`, or a group name (created if missing). Existing channels keep their group |
-| `match.auto_bouquets` | `MMP_MATCH_AUTO_BOUQUETS` | `auto` | bouquets for channels auto-match creates. `auto`: the bouquets holding most (over half) of the other channels in the new channel's group, none if the group has no other channels; `none`; or bouquet names (comma-separated in the env var). Existing channels that only gain a stream keep their bouquets |
+| `match.auto` | `MMP_MATCH_AUTO` | `false` | *Settings page.* Apply match suggestions automatically after every refresh |
+| `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | *Settings page.* Auto-match only creates channels seen at this many providers |
+| `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | *Settings page.* `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
+| `match.auto_group` | `MMP_MATCH_AUTO_GROUP` | `source` | *Settings page.* Channel group for channels auto-match creates: `source` (named after the provider group), `none`, or a group name (created if missing). Existing channels keep their group |
+| `match.auto_bouquets` | `MMP_MATCH_AUTO_BOUQUETS` | `auto` | *Settings page.* Bouquets for channels auto-match creates. `auto`: the bouquets holding most (over half) of the other channels in the new channel's group, none if the group has no other channels; `none`; or bouquet names (comma-separated in the env var). Existing channels that only gain a stream keep their bouquets |
 
 ### Customer output
 

@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Settings</h1>
+    <p class="lede">Settings that apply while MMP runs, without a restart. They are stored with your data, so backups include them.
+      Values in <span class="mono">.env</span> or the config file are only used the first time MMP starts; after that, change them here.</p></div>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<section>
+  <h2>Automatic matching</h2>
+  <form class="card form" method="post" action="/admin/settings/match">
+    <label class="check"><input type="checkbox" name="auto"{{if $d.Match.Auto}} checked{{end}}> Match channels after each provider refresh</label>
+    <span class="hint">New streams are added as failover streams to the channels they match. Existing channels keep their group and bouquets.</span>
+    <label class="check"><input type="checkbox" name="new_channels"{{if $d.Match.NewChannels}} checked{{end}}> Create channels for new streams</label>
+    <div class="grid2 top">
+      <label>Minimum providers
+        <input type="number" name="min_providers" min="1" max="100" value="{{$d.Match.MinProviders}}" required>
+        <span class="hint">A channel is created only once this many providers offer it. 1 creates one for every new stream.</span></label>
+      <label>Put new channels in
+        <select name="group">
+          <option value="source"{{if eq $d.GroupValue "source"}} selected{{end}}>a group named after the provider group</option>
+          <option value="none"{{if eq $d.GroupValue "none"}} selected{{end}}>no channel group (shows as Uncategorized)</option>
+          {{range $d.ChannelGroups}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $d.GroupValue}} selected{{end}}>group “{{.Name}}”</option>{{end}}
+        </select>
+        {{if $d.GroupMissing}}<span class="errmsg small">The group chosen before was deleted; new channels get no group until you choose another.</span>{{end}}</label>
+    </div>
+    <fieldset>
+      <legend>Add new channels to bouquets</legend>
+      <div class="stack-tight">
+        <label class="check"><input type="radio" name="bouquets" value="auto"{{if eq $d.Match.Bouquets "auto"}} checked{{end}}> The bouquets most channels in their group are in</label>
+        <label class="check"><input type="radio" name="bouquets" value="none"{{if eq $d.Match.Bouquets "none"}} checked{{end}}> None</label>
+        <label class="check"><input type="radio" name="bouquets" value="fixed"{{if eq $d.Match.Bouquets "fixed"}} checked{{end}}> These bouquets:</label>
+        {{if $d.Bouquets}}<div class="checks indent">
+          {{range $d.Bouquets}}<label class="check"><input type="checkbox" name="bq" value="{{.ID}}"{{if index $d.Picked .ID}} checked{{end}}> {{.Name}}</label>{{end}}
+        </div>{{else}}<span class="muted indent">No bouquets yet. <a href="/admin/bouquets">Create one</a>.</span>{{end}}
+      </div>
+    </fieldset>
+    <div class="row"><button type="submit">Save</button><span class="hint">Applies from the next provider refresh. To match now, use the <a href="/admin/match">Match</a> page.</span></div>
+  </form>
+</section>
+{{end}}

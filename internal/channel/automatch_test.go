@@ -3,7 +3,7 @@ package channel
 import "testing"
 
 func TestBouquetMode(t *testing.T) {
-	for in, want := range map[string]string{"": "auto", "auto": "auto", " Auto ": "auto", "none": "none", "NONE": "none", "Basic": "names"} {
+	for in, want := range map[string]string{"": "auto", "auto": "auto", " Auto ": "auto", "none": "none", "NONE": "none", "Basic": "fixed"} {
 		v := []string{in}
 		if in == "" {
 			v = nil
@@ -12,7 +12,7 @@ func TestBouquetMode(t *testing.T) {
 			t.Errorf("bouquetMode(%q) = %s, want %s", in, got, want)
 		}
 	}
-	if got := bouquetMode([]string{"none", "Basic"}); got != "names" {
+	if got := bouquetMode([]string{"none", "Basic"}); got != "fixed" {
 		t.Errorf("two names = %s", got)
 	}
 }
