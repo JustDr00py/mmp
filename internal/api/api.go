@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/JustDr00py/mmp/internal/audit"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
@@ -30,6 +31,8 @@ type Env struct {
 	Auth *auth.Authenticator
 	// LoginLimit locks out repeated login failures (nil = no limiting).
 	LoginLimit *auth.Limiter
+	// Audit records sign-ins and every change (nil = not recorded).
+	Audit *audit.Recorder
 	// InTx runs fn against a transactional Store. Nil runs fn directly on
 	// Store (unit tests with in-memory fakes).
 	InTx func(ctx context.Context, fn func(Store) error) error
@@ -149,6 +152,7 @@ func Mount(r chi.Router, env *Env) {
 		if env.Auth != nil {
 			r.Use(env.Auth.RequireAdmin)
 		}
+		r.Use(env.Audit.Middleware("api"))
 		mountAuthPrivate(r, env)
 		MountProviders(r, env)
 		MountChannels(r, env)

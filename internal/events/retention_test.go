@@ -41,6 +41,7 @@ func (f *fakeStore) PruneEvents(_ context.Context, before time.Time) (int64, err
 func (f *fakeStore) PruneViewingSessions(context.Context, time.Time) (int64, error) { return 0, nil }
 func (f *fakeStore) PruneUserNetworks(context.Context, time.Time) (int64, error)    { return 0, nil }
 func (f *fakeStore) PruneAuthFailures(context.Context, time.Time) (int64, error)    { return 0, nil }
+func (f *fakeStore) PruneAudit(context.Context, time.Time) (int64, error)           { return 0, nil }
 
 func TestPrune(t *testing.T) {
 	ctx := context.Background()

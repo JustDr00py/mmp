@@ -473,6 +473,11 @@ uses one of their connections and one of the provider's.
   they came from. The Users list shows everyone's last seen. Successful logins are recorded at most
   once a minute per network, so busy players add little. This stores customers' IP addresses: it is
   kept as long as events and deleted with the user.
+- **Audit log** (`/admin/audit`): who did what and from which address: admin sign-ins and failed
+  attempts, every change made in the admin UI or through the API (with the item's name, read before a
+  delete removes it), and backup downloads. Changes that were refused are not listed, and what was
+  typed into forms (passwords included) is never stored. Filter by admin or by what was changed.
+  Kept as long as events.
 - **`/healthz`**: liveness for load balancers and the container healthcheck.
 - **`/metrics`**: Prometheus metrics: `mmp_sessions{state}`, `mmp_session_viewers`,
   `mmp_customer_connections`, `mmp_provider_slots_in_use{provider_id}`, `mmp_failovers_total`,

@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+type AdminAudit struct {
+	ID         int64     `json:"id"`
+	Ts         time.Time `json:"ts"`
+	UserID     *int64    `json:"user_id"`
+	Username   string    `json:"username"`
+	Ip         string    `json:"ip"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	TargetName string    `json:"target_name"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Via        string    `json:"via"`
+}
+
 type AdminSession struct {
 	TokenHash []byte    `json:"token_hash"`
 	UserID    int64     `json:"user_id"`

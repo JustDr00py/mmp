@@ -1,5 +1,5 @@
-// Package events keeps the events table (failovers, open failures, outages)
-// and customer activity to a set age.
+// Package events keeps the events table (failovers, open failures, outages),
+// customer activity and the admin audit log to a set age.
 package events
 
 import (
@@ -74,9 +74,10 @@ type PruneStore interface {
 	PruneViewingSessions(ctx context.Context, before time.Time) (int64, error)
 	PruneUserNetworks(ctx context.Context, before time.Time) (int64, error)
 	PruneAuthFailures(ctx context.Context, before time.Time) (int64, error)
+	PruneAudit(ctx context.Context, before time.Time) (int64, error)
 }
 
-// Prune deletes the events and customer activity older than the
+// Prune deletes the events, customer activity and audit entries older than the
 // retention, in batches so a large first prune does not hold one long
 // transaction. It returns how many rows went.
 func Prune(ctx context.Context, q PruneStore, now time.Time) (int64, error) {
@@ -94,6 +95,7 @@ func Prune(ctx context.Context, q PruneStore, now time.Time) (int64, error) {
 		{"viewing sessions", q.PruneViewingSessions},
 		{"user networks", q.PruneUserNetworks},
 		{"failed logins", q.PruneAuthFailures},
+		{"audit log", q.PruneAudit},
 	} {
 		for {
 			n, err := t.prune(ctx, before)

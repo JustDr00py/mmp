@@ -21,6 +21,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/api"
+	"github.com/JustDr00py/mmp/internal/audit"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
@@ -150,6 +151,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 
 	queries := db.New(pool)
+	auditLog := &audit.Recorder{Store: queries, Namer: audit.StoreNamer(queries), Log: log}
 	go eventlog.RunPruner(ctx, queries, log, time.Hour) // keep events to their set age
 	if err := auth.EnsureAdmin(ctx, queries, log, cfg.Admin.Username, cfg.Admin.Password); err != nil {
 		return err
@@ -184,7 +186,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	refresher.AfterRefresh = matcher.AutoMatchHook()
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, DefaultRefresh: cfg.Refresh.Interval.Duration,
+		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}
@@ -215,7 +217,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Backups: backups, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
-		LoginLimit: loginLimit,
+		LoginLimit: loginLimit, Audit: auditLog,
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}})
