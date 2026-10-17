@@ -1,12 +1,14 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -238,6 +240,8 @@ func (s *Session) Run(ctx context.Context) error {
 
 	failingSince := time.Now() // nothing is playing yet
 	var lastFailed int64       // stream that failed most recently, for the failover event
+	var failedWhy string       // why lastFailed failed, in words
+	var lastProblem string     // the latest failure of any kind, for the exhausted event
 	spliced := false           // true once any upstream has fed the ring
 
 	for {
@@ -275,10 +279,11 @@ func (s *Session) Run(ctx context.Context) error {
 				s.log.Warn("session: open failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 					"cooldown", d, "err", err)
 				s.emit(Event{Type: EventOpenFailed, ProviderID: c.ProviderID, FromStreamID: c.StreamID, Message: err.Error()})
+				lastProblem = err.Error()
 				continue
 			}
 
-			res := s.stream(ctx, c, rc, spliced, lastFailed, c.StreamID == preferred)
+			res := s.stream(ctx, c, rc, spliced, lastFailed, failedWhy, c.StreamID == preferred)
 			rc.Close()
 			slot.Release()
 			if res.delivered {
@@ -290,7 +295,7 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 			if res.reason == reasonSwitched {
 				s.log.Info("session: switching stream", "from_stream_id", c.StreamID)
-				lastFailed = c.StreamID // the switch event names it
+				lastFailed, failedWhy = c.StreamID, "" // the switch event names it
 				played = true
 				break
 			}
@@ -298,7 +303,8 @@ func (s *Session) Run(ctx context.Context) error {
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 			s.log.Warn("session: upstream failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 				"reason", res.reason, "cooldown", d)
-			lastFailed = c.StreamID
+			lastFailed, failedWhy = c.StreamID, s.describeFailure(res.reason)
+			lastProblem = failedWhy
 			s.mu.Lock()
 			s.status.Failovers++
 			s.mu.Unlock()
@@ -309,7 +315,11 @@ func (s *Session) Run(ctx context.Context) error {
 		if time.Since(failingSince) > s.cfg.MaxRetryWindow {
 			s.log.Error("session: candidates exhausted", "window", s.cfg.MaxRetryWindow)
 			s.cfg.Metrics.exhaust()
-			s.emit(Event{Type: EventExhausted, FromStreamID: lastFailed, Message: ErrExhausted.Error()})
+			msg := fmt.Sprintf("no stream played for %s", shortDur(s.cfg.MaxRetryWindow))
+			if lastProblem != "" {
+				msg += "; last problem: " + lastProblem
+			}
+			s.emit(Event{Type: EventExhausted, FromStreamID: lastFailed, Message: msg})
 			return ErrExhausted
 		}
 		if !played {
@@ -333,7 +343,7 @@ type streamResult struct {
 // watchdog closes rc when tswatch judges the upstream unhealthy, or when an
 // admin switches streams, which unblocks the read. manual marks an upstream
 // an admin picked.
-func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spliced bool, failedID int64, manual bool) streamResult {
+func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spliced bool, failedID int64, failedWhy string, manual bool) streamResult {
 	w := NewWatcher(s.cfg.Thresholds, time.Now())
 	var verdict atomic.Int32
 	var switched atomic.Bool
@@ -412,7 +422,7 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 					case failedID != 0:
 						s.cfg.Metrics.failover()
 						s.emit(Event{Type: EventFailover, ProviderID: c.ProviderID, FromStreamID: failedID,
-							ToStreamID: c.StreamID, Message: "switched upstream"})
+							ToStreamID: c.StreamID, Message: cmp.Or(failedWhy, "switched upstream")})
 					}
 				} else if !stableCleared && now.Sub(firstAt) >= s.cfg.StableAfter {
 					s.cfg.Cooldowns.Reset(c.StreamID)
@@ -434,6 +444,36 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			return res
 		}
 	}
+}
+
+// describeFailure puts a stream's failure reason in words for events.
+func (s *Session) describeFailure(reason string) string {
+	t := s.cfg.Thresholds
+	switch {
+	case reason == Stalled.String():
+		return "no data for " + shortDur(t.StallTimeout)
+	case reason == LowBitrate.String():
+		return fmt.Sprintf("bitrate under %d kb/s", t.LowBitrateKbps)
+	case reason == CCBurst.String():
+		return "corrupted stream (too many continuity errors)"
+	case reason == "eof":
+		return "the provider ended the stream"
+	case strings.HasPrefix(reason, "read: "):
+		return "connection lost: " + strings.TrimPrefix(reason, "read: ")
+	}
+	return reason
+}
+
+// shortDur renders a duration without zero units: "12s", "1m30s", "2m".
+func shortDur(d time.Duration) string {
+	s := d.Round(time.Second).String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // probeMedia works out what streamID carries from the start of its data:

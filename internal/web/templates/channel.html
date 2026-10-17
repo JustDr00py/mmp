@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <p class="crumbs"><a href="/admin/channels">Channels</a> /</p>
-<div class="head"><h1>{{.Title}}</h1></div>
+<div class="head"><h1>{{.Title}}</h1>{{if $d.Form.ID}}<a class="button secondary small" href="/admin/events?channel={{$d.Form.ID}}">Events</a>{{end}}</div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <div class="split">
   <section>

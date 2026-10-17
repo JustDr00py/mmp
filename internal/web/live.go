@@ -70,17 +70,12 @@ type liveProvider struct {
 	Disabled bool
 }
 
-type liveEvent struct {
-	At, Type, Channel, Message string
-	ChannelID                  int64
-}
-
 // liveSnapshot is everything the dashboard shows.
 type liveSnapshot struct {
 	Sessions, Streaming, Viewers, Customers int
 	Channels                                []liveChannel
 	Providers                               []liveProvider
-	Events                                  []liveEvent
+	Events                                  []eventRow
 }
 
 func shortDuration(d time.Duration) string {
@@ -123,21 +118,6 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 			if c.StreamID != 0 {
 				streamIDs = append(streamIDs, c.StreamID)
 				streamOf[c.ChannelID] = c.StreamID
-			}
-		}
-	}
-
-	events, err := ui.Store.ListRecentEvents(ctx, db.ListRecentEventsParams{Limit: liveEvents})
-	if err != nil {
-		return s, err
-	}
-	for _, e := range events {
-		if e.ChannelID != nil {
-			chanIDs = append(chanIDs, *e.ChannelID)
-		}
-		for _, id := range []*int64{e.FromStreamID, e.ToStreamID} {
-			if id != nil {
-				streamIDs = append(streamIDs, *id)
 			}
 		}
 	}
@@ -198,19 +178,12 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 		}
 	}
 
-	for _, e := range events {
-		le := liveEvent{At: e.Ts.Local().Format("15:04:05"), Type: e.Type, Message: e.Message}
-		if e.ChannelID != nil {
-			le.ChannelID, le.Channel = *e.ChannelID, chanName[*e.ChannelID]
-		}
-		if (e.Type == "failover" || e.Type == "switch") && e.FromStreamID != nil && e.ToStreamID != nil {
-			if *e.FromStreamID == *e.ToStreamID {
-				le.Message = streamName[*e.ToStreamID] + " reconnected"
-			} else {
-				le.Message = streamName[*e.FromStreamID] + " → " + streamName[*e.ToStreamID]
-			}
-		}
-		s.Events = append(s.Events, le)
+	events, err := ui.Store.ListRecentEvents(ctx, db.ListRecentEventsParams{Limit: liveEvents})
+	if err != nil {
+		return s, err
+	}
+	if s.Events, err = ui.eventRows(ctx, events); err != nil {
+		return s, err
 	}
 	return s, nil
 }

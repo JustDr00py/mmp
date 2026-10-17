@@ -8,7 +8,7 @@
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
 
-<section>
+<section class="settings-section">
   <h2>Automatic matching</h2>
   <form class="card form" method="post" action="/admin/settings/match">
     <label class="check"><input type="checkbox" name="auto"{{if $d.Match.Auto}} checked{{end}}> Match channels after each provider refresh</label>
@@ -38,6 +38,16 @@
       </div>
     </fieldset>
     <div class="row"><button type="submit">Save</button><span class="hint">Applies from the next provider refresh. To match now, use the <a href="/admin/match">Match</a> page.</span></div>
+  </form>
+</section>
+
+<section class="settings-section">
+  <h2>Event history</h2>
+  <form class="card form narrow" method="post" action="/admin/settings/events">
+    <label>Keep events for
+      <input class="short" type="number" name="keep_days" min="1" max="3650" value="{{$d.Events.KeepDays}}" required>
+      <span class="hint">days. Older failovers and stream errors are deleted every hour. See them on the <a href="/admin/events">Events</a> page.</span></label>
+    <div class="row"><button type="submit">Save</button></div>
   </form>
 </section>
 {{end}}
