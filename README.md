@@ -267,6 +267,7 @@ admin:                        # only used to create the first admin
 | `base_url` | `MMP_BASE_URL` | `http://localhost:8080` | public URL players use; every URL MMP hands out is built from it (no trailing slash) |
 | `log.level` | `MMP_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `log.format` | `MMP_LOG_FORMAT` | `text` | `text` or `json` |
+| | `TZ` | `UTC` | time zone for log timestamps and the times the admin UI shows, e.g. `America/Los_Angeles` (the compose files pass it from `.env`) |
 | `db.dsn` | `MMP_DB_DSN` | `postgres://mmp:mmp@localhost:5432/mmp?sslmode=disable` | Postgres connection string |
 | `db.max_conns` | `MMP_DB_MAX_CONNS` | `8` | connection pool size |
 | `http.read_header_timeout` | `MMP_HTTP_READ_HEADER_TIMEOUT` | `10s` | |
@@ -467,8 +468,10 @@ uses one of their connections and one of the provider's.
   ```
 
   `docker-compose.yml` pins its network to `172.28.0.0/24` (`MMP_SUBNET`), so the gateway stays the
-  same across `down`/`up`. A stack created before that pin is moved to it by the next `up -d`. If the
-  proxy runs in a container instead, trust that container's address. Caddy on the host:
+  same across `down`/`up`. A stack created before that pin must move to it with `docker compose down`
+  then `up -d`, once: a plain `up -d` recreates the network but can leave postgres without its name
+  on it (MMP then logs `lookup postgres ... no such host`; `docker compose up -d --force-recreate
+  postgres` fixes that). If the proxy runs in a container instead, trust that container's address. Caddy on the host:
 
   ```
   tv.example.com {
