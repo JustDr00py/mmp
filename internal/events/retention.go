@@ -1,5 +1,5 @@
 // Package events keeps the events table (failovers, open failures, outages)
-// to a set age.
+// and customer activity to a set age.
 package events
 
 import (
@@ -71,10 +71,14 @@ func SaveRetention(ctx context.Context, q SettingsStore, r Retention) error {
 type PruneStore interface {
 	SettingsStore
 	PruneEvents(ctx context.Context, before time.Time) (int64, error)
+	PruneViewingSessions(ctx context.Context, before time.Time) (int64, error)
+	PruneUserNetworks(ctx context.Context, before time.Time) (int64, error)
+	PruneAuthFailures(ctx context.Context, before time.Time) (int64, error)
 }
 
-// Prune deletes the events older than the retention, in batches so a large
-// first prune does not hold one long transaction.
+// Prune deletes the events and customer activity older than the
+// retention, in batches so a large first prune does not hold one long
+// transaction. It returns how many rows went.
 func Prune(ctx context.Context, q PruneStore, now time.Time) (int64, error) {
 	r, err := LoadRetention(ctx, q)
 	if err != nil {
@@ -82,16 +86,27 @@ func Prune(ctx context.Context, q PruneStore, now time.Time) (int64, error) {
 	}
 	before := now.AddDate(0, 0, -r.KeepDays)
 	var total int64
-	for {
-		n, err := q.PruneEvents(ctx, before)
-		total += n
-		if err != nil {
-			return total, fmt.Errorf("prune events: %w", err)
-		}
-		if n == 0 {
-			return total, nil
+	for _, t := range []struct {
+		name  string
+		prune func(context.Context, time.Time) (int64, error)
+	}{
+		{"events", q.PruneEvents},
+		{"viewing sessions", q.PruneViewingSessions},
+		{"user networks", q.PruneUserNetworks},
+		{"failed logins", q.PruneAuthFailures},
+	} {
+		for {
+			n, err := t.prune(ctx, before)
+			total += n
+			if err != nil {
+				return total, fmt.Errorf("prune %s: %w", t.name, err)
+			}
+			if n == 0 {
+				break
+			}
 		}
 	}
+	return total, nil
 }
 
 // RunPruner prunes at once and then every interval until ctx ends.
@@ -104,7 +119,7 @@ func RunPruner(ctx context.Context, q PruneStore, log *slog.Logger, interval tim
 				log.Warn("prune events", "err", err)
 			}
 		} else if n > 0 {
-			log.Info("pruned old events", "count", n)
+			log.Info("pruned old events and activity", "rows", n)
 		}
 		select {
 		case <-ctx.Done():

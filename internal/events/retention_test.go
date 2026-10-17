@@ -38,6 +38,10 @@ func (f *fakeStore) PruneEvents(_ context.Context, before time.Time) (int64, err
 	return n, nil
 }
 
+func (f *fakeStore) PruneViewingSessions(context.Context, time.Time) (int64, error) { return 0, nil }
+func (f *fakeStore) PruneUserNetworks(context.Context, time.Time) (int64, error)    { return 0, nil }
+func (f *fakeStore) PruneAuthFailures(context.Context, time.Time) (int64, error)    { return 0, nil }
+
 func TestPrune(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)

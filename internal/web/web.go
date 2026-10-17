@@ -140,6 +140,10 @@ type Store interface {
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
+	UsersLastSeen(ctx context.Context) ([]db.UsersLastSeenRow, error)
+	UserViewingSessions(ctx context.Context, arg db.UserViewingSessionsParams) ([]db.UserViewingSessionsRow, error)
+	UserNetworks(ctx context.Context, arg db.UserNetworksParams) ([]db.UserNetworksRow, error)
+	UserAuthFailures(ctx context.Context, arg db.UserAuthFailuresParams) ([]db.UserAuthFailuresRow, error)
 	GetSetting(ctx context.Context, key string) ([]byte, error)
 	SetSetting(ctx context.Context, arg db.SetSettingParams) error
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)

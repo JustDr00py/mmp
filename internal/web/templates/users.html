@@ -16,7 +16,7 @@
 {{if .Rows}}
 <div class="table-wrap">
 <table class="stack">
-  <thead><tr><th>Username</th><th>Role</th><th class="num">Connections</th><th>Expires</th><th>Status</th></tr></thead>
+  <thead><tr><th>Username</th><th>Role</th><th class="num">Connections</th><th>Expires</th><th>Last seen</th><th>Status</th></tr></thead>
   <tbody>
   {{range .Rows}}
   <tr{{if ne .Status "active"}} class="dim"{{end}}>
@@ -24,6 +24,7 @@
     <td data-label="Role">{{.Role}}</td>
     <td class="num" data-label="Connections">{{.Active}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
     <td data-label="Expires">{{with .ExpiresAt}}{{.UTC.Format "2006-01-02"}}{{else}}<span class="muted">never</span>{{end}}</td>
+    <td data-label="Last seen">{{if .LastSeen}}{{ago .LastSeen}} <span class="sub mono">{{.LastIP}}</span>{{else}}<span class="muted">never</span>{{end}}</td>
     <td data-label="Status">{{if eq .Status "active"}}<span class="pill ok">active</span>{{else if eq .Status "expired"}}<span class="pill warn">expired</span>{{else}}<span class="pill off">disabled</span>{{end}}</td>
   </tr>
   {{end}}

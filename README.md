@@ -467,6 +467,12 @@ uses one of their connections and one of the provider's.
   happened (no data, low bitrate, a corrupted stream, the provider ending it), switches by an admin,
   streams that would not open (with the error) and channels that went down. Filter by type, provider
   or channel (a channel's page links to its own). Kept 30 days by default; change it on **Settings**.
+- **Customer activity** (each user's page): when and from where they were last seen, the networks
+  they used (a warning when three or more were active within a day, a sign of a shared login), the
+  live channels they watched (start, length, address, TS or HLS) and wrong passwords with the address
+  they came from. The Users list shows everyone's last seen. Successful logins are recorded at most
+  once a minute per network, so busy players add little. This stores customers' IP addresses: it is
+  kept as long as events and deleted with the user.
 - **`/healthz`**: liveness for load balancers and the container healthcheck.
 - **`/metrics`**: Prometheus metrics: `mmp_sessions{state}`, `mmp_session_viewers`,
   `mmp_customer_connections`, `mmp_provider_slots_in_use{provider_id}`, `mmp_failovers_total`,

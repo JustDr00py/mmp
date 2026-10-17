@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/proxy"
@@ -47,6 +48,9 @@ type Handlers struct {
 	Now       func() time.Time // guide window clock; nil = time.Now
 	// Limit locks out repeated password failures (nil = no limiting).
 	Limit *auth.Limiter
+	// Activity records where customers authenticate from and their wrong
+	// passwords (nil = not recorded).
+	Activity *activity.Tracker
 }
 
 // Mount registers the customer routes on the root router.
@@ -130,10 +134,26 @@ func (h *Handlers) authPassword(r *http.Request, user, pass string) (db.User, er
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
 		h.Limit.Done(attempt, true)
+		h.seen(r, u)
 	case errors.Is(err, auth.ErrUnauthorized):
 		h.Limit.Done(attempt, false)
+		h.Activity.AuthFailed(user, auth.RemoteIP(r))
 	}
 	return u, err
+}
+
+// authToken authenticates a stream token.
+func (h *Handlers) authToken(r *http.Request, token string) (db.User, error) {
+	u, err := h.Access.Customers.ByToken(r.Context(), token)
+	if err == nil {
+		h.seen(r, u)
+	}
+	return u, err
+}
+
+// seen records where u authenticated from.
+func (h *Handlers) seen(r *http.Request, u db.User) {
+	h.Activity.Seen(u.ID, auth.RemoteIP(r), auth.ClientNetwork(r))
 }
 
 // xtreamStreamURL is /live/<user>/<pass>/<id>.<ext> on MMP.
@@ -185,7 +205,7 @@ func (h *Handlers) getPHP(w http.ResponseWriter, r *http.Request) {
 // tokenPlaylist is /playlist/{token}.m3u (always m3u_plus).
 func (h *Handlers) tokenPlaylist(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	u, err := h.Access.Customers.ByToken(r.Context(), token)
+	u, err := h.authToken(r, token)
 	if err != nil {
 		h.authFail(w, err)
 		return

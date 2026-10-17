@@ -24,6 +24,14 @@ type ApiToken struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
+type AuthFailure struct {
+	ID       int64     `json:"id"`
+	Ts       time.Time `json:"ts"`
+	UserID   *int64    `json:"user_id"`
+	Username string    `json:"username"`
+	Ip       string    `json:"ip"`
+}
+
 type Bouquet struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
@@ -219,6 +227,24 @@ type User struct {
 type UserBouquet struct {
 	UserID    int64 `json:"user_id"`
 	BouquetID int64 `json:"bouquet_id"`
+}
+
+type UserNetwork struct {
+	UserID    int64     `json:"user_id"`
+	Network   string    `json:"network"`
+	LastIp    string    `json:"last_ip"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+type ViewingSession struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	ChannelID int64     `json:"channel_id"`
+	Ip        string    `json:"ip"`
+	Output    string    `json:"output"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
 }
 
 type VodCategory struct {

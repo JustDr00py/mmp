@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/api"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/backup"
@@ -98,6 +99,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	eventsDone := make(chan struct{})
 	go func() { events.Run(ctx); close(eventsDone) }()
 	defer func() { <-eventsDone }() // after streams.Shutdown (defers run LIFO): last events are flushed
+	tracker := activity.New(db.New(pool), log, 4096)
+	trackerDone := make(chan struct{})
+	go func() { tracker.Run(ctx); close(trackerDone) }()
+	defer func() { <-trackerDone }() // likewise: viewers ended by the shutdown are recorded
 
 	pc := cfg.Proxy
 	// HTTP-TS or HLS; sessions add ffmpeg for channels with an ffmpeg profile.
@@ -188,7 +193,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
-	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log,
+	access.OnViewerEnd(func(v output.Viewer, at time.Time) {
+		tracker.Watched(v.UserID, v.ChannelID, v.Addr, v.Output, v.Since, at)
+	})
+	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log, Activity: tracker,
 		Limit: loginLimit}
 	outputs.Slots = capacity // VOD playback shares provider slots with live sessions
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
