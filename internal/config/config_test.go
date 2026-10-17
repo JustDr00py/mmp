@@ -227,3 +227,18 @@ func TestTrustedProxies(t *testing.T) {
 		t.Error("headers trusted by default")
 	}
 }
+
+func TestAutoMatchSettings(t *testing.T) {
+	if d := Defaults(); d.Match.AutoGroup != "source" || len(d.Match.AutoBouquets) != 0 {
+		t.Errorf("defaults = %q %v", d.Match.AutoGroup, d.Match.AutoBouquets)
+	}
+	t.Setenv("MMP_MATCH_AUTO_GROUP", "New channels")
+	t.Setenv("MMP_MATCH_AUTO_BOUQUETS", "Basic, Sports Pack,,")
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Match.AutoGroup != "New channels" || strings.Join(c.Match.AutoBouquets, "|") != "Basic|Sports Pack" {
+		t.Errorf("env = %q %q", c.Match.AutoGroup, c.Match.AutoBouquets)
+	}
+}

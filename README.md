@@ -8,10 +8,14 @@ stalls, errors or degrades, MMP switches to the next one **without dropping the 
 - One upstream connection per channel, shared by every viewer of it, so provider connection limits go further.
 - Works with any IPTV player: M3U + XMLTV (VLC, Kodi, Plex, Jellyfin) and an Xtream Codes compatible API
   (IPTV Smarters, TiviMate, XCIPTV…). MPEG-TS and HLS output.
-- Customer accounts with connection limits, expiry dates and per-user channel sets ("bouquets").
+- Customer accounts with connection limits, expiry dates and per-user channel sets ("bouquets"); channel
+  groups become the categories players show.
 - Movies and series from Xtream providers, passed through to Xtream apps with seeking (opt-in per provider).
-- Web admin UI with a live dashboard, Prometheus metrics, and a REST API.
+- Web admin UI with a live dashboard (bitrate, stream details and viewers per channel; switch a channel's
+  stream, stop it or disconnect a viewer), Prometheus metrics, and a REST API.
 - Single static binary; Postgres is the only dependency (ffmpeg optional).
+
+![Dashboard: a card per live channel with its stream, media details, bitrate and viewers](docs/screenshots/dashboard.png)
 
 **Contents:** [Quick start](#quick-start-docker) · [From zero to playback](#from-zero-to-playback) ·
 [Running from source](#running-from-source) · [Configuration](#configuration) ·
@@ -96,9 +100,13 @@ reaches your providers unprotected; streams fail over or wait meanwhile. Check t
 Set `MMP_IMAGE` in `.env` to the new version, then:
 
 ```sh
-git pull --tags && git checkout v0.2.0   # newer compose files, if the release notes say so
+git pull --tags && git checkout vX.Y.Z   # newer compose files, if the release notes say so
 docker compose pull && docker compose up -d --no-build
 ```
+
+Coming from v0.2.2 or older, run `docker compose down` before `up -d` once: the compose file now pins
+its Docker network (see [Deployment notes](#deployment-notes)), and a plain `up -d` can leave postgres
+unreachable by name.
 
 Migrations run on start, so back up first (**Backups → Back up now**). To roll back, set the previous
 version and run the same commands; if the newer release changed the database, restore the backup you
@@ -142,13 +150,17 @@ Two ways to build channels:
   1. Narrow the list: type in **Search**, pick a **Provider group** (e.g. `US| SPORTS`: only that group's
      streams are used), and choose **Carried by** (*2+ providers* = channels that get failover; *any provider*
      also lists channels only one provider has).
-  2. Under **When applying**, optionally put new channels in a channel group (a chosen one, or one named after
-     the provider group) and add them to a bouquet, so customers see them right away.
+  2. Under **When applying**, choose the channel group new channels go in (by default one named after the
+     provider group, so players keep the provider's categories) and tick the bouquets to add them to (any
+     number, or **all**), so customers see them right away.
   3. Check the suggestions. You can rename a new channel or untick individual streams on its row (editing a row
      selects it). Then press **Apply selected**, or **Apply all N matching** for everything the filter shows,
      across pages.
   Applied suggestions leave the list. **Advanced: matching rules** handles channels whose names differ too much
   between providers: a regular expression (e.g. `lakers`) puts every matching stream under one channel name.
+
+  ![Match: the same channel found at several providers, ready to become one channel with failover](docs/screenshots/match.png)
+
 - **By hand**: **Channels → New channel**, then search streams across all providers and **Add** them.
 
 On a channel's page, drag streams (or use ↑/↓) to set the failover order. The first available stream
@@ -163,6 +175,15 @@ sources list a channel, the lowest priority number wins (providers use their own
 **East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
 Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are
 separate channels), so a channel never fails over into a feed that airs hours later.
+
+**Channel groups** are the categories players show (Xtream categories, M3U `group-title`); a channel without
+one appears under *Uncategorized*. Bouquets decide *which* channels a customer gets, groups only arrange
+them. On **Groups**, create, rename, reorder (sort order = order in the player) and delete groups, or press
+**Use provider groups** to put every channel without a group into one named after its provider group. On
+**Channels**, tick channels and **Move selected to…** a group, no group, or their provider group; the
+**No group** filter finds the uncategorized ones.
+
+![Groups: the categories players show, with their sort order and channel counts](docs/screenshots/groups.png)
 
 ### 3. Put channels in a bouquet
 
@@ -302,6 +323,8 @@ admin:                        # only used to create the first admin
 | `match.auto` | `MMP_MATCH_AUTO` | `false` | apply match suggestions automatically after every refresh |
 | `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | auto-match only creates channels seen at this many providers |
 | `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
+| `match.auto_group` | `MMP_MATCH_AUTO_GROUP` | `source` | channel group for channels auto-match creates: `source` (named after the provider group), `none`, or a group name (created if missing). Existing channels keep their group |
+| `match.auto_bouquets` | `MMP_MATCH_AUTO_BOUQUETS` | none | bouquet names (comma-separated in the env var) that channels auto-match creates are added to. Existing channels that only gain a stream keep their bouquets |
 
 ### Customer output
 

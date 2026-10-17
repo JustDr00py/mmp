@@ -94,13 +94,18 @@ type ApplyOptions struct {
 	// Streams limits a proposal (by key) to these stream ids; streams not
 	// listed stay unassigned. A key mapped to no ids skips the proposal.
 	Streams map[string][]int64
-	// New channels go into ChannelGroupID, or with GroupFromSource into a
-	// channel group named after the proposal's provider group (created
-	// when missing).
-	ChannelGroupID  *int64
-	GroupFromSource bool
+	// New channels go into ChannelGroupID, or the group named
+	// ChannelGroupName, or with GroupFromSource into a channel group named
+	// after the proposal's provider group (named groups are created when
+	// missing).
+	ChannelGroupID   *int64
+	ChannelGroupName string
+	GroupFromSource  bool
 	// BouquetIDs each receive every channel the apply touched.
 	BouquetIDs []int64
+	// NewChannelBouquetIDs each receive only the channels this apply
+	// created; channels that just gained streams keep their bouquets.
+	NewChannelBouquetIDs []int64
 	// ExistingOnly attaches streams to channels that exist and never
 	// creates one.
 	ExistingOnly bool
@@ -135,8 +140,8 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 		want[k] = true
 	}
 
-	groups := map[string]int64{} // provider group title -> channel group (GroupFromSource)
-	var touched []int64
+	groups := map[string]int64{} // group name -> channel group id
+	var touched, created []int64
 	for _, p := range proposals {
 		if len(want) > 0 && !want[p.Key] {
 			continue
@@ -164,15 +169,19 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 				name = n
 			}
 			groupID := opts.ChannelGroupID
-			if groupID == nil && opts.GroupFromSource && strings.TrimSpace(p.Group) != "" {
-				g, ok := groups[p.Group]
+			groupName := strings.TrimSpace(opts.ChannelGroupName)
+			if groupName == "" && opts.GroupFromSource {
+				groupName = strings.TrimSpace(p.Group)
+			}
+			if groupID == nil && groupName != "" {
+				g, ok := groups[groupName]
 				if !ok {
-					cg, err := q.EnsureChannelGroup(ctx, strings.TrimSpace(p.Group))
+					cg, err := q.EnsureChannelGroup(ctx, groupName)
 					if err != nil {
 						return res, fmt.Errorf("match apply %q: channel group: %w", p.Key, err)
 					}
 					g = cg.ID
-					groups[p.Group] = g
+					groups[groupName] = g
 				}
 				groupID = &g
 			}
@@ -184,6 +193,7 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			}
 			chID = c.ID
 			res.Created++
+			created = append(created, chID)
 		}
 		base, err := q.MaxChannelStreamPriority(ctx, chID)
 		if err != nil {
@@ -207,6 +217,14 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			return res, fmt.Errorf("match apply: bouquet %d: %w", bq, err)
 		}
 	}
+	for _, bq := range opts.NewChannelBouquetIDs {
+		if len(created) == 0 {
+			break
+		}
+		if _, err := q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: bq, ChannelIds: created}); err != nil {
+			return res, fmt.Errorf("match apply: bouquet %d: %w", bq, err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return res, fmt.Errorf("match apply: commit: %w", err)
 	}
@@ -214,18 +232,73 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	return res, nil
 }
 
+// AutoMatch configures automatic matching after provider refreshes.
+type AutoMatch struct {
+	MinProviders int  // new channels only for groups seen at >= this many providers
+	NewChannels  bool // false: only attach streams to channels that exist
+	// Group is where created channels go: "source" for a group named after
+	// the provider group, "none" or "" for no group, anything else a group
+	// of that name (created when missing).
+	Group string
+	// Bouquets (by name) receive the channels auto-match creates; existing
+	// channels that only gain streams are left alone. Unknown names are
+	// logged and skipped.
+	Bouquets []string
+}
+
 // AutoMatchHook returns a source.Refresher AfterRefresh hook: after a
 // provider refresh it attaches new streams to matching existing channels
-// and, with newChannels, creates channels for groups seen at >=
-// minProviders providers. Failures are logged; the refresh itself already
-// succeeded.
-func (s *Service) AutoMatchHook(minProviders int, newChannels bool) func(context.Context, db.Provider) {
+// and, with NewChannels, creates channels for groups seen at >=
+// MinProviders providers, in Group and Bouquets. Failures are logged; the
+// refresh itself already succeeded.
+func (s *Service) AutoMatchHook(am AutoMatch) func(context.Context, db.Provider) {
 	return func(ctx context.Context, p db.Provider) {
-		res, err := s.Apply(ctx, ApplyOptions{MinProviders: minProviders, AttachAlways: true, ExistingOnly: !newChannels})
+		opts := ApplyOptions{MinProviders: am.MinProviders, AttachAlways: true, ExistingOnly: !am.NewChannels}
+		if am.NewChannels {
+			switch g := strings.TrimSpace(am.Group); strings.ToLower(g) {
+			case "source":
+				opts.GroupFromSource = true
+			case "none", "":
+			default:
+				opts.ChannelGroupName = g
+			}
+			ids, err := s.bouquetIDs(ctx, am.Bouquets)
+			if err != nil {
+				s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
+				return
+			}
+			opts.NewChannelBouquetIDs = ids
+		}
+		res, err := s.Apply(ctx, opts)
 		if err != nil {
 			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
 			return
 		}
 		s.log.Info("auto-match", "provider_id", p.ID, "created", res.Created, "attached", res.Attached)
 	}
+}
+
+// bouquetIDs resolves bouquet names (case-insensitively), warning about
+// names that match none.
+func (s *Service) bouquetIDs(ctx context.Context, names []string) ([]int64, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	all, err := db.New(s.pool).ListBouquets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list bouquets: %w", err)
+	}
+	var ids []int64
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		i := slices.IndexFunc(all, func(b db.Bouquet) bool { return strings.EqualFold(b.Name, n) })
+		if i < 0 {
+			s.log.Warn("auto-match: no bouquet with this name", "bouquet", n)
+			continue
+		}
+		if !slices.Contains(ids, all[i].ID) {
+			ids = append(ids, all[i].ID)
+		}
+	}
+	return ids, nil
 }
