@@ -50,8 +50,10 @@ services:
       - /dev/net/tun:/dev/net/tun
     networks:
       - backend
+    # MMP (players and admin UI). MMP_HTTP_BIND=127.0.0.1 publishes it to
+    # this host only (behind a reverse proxy here).
     ports:
-      - "${MMP_HTTP_PORT:-8080}:8080" # MMP (players and admin UI)
+      - "${MMP_HTTP_BIND:+${MMP_HTTP_BIND}:}${MMP_HTTP_PORT:-8080}:8080"
     environment:
       VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:?set VPN_SERVICE_PROVIDER in .env (see .env.example)}
       VPN_TYPE: ${VPN_TYPE:-wireguard}
@@ -106,6 +108,10 @@ services:
       # First admin, created only when none exists (values from .env):
       MMP_ADMIN_USERNAME: ${MMP_ADMIN_USERNAME:-}
       MMP_ADMIN_PASSWORD: ${MMP_ADMIN_PASSWORD:-}
+      # A reverse proxy (Caddy, nginx) whose X-Forwarded-For MMP believes.
+      # For one on this host proxying to localhost:<port>, the gateway of
+      # the backend network (172.29.0.1 by default). Blank: none.
+      MMP_HTTP_TRUSTED_PROXIES: ${MMP_HTTP_TRUSTED_PROXIES:-}
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
