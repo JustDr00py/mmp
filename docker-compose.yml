@@ -34,6 +34,8 @@ services:
     environment:
       MMP_DB_DSN: postgres://mmp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mmp?sslmode=disable
       MMP_BASE_URL: ${MMP_BASE_URL:-http://localhost:8080}
+      # Automatic matching: these only seed the first start; after that the
+      # admin UI's Settings page is in charge and changes here are ignored.
       # After each provider refresh, add new matching streams to existing
       # channels as extra failover; never create channels on its own.
       MMP_MATCH_AUTO: ${MMP_MATCH_AUTO:-true}

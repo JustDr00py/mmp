@@ -283,72 +283,21 @@ func bouquetsFromGroups(ctx context.Context, q *db.Queries, created []int64, cre
 	return nil
 }
 
-// AutoMatch configures automatic matching after provider refreshes.
-type AutoMatch struct {
-	MinProviders int  // new channels only for groups seen at >= this many providers
-	NewChannels  bool // false: only attach streams to channels that exist
-	// Group is where created channels go: "source" for a group named after
-	// the provider group, "none" or "" for no group, anything else a group
-	// of that name (created when missing).
-	Group string
-	// Bouquets decides the bouquets of the channels auto-match creates:
-	// empty or "auto" for those holding most of the channel's group,
-	// "none" for none, otherwise bouquet names (unknown ones are logged and
-	// skipped). Existing channels that only gain streams are left alone.
-	Bouquets []string
-}
-
-// AutoMatchHook returns a source.Refresher AfterRefresh hook: after a
-// provider refresh it attaches new streams to matching existing channels
-// and, with NewChannels, creates channels for groups seen at >=
-// MinProviders providers, in Group and Bouquets. Failures are logged; the
-// refresh itself already succeeded.
-func (s *Service) AutoMatchHook(am AutoMatch) func(context.Context, db.Provider) {
-	return func(ctx context.Context, p db.Provider) {
-		opts := ApplyOptions{MinProviders: am.MinProviders, AttachAlways: true, ExistingOnly: !am.NewChannels}
-		if am.NewChannels {
-			switch g := strings.TrimSpace(am.Group); strings.ToLower(g) {
-			case "source":
-				opts.GroupFromSource = true
-			case "none", "":
-			default:
-				opts.ChannelGroupName = g
-			}
-			switch mode := bouquetMode(am.Bouquets); mode {
-			case "auto":
-				opts.NewChannelBouquetsFromGroup = true
-			case "names":
-				ids, err := s.bouquetIDs(ctx, am.Bouquets)
-				if err != nil {
-					s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-					return
-				}
-				opts.NewChannelBouquetIDs = ids
-			}
-		}
-		res, err := s.Apply(ctx, opts)
-		if err != nil {
-			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-			return
-		}
-		s.log.Info("auto-match", "provider_id", p.ID, "created", res.Created, "attached", res.Attached)
-	}
-}
-
-// bouquetMode reads AutoMatch.Bouquets: "auto", "none" or "names".
+// bouquetMode reads AutoMatch.Bouquets: BouquetsAuto, BouquetsNone or
+// BouquetsFixed (names).
 func bouquetMode(v []string) string {
 	if len(v) == 0 {
-		return "auto"
+		return BouquetsAuto
 	}
 	if len(v) == 1 {
 		switch strings.ToLower(strings.TrimSpace(v[0])) {
 		case "auto", "":
-			return "auto"
+			return BouquetsAuto
 		case "none":
-			return "none"
+			return BouquetsNone
 		}
 	}
-	return "names"
+	return BouquetsFixed
 }
 
 // bouquetIDs resolves bouquet names (case-insensitively), warning about

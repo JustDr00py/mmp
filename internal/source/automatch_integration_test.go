@@ -35,7 +35,7 @@ func TestRefreshAutoMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{MinProviders: 2, NewChannels: true})
+	ref.AfterRefresh = autoMatchHook(t, w, log, channel.AutoMatch{Enabled: true, MinProviders: 2, NewChannels: true})
 
 	mk := func(name, url, ua string, prio int32) db.Provider {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "m3u", Url: url, UserAgent: ua,
@@ -132,7 +132,7 @@ func TestRefreshAutoMatchAttachOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{MinProviders: 2})
+	ref.AfterRefresh = autoMatchHook(t, w, log, channel.AutoMatch{Enabled: true, MinProviders: 2})
 	for i, url := range []string{tsA.URL, tsB.URL} {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url, UserAgent: "MMP-Test/1.0",
 			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
@@ -196,7 +196,7 @@ func TestRefreshAutoMatchGroupsAndBouquets(t *testing.T) {
 			q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: premium.ID, ChannelIds: []int64{abc.ID}})
 
 			ref := NewRefresher(log, w.pool, 80)
-			ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{
+			ref.AfterRefresh = autoMatchHook(t, w, log, channel.AutoMatch{Enabled: true,
 				MinProviders: 2, NewChannels: true, Group: tt.group, Bouquets: []string{"basic", "No such bouquet"}})
 			for i, url := range []string{urlA, urlB} {
 				p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url,
@@ -293,7 +293,7 @@ func TestRefreshAutoMatchBouquetsFromGroup(t *testing.T) {
 	q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: premium.ID, ChannelIds: newsIDs[2:]})
 
 	ref := NewRefresher(log, w.pool, 80)
-	ref.AfterRefresh = channel.NewService(log, w.pool).AutoMatchHook(channel.AutoMatch{
+	ref.AfterRefresh = autoMatchHook(t, w, log, channel.AutoMatch{Enabled: true,
 		MinProviders: 2, NewChannels: true, Group: "source"}) // Bouquets unset: auto
 	for i, url := range urls {
 		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url,
@@ -325,5 +325,67 @@ func TestRefreshAutoMatchBouquetsFromGroup(t *testing.T) {
 	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 100})
 	if len(chans) != 5 {
 		t.Errorf("channels = %d, want 3 + NBC + Toons", len(chans))
+	}
+}
+
+// autoMatchHook seeds the stored match settings from am (as a first start
+// does from the configuration) and returns the refresh hook.
+func autoMatchHook(t *testing.T, w *pgxpoolWrapper, log *slog.Logger, am channel.AutoMatch) func(context.Context, db.Provider) {
+	t.Helper()
+	svc := channel.NewService(log, w.pool)
+	if err := svc.SeedMatchSettings(context.Background(), am); err != nil {
+		t.Fatal(err)
+	}
+	return svc.AutoMatchHook()
+}
+
+// TestRefreshAutoMatchFollowsSettings: the hook reads the stored settings
+// on every refresh, so turning matching on from the Settings page applies
+// without a restart, and a chosen group deleted since leaves new channels
+// without a group.
+func TestRefreshAutoMatchFollowsSettings(t *testing.T) {
+	m3u := func(host string) string {
+		ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(rw, "#EXTM3U\n#EXTINF:-1 tvg-id=\"us.nbc\" group-title=\"News\",NBC\nhttp://"+host+"/nbc.ts\n")
+		}))
+		t.Cleanup(ts.Close)
+		return ts.URL
+	}
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	svc := channel.NewService(log, w.pool)
+	ref := NewRefresher(log, w.pool, 80)
+	ref.AfterRefresh = autoMatchHook(t, w, log, channel.AutoMatch{MinProviders: 2, NewChannels: true, Group: "Picked"}) // off
+	var provs []db.Provider
+	for i, url := range []string{m3u("a.tv"), m3u("b.tv")} {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: string(rune('A' + i)), Type: "m3u", Url: url,
+			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: int32(i), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		provs = append(provs, p)
+		if _, err := ref.RefreshProvider(ctx, p, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10}); len(chans) != 0 {
+		t.Fatalf("matching off created %d channels", len(chans))
+	}
+
+	m, _ := svc.MatchSettings(ctx)
+	if err := q.DeleteChannelGroup(ctx, m.GroupID); err != nil { // "Picked", created by the seed
+		t.Fatal(err)
+	}
+	m.Auto = true
+	if err := svc.SaveMatchSettings(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ref.RefreshProvider(ctx, provs[1], true); err != nil {
+		t.Fatal(err)
+	}
+	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10})
+	if len(chans) != 1 || chans[0].Name != "NBC" || chans[0].GroupID != nil {
+		t.Fatalf("after turning matching on = %+v, want NBC without a group", chans)
 	}
 }

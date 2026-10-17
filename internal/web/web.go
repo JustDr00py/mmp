@@ -152,6 +152,8 @@ type Store interface {
 type Matcher interface {
 	Propose(ctx context.Context) ([]channel.Proposal, error)
 	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
+	MatchSettings(ctx context.Context) (channel.MatchSettings, error)
+	SaveMatchSettings(ctx context.Context, m channel.MatchSettings) error
 }
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).
@@ -218,12 +220,13 @@ var nav = []navItem{
 	{Prefix + "/bouquets", "Bouquets", "stack", ""},
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
-	{Prefix + "/profiles", "Profiles", "sliders", "Settings"},
+	{Prefix + "/settings", "Settings", "gear", "Settings"},
+	{Prefix + "/profiles", "Profiles", "sliders", ""},
 	{Prefix + "/backups", "Backups", "archive", ""},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -327,6 +330,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountProviders(r)
 			ui.mountChannels(r)
 			ui.mountChannelGroups(r)
+			ui.mountSettings(r)
 			ui.mountMatch(r)
 			ui.mountUsers(r)
 			ui.mountBouquets(r)
