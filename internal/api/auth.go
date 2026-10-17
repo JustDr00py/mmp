@@ -39,8 +39,8 @@ func (env *Env) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
-	keys := auth.AttemptKeys(r, in.Username)
-	if ok, retry := env.LoginLimit.Allowed(keys...); !ok {
+	attempt := auth.NewAttempt(r, in.Username)
+	if ok, retry := env.LoginLimit.Allow(attempt); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
 		writeErr(w, http.StatusTooManyRequests, "too many attempts; retry later")
 		return
@@ -48,9 +48,9 @@ func (env *Env) login(w http.ResponseWriter, r *http.Request) {
 	token, u, err := env.Auth.Login(r.Context(), in.Username, in.Password)
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
-		env.LoginLimit.Record(true, keys...)
+		env.LoginLimit.Done(attempt, true)
 	case errors.Is(err, auth.ErrUnauthorized):
-		env.LoginLimit.Record(false, keys...)
+		env.LoginLimit.Done(attempt, false)
 	}
 	if err != nil {
 		if errors.Is(err, auth.ErrUnauthorized) {

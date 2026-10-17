@@ -77,7 +77,7 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	}
 
 	if hls {
-		h.startHLS(w, r, u, id, auth.RemoteIP(r))
+		h.startHLS(w, r, u, id)
 		return
 	}
 
@@ -112,8 +112,8 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 }
 
 // startHLS leases the channel for u and redirects to the lease's playlist.
-func (h *Handlers) startHLS(w http.ResponseWriter, r *http.Request, u db.User, id int64, addr string) {
-	key, err := h.HLS.lease(u, id, addr)
+func (h *Handlers) startHLS(w http.ResponseWriter, r *http.Request, u db.User, id int64) {
+	key, err := h.HLS.lease(u, id, auth.RemoteIP(r), auth.ClientNetwork(r))
 	switch {
 	case errors.Is(err, ErrTooManyConnections):
 		h.Log.Info("output: connection limit", "user_id", u.ID, "channel_id", id, "max", u.MaxConnections)

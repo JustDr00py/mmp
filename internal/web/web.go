@@ -464,8 +464,8 @@ func (ui *UI) login(w http.ResponseWriter, r *http.Request) {
 	}
 	username, password := strings.TrimSpace(r.PostForm.Get("username")), r.PostForm.Get("password")
 	next := safeNext(r.PostForm.Get("next"))
-	keys := auth.AttemptKeys(r, username)
-	if ok, retry := ui.LoginLimit.Allowed(keys...); !ok {
+	attempt := auth.NewAttempt(r, username)
+	if ok, retry := ui.LoginLimit.Allow(attempt); !ok {
 		msg := "Too many attempts. Try again in " + waitString(retry) + "."
 		ui.render(w, r, http.StatusTooManyRequests, "login", "Sign in", loginData{Username: username, Next: next, Error: msg})
 		return
@@ -473,9 +473,9 @@ func (ui *UI) login(w http.ResponseWriter, r *http.Request) {
 	token, _, err := ui.Auth.Login(r.Context(), username, password)
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
-		ui.LoginLimit.Record(true, keys...)
+		ui.LoginLimit.Done(attempt, true)
 	case errors.Is(err, auth.ErrUnauthorized):
-		ui.LoginLimit.Record(false, keys...)
+		ui.LoginLimit.Done(attempt, false)
 	}
 	if err != nil {
 		status, msg := http.StatusUnauthorized, "Invalid username or password."
