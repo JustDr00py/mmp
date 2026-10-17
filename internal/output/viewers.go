@@ -21,9 +21,10 @@ type Viewer struct {
 
 // viewers tracks who is watching and how to disconnect them.
 type viewers struct {
-	mu   sync.Mutex
-	next uint64
-	m    map[uint64]*viewerEntry
+	mu    sync.Mutex
+	next  uint64
+	m     map[uint64]*viewerEntry
+	ended func(v Viewer, at time.Time) // optional: a viewer left
 }
 
 type viewerEntry struct {
@@ -45,8 +46,13 @@ func (vs *viewers) add(v Viewer, kick func()) (uint64, func()) {
 	id := v.ID
 	return id, func() {
 		vs.mu.Lock()
+		e, ok := vs.m[id]
 		delete(vs.m, id)
+		ended := vs.ended
 		vs.mu.Unlock()
+		if ok && ended != nil {
+			ended(e.Viewer, time.Now())
+		}
 	}
 }
 

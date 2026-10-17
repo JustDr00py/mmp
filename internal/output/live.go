@@ -33,7 +33,7 @@ func (h *Handlers) liveXtream(w http.ResponseWriter, r *http.Request) {
 
 // liveToken is /t/{token}/{id}.ts, the password-free stream URL.
 func (h *Handlers) liveToken(w http.ResponseWriter, r *http.Request) {
-	u, err := h.Access.Customers.ByToken(r.Context(), chi.URLParam(r, "token"))
+	u, err := h.authToken(r, chi.URLParam(r, "token"))
 	if err != nil {
 		h.authFail(w, err)
 		return

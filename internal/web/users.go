@@ -35,8 +35,10 @@ func (ui *UI) mountUsers(r chi.Router) {
 // userRow is one line of the users table.
 type userRow struct {
 	db.User
-	Active int
-	Status string // active | disabled | expired
+	Active   int
+	Status   string // active | disabled | expired
+	LastSeen *time.Time
+	LastIP   string
 }
 
 func userStatus(u db.User, now time.Time) string {
@@ -71,6 +73,15 @@ func (ui *UI) usersPage(w http.ResponseWriter, r *http.Request) {
 	if ui.Connections != nil {
 		active = ui.Connections()
 	}
+	seen, err := ui.Store.UsersLastSeen(r.Context())
+	if err != nil {
+		ui.fail(w, "users last seen", err)
+		return
+	}
+	lastSeen := make(map[int64]db.UsersLastSeenRow, len(seen))
+	for _, s := range seen {
+		lastSeen[s.UserID] = s
+	}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	d := usersData{Query: q, Flash: userFlashes[r.URL.Query().Get("msg")]}
 	now := time.Now()
@@ -78,7 +89,11 @@ func (ui *UI) usersPage(w http.ResponseWriter, r *http.Request) {
 		if q != "" && !strings.Contains(strings.ToLower(u.Username), q) {
 			continue
 		}
-		d.Rows = append(d.Rows, userRow{User: u, Active: active[u.ID], Status: userStatus(u, now)})
+		row := userRow{User: u, Active: active[u.ID], Status: userStatus(u, now)}
+		if s, ok := lastSeen[u.ID]; ok {
+			row.LastSeen, row.LastIP = &s.LastSeen, s.LastIp
+		}
+		d.Rows = append(d.Rows, row)
 	}
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "users" {
 		ui.fragment(w, r, "users", "users-table", d)
@@ -258,6 +273,7 @@ type userPageData struct {
 	Active      int
 	Flash       string
 	ConfirmSelf bool // the admin is looking at their own account
+	Activity    userActivity
 }
 
 func (ui *UI) userCreate(w http.ResponseWriter, r *http.Request) {
@@ -369,6 +385,11 @@ func (ui *UI) renderUser(w http.ResponseWriter, r *http.Request, status int, u d
 	}
 	if d.Flash == "" {
 		d.Flash = userFlashes[r.URL.Query().Get("msg")]
+	}
+	var err error
+	if d.Activity, err = ui.userActivity(r.Context(), u.ID); err != nil {
+		ui.fail(w, "user activity", err)
+		return
 	}
 	ui.render(w, r, status, "user", u.Username, d)
 }

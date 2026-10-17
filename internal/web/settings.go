@@ -79,7 +79,7 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 	case "match":
 		d.Flash = "Matching settings saved. They apply from the next provider refresh."
 	case "events":
-		d.Flash = "Event history saved. Older events are deleted within the hour."
+		d.Flash = "History setting saved. Older events and activity are deleted within the hour."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }

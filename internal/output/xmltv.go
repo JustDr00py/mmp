@@ -138,7 +138,7 @@ func (h *Handlers) xmltvPHP(w http.ResponseWriter, r *http.Request) {
 
 // tokenGuide is /epg/{token}.xml.
 func (h *Handlers) tokenGuide(w http.ResponseWriter, r *http.Request) {
-	u, err := h.Access.Customers.ByToken(r.Context(), chi.URLParam(r, "token"))
+	u, err := h.authToken(r, chi.URLParam(r, "token"))
 	if err != nil {
 		h.authFail(w, err)
 		return

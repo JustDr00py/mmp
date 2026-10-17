@@ -1,0 +1,35 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Audit log</h1>
+    <p class="lede">Who did what: admin sign-ins (and failed attempts), every change made in this admin or through the API, and
+      backup downloads. What was typed into forms, such as passwords, is never stored. Kept for the days set under
+      <a href="/admin/settings">Settings → History</a>.</p></div>
+</div>
+<form class="search row" method="get" action="/admin/audit">
+  <select name="admin" aria-label="Admin" data-autosubmit>
+    <option value="">Everyone</option>
+    {{range $d.Usernames}}<option value="{{.}}"{{if eq . $d.Username}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <select name="type" aria-label="Changed" data-autosubmit>
+    <option value="">Everything</option>
+    {{range $d.Types}}<option value="{{.}}"{{if eq . $d.Type}} selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <noscript><button type="submit" class="small secondary">Filter</button></noscript>
+</form>
+{{if $d.Rows}}
+<ul class="events audit">{{range $d.Rows}}
+  <li><span class="mono muted" title="{{.Full}}">{{.When}}</span>
+    {{if .Failed}}<span class="pill bad">failed sign-in</span>{{else if eq .Via "api"}}<span class="pill off">API</span>{{end}}
+    <span class="event-detail">
+      <span>{{if .Failed}}Someone tried to sign in as <strong>{{.Username}}</strong>
+        {{else}}<strong>{{.Username}}</strong>{{if not .Known}} <span class="muted">(account deleted)</span>{{end}} {{.Action}}{{if .TargetLink}} <a href="{{.TargetLink}}">{{.Target}}</a>{{else if .Target}} {{.Target}}{{end}}{{end}}</span>
+      <span class="sub mono">{{.IP}}{{if not .Failed}} · {{.Path}}{{end}}</span>
+    </span></li>{{end}}
+</ul>
+<nav class="pager">
+  {{if $d.Offset}}<a href="{{call $d.Query $d.PrevOffset}}">← Newer</a>{{end}}
+  {{if $d.NextOffset}}<a href="{{call $d.Query $d.NextOffset}}">Older →</a>{{end}}
+</nav>
+{{else}}<div class="card empty"><p>Nothing recorded{{if or $d.Username $d.Type}} that matches{{else}} yet{{end}}.</p></div>{{end}}
+{{end}}

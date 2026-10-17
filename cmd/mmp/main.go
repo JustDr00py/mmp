@@ -19,7 +19,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/api"
+	"github.com/JustDr00py/mmp/internal/audit"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
@@ -98,6 +100,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	eventsDone := make(chan struct{})
 	go func() { events.Run(ctx); close(eventsDone) }()
 	defer func() { <-eventsDone }() // after streams.Shutdown (defers run LIFO): last events are flushed
+	tracker := activity.New(db.New(pool), log, 4096)
+	trackerDone := make(chan struct{})
+	go func() { tracker.Run(ctx); close(trackerDone) }()
+	defer func() { <-trackerDone }() // likewise: viewers ended by the shutdown are recorded
 
 	pc := cfg.Proxy
 	// HTTP-TS or HLS; sessions add ffmpeg for channels with an ffmpeg profile.
@@ -145,6 +151,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 
 	queries := db.New(pool)
+	auditLog := &audit.Recorder{Store: queries, Namer: audit.StoreNamer(queries), Log: log}
 	go eventlog.RunPruner(ctx, queries, log, time.Hour) // keep events to their set age
 	if err := auth.EnsureAdmin(ctx, queries, log, cfg.Admin.Username, cfg.Admin.Password); err != nil {
 		return err
@@ -179,7 +186,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	refresher.AfterRefresh = matcher.AutoMatchHook()
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
-		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, DefaultRefresh: cfg.Refresh.Interval.Duration,
+		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}}
@@ -188,7 +195,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
-	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log,
+	access.OnViewerEnd(func(v output.Viewer, at time.Time) {
+		tracker.Watched(v.UserID, v.ChannelID, v.Addr, v.Output, v.Since, at)
+	})
+	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log, Activity: tracker,
 		Limit: loginLimit}
 	outputs.Slots = capacity // VOD playback shares provider slots with live sessions
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
@@ -207,7 +217,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Backups: backups, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
-		LoginLimit: loginLimit,
+		LoginLimit: loginLimit, Audit: auditLog,
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}})

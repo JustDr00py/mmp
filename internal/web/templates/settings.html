@@ -42,11 +42,12 @@
 </section>
 
 <section class="settings-section">
-  <h2>Event history</h2>
+  <h2>History</h2>
   <form class="card form narrow" method="post" action="/admin/settings/events">
     <label>Keep events for
       <input class="short" type="number" name="keep_days" min="1" max="3650" value="{{$d.Events.KeepDays}}" required>
-      <span class="hint">days. Older failovers and stream errors are deleted every hour. See them on the <a href="/admin/events">Events</a> page.</span></label>
+      <span class="hint">days. Older <a href="/admin/events">events</a> and customer activity (watch history, addresses, wrong
+        passwords on each user's page) are deleted every hour.</span></label>
     <div class="row"><button type="submit">Save</button></div>
   </form>
 </section>

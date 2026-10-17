@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+type AdminAudit struct {
+	ID         int64     `json:"id"`
+	Ts         time.Time `json:"ts"`
+	UserID     *int64    `json:"user_id"`
+	Username   string    `json:"username"`
+	Ip         string    `json:"ip"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	TargetName string    `json:"target_name"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Via        string    `json:"via"`
+}
+
 type AdminSession struct {
 	TokenHash []byte    `json:"token_hash"`
 	UserID    int64     `json:"user_id"`
@@ -22,6 +37,14 @@ type ApiToken struct {
 	TokenHash  []byte     `json:"token_hash"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+}
+
+type AuthFailure struct {
+	ID       int64     `json:"id"`
+	Ts       time.Time `json:"ts"`
+	UserID   *int64    `json:"user_id"`
+	Username string    `json:"username"`
+	Ip       string    `json:"ip"`
 }
 
 type Bouquet struct {
@@ -219,6 +242,24 @@ type User struct {
 type UserBouquet struct {
 	UserID    int64 `json:"user_id"`
 	BouquetID int64 `json:"bouquet_id"`
+}
+
+type UserNetwork struct {
+	UserID    int64     `json:"user_id"`
+	Network   string    `json:"network"`
+	LastIp    string    `json:"last_ip"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+type ViewingSession struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	ChannelID int64     `json:"channel_id"`
+	Ip        string    `json:"ip"`
+	Output    string    `json:"output"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
 }
 
 type VodCategory struct {

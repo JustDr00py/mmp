@@ -43,6 +43,49 @@
     </form>
   </section>
 </div>
+{{template "user-activity" $d.Activity}}
+{{end}}
+
+{{define "user-activity"}}
+<section class="activity">
+  <h2>Activity</h2>
+  <p class="muted small">{{if .LastSeen}}Last seen {{ago .LastSeen}} from <span class="mono">{{.LastIP}}</span>.{{else}}Not seen yet: no player has logged in with this account.{{end}}
+    Kept for the days set under <a href="/admin/settings">Settings → History</a>.</p>
+  {{if .Shared}}<p class="error" role="alert">Used from {{.ActiveDay}} different networks in the last 24 hours. This login may be shared.</p>{{end}}
+  <div class="split">
+    <div>
+      <h3>Networks</h3>
+      {{if .Networks}}
+      <div class="table-wrap"><table class="stack">
+        <thead><tr><th>Network</th><th>First seen</th><th>Last seen</th></tr></thead>
+        <tbody>{{range .Networks}}
+        <tr><td class="cell-title"><span class="mono">{{.Network}}</span>{{if .Today}} <span class="pill ok">today</span>{{end}}
+            {{if ne .LastIP .Network}}<div class="sub mono">last {{.LastIP}}</div>{{end}}</td>
+          <td data-label="First seen">{{.FirstSeen}}</td><td data-label="Last seen">{{ago .LastSeen}}</td></tr>{{end}}
+        </tbody></table></div>
+      {{else}}<p class="muted">None yet.</p>{{end}}
+
+      <h3>Wrong passwords</h3>
+      {{if .Failures}}
+      <p class="small muted">{{.FailedDay}} in the last 24 hours{{if .FailedMore}}; the latest {{len .Failures}} are listed{{end}}.
+        Several from an address this user never watched from suggest someone guessing.</p>
+      <ul class="plain-list">{{range .Failures}}<li><span class="mono muted">{{.When}}</span> <span class="mono">{{.IP}}</span></li>{{end}}</ul>
+      {{else}}<p class="muted">None.</p>{{end}}
+    </div>
+    <div>
+      <h3>Watched</h3>
+      {{if .Watched}}
+      <div class="table-wrap"><table class="stack">
+        <thead><tr><th>Channel</th><th>Started</th><th class="num">For</th><th>Address</th></tr></thead>
+        <tbody>{{range .Watched}}
+        <tr><td class="cell-title">{{if .Channel}}<a href="/admin/channels/{{.ChannelID}}">{{.Channel}}</a>{{else}}<span class="muted">deleted channel</span>{{end}}{{if eq .Output "hls"}} <span class="pill off">HLS</span>{{end}}</td>
+          <td data-label="Started">{{.Started}}</td><td class="num" data-label="For">{{.Length}}</td>
+          <td class="mono" data-label="Address">{{.IP}}</td></tr>{{end}}
+        </tbody></table></div>
+      {{else}}<p class="muted">Nothing watched yet. Live channels appear here when the player stops.</p>{{end}}
+    </div>
+  </div>
+</section>
 {{end}}
 
 {{define "copy-field"}}

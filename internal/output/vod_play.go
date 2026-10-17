@@ -46,7 +46,7 @@ func (h *Handlers) vodXtream(kind string) http.HandlerFunc {
 
 func (h *Handlers) vodToken(kind string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u, err := h.Access.Customers.ByToken(r.Context(), chi.URLParam(r, "token"))
+		u, err := h.authToken(r, chi.URLParam(r, "token"))
 		if err != nil {
 			h.authFail(w, err)
 			return

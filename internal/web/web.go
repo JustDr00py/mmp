@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/JustDr00py/mmp/internal/audit"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
@@ -140,6 +141,13 @@ type Store interface {
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
+	UsersLastSeen(ctx context.Context) ([]db.UsersLastSeenRow, error)
+	ListAudit(ctx context.Context, arg db.ListAuditParams) ([]db.AdminAudit, error)
+	AuditUsernames(ctx context.Context) ([]string, error)
+	AuditTargetTypes(ctx context.Context) ([]string, error)
+	UserViewingSessions(ctx context.Context, arg db.UserViewingSessionsParams) ([]db.UserViewingSessionsRow, error)
+	UserNetworks(ctx context.Context, arg db.UserNetworksParams) ([]db.UserNetworksRow, error)
+	UserAuthFailures(ctx context.Context, arg db.UserAuthFailuresParams) ([]db.UserAuthFailuresRow, error)
 	GetSetting(ctx context.Context, key string) ([]byte, error)
 	SetSetting(ctx context.Context, arg db.SetSettingParams) error
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
@@ -190,6 +198,8 @@ type Deps struct {
 	DefaultRefresh time.Duration
 	// EpisodeTTL is how long a series' episode list is reused (vod.episode_ttl).
 	EpisodeTTL time.Duration
+	// Audit records sign-ins and every admin change; nil records nothing.
+	Audit *audit.Recorder
 	// Backups is the backup service; nil hides the page.
 	Backups *backup.Service
 	// Restart restarts MMP after a restore (nil: no restart).
@@ -228,10 +238,11 @@ var nav = []navItem{
 	{Prefix + "/settings", "Settings", "gear", "Settings"},
 	{Prefix + "/profiles", "Profiles", "sliders", ""},
 	{Prefix + "/backups", "Backups", "archive", ""},
+	{Prefix + "/audit", "Audit log", "eye", ""},
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -328,7 +339,7 @@ func (ui *UI) Mount(r chi.Router) {
 		r.Get("/login", ui.loginPage)
 		r.Post("/login", ui.login)
 		r.Group(func(r chi.Router) {
-			r.Use(ui.requireAdmin)
+			r.Use(ui.requireAdmin, ui.Audit.Middleware("ui"))
 			r.Post("/logout", ui.logout)
 			r.Get("/", ui.dashboard)
 			r.Get("/live", ui.liveStream)
@@ -337,6 +348,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountChannelGroups(r)
 			ui.mountSettings(r)
 			ui.mountEvents(r)
+			ui.mountAudit(r)
 			ui.mountMatch(r)
 			ui.mountUsers(r)
 			ui.mountBouquets(r)
@@ -476,12 +488,14 @@ func (ui *UI) login(w http.ResponseWriter, r *http.Request) {
 		ui.render(w, r, http.StatusTooManyRequests, "login", "Sign in", loginData{Username: username, Next: next, Error: msg})
 		return
 	}
-	token, _, err := ui.Auth.Login(r.Context(), username, password)
+	token, u, err := ui.Auth.Login(r.Context(), username, password)
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
 		ui.LoginLimit.Done(attempt, true)
+		ui.Audit.SignIn(r, &u, username, "ui")
 	case errors.Is(err, auth.ErrUnauthorized):
 		ui.LoginLimit.Done(attempt, false)
+		ui.Audit.SignIn(r, nil, username, "ui")
 	}
 	if err != nil {
 		status, msg := http.StatusUnauthorized, "Invalid username or password."

@@ -4,6 +4,7 @@ package output
 
 import (
 	"errors"
+	"time"
 
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
@@ -43,6 +44,13 @@ func (a *Access) Connections() map[int64]int { return a.conns.Snapshot() }
 
 // Viewers lists the customers watching live channels, oldest first.
 func (a *Access) Viewers() []Viewer { return a.viewers.list() }
+
+// OnViewerEnd calls fn each time a viewer leaves (for watch history).
+func (a *Access) OnViewerEnd(fn func(v Viewer, at time.Time)) {
+	a.viewers.mu.Lock()
+	a.viewers.ended = fn
+	a.viewers.mu.Unlock()
+}
 
 // Kick disconnects viewer id. Its player may reconnect; this does not lock
 // the customer out. It reports whether the viewer was found.

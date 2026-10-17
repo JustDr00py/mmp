@@ -49,8 +49,10 @@ func (env *Env) login(w http.ResponseWriter, r *http.Request) {
 	switch { // only password verdicts count; infrastructure errors do not
 	case err == nil:
 		env.LoginLimit.Done(attempt, true)
+		env.Audit.SignIn(r, &u, in.Username, "api")
 	case errors.Is(err, auth.ErrUnauthorized):
 		env.LoginLimit.Done(attempt, false)
+		env.Audit.SignIn(r, nil, in.Username, "api")
 	}
 	if err != nil {
 		if errors.Is(err, auth.ErrUnauthorized) {
