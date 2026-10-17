@@ -101,6 +101,7 @@ type Store interface {
 	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
+	ChannelBouquetCounts(ctx context.Context) ([]db.ChannelBouquetCountsRow, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
 	AddStreamToChannel(ctx context.Context, arg db.AddStreamToChannelParams) error
 	RemoveStreamFromChannel(ctx context.Context, arg db.RemoveStreamFromChannelParams) error

@@ -56,10 +56,15 @@ VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
 SELECT * FROM channels WHERE id = $1;
 
 -- name: ListChannels :many
--- group_id 0 lists the channels without a group.
+-- group_id 0 lists the channels without a group, bouquet_id 0 those in no
+-- bouquet.
 SELECT * FROM channels
 WHERE (sqlc.narg('group_id')::bigint IS NULL OR group_id IS NOT DISTINCT FROM NULLIF(sqlc.narg('group_id')::bigint, 0))
   AND (sqlc.narg('search')::text IS NULL OR name ILIKE sqlc.narg('search'))
+  AND (sqlc.narg('bouquet_id')::bigint IS NULL
+       OR (sqlc.narg('bouquet_id')::bigint = 0) <> EXISTS (
+           SELECT 1 FROM bouquet_channels bc WHERE bc.channel_id = channels.id
+             AND (sqlc.narg('bouquet_id')::bigint = 0 OR bc.bouquet_id = sqlc.narg('bouquet_id')::bigint)))
 ORDER BY number NULLS LAST, name LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateChannel :one

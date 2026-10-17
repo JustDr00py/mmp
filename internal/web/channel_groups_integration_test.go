@@ -196,3 +196,52 @@ func TestMatchDefaultsToProviderGroups(t *testing.T) {
 		t.Errorf("match forgets the no-group choice")
 	}
 }
+
+func TestChannelsBouquetFilter(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	ids := map[string]int64{}
+	for _, n := range []string{"CNN", "ESPN", "Loose"} {
+		c, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: n})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[n] = c.ID
+	}
+	basic, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Basic"})
+	sports, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Sports"})
+	q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: basic.ID, ChannelIds: []int64{ids["CNN"], ids["ESPN"]}})
+	q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: sports.ID, ChannelIds: []int64{ids["ESPN"]}})
+
+	listed := func(path string) []string {
+		t.Helper()
+		_, body := b.get(path)
+		var out []string
+		for _, n := range []string{"CNN", "ESPN", "Loose"} {
+			if strings.Contains(body, ">"+n+"</a>") {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	for path, want := range map[string]string{
+		"/admin/channels": "CNN ESPN Loose",
+		"/admin/channels?bouquet=" + strconv.FormatInt(basic.ID, 10):  "CNN ESPN",
+		"/admin/channels?bouquet=" + strconv.FormatInt(sports.ID, 10): "ESPN",
+		"/admin/channels?bouquet=-1":                                  "Loose",
+		"/admin/channels?bouquet=-1&q=cnn":                            "",
+	} {
+		if got := strings.Join(listed(path), " "); got != want {
+			t.Errorf("%s lists %q, want %q", path, got, want)
+		}
+	}
+	_, body := b.get("/admin/channels?bouquet=-1")
+	if !strings.Contains(body, `<option value="-1" selected>In no bouquet`) || !strings.Contains(body, `name="bouquet" value="-1"`) {
+		t.Error("the bouquet filter is not kept on the page and the bulk form")
+	}
+	// Moving channels returns to the same filtered list.
+	resp, _ := b.post("/admin/channels/group", url.Values{"to": {"none"}, "bouquet": {"-1"}, "channel": {strconv.FormatInt(ids["Loose"], 10)}}, b.base)
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "bouquet=-1") {
+		t.Errorf("after a bulk move: %s, want the bouquet filter kept", loc)
+	}
+}
