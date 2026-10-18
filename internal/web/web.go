@@ -141,6 +141,7 @@ type Store interface {
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
+	SetProviderGuidePriority(ctx context.Context, arg db.SetProviderGuidePriorityParams) (int64, error)
 	UsersLastSeen(ctx context.Context) ([]db.UsersLastSeenRow, error)
 	ListAudit(ctx context.Context, arg db.ListAuditParams) ([]db.AdminAudit, error)
 	AuditUsernames(ctx context.Context) ([]string, error)

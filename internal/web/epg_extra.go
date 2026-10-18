@@ -55,16 +55,16 @@ func (ui *UI) extraRows(r *http.Request) ([]extraRow, error) {
 	return out, nil
 }
 
+// providerPriorities lists the provider guides' priorities, for the hint
+// beside a new source's priority.
 func (ui *UI) providerPriorities(r *http.Request) string {
-	ps, err := ui.Store.ListProviders(r.Context())
+	srcs, err := ui.epgSources(r)
 	if err != nil {
 		return ""
 	}
 	var parts []string
-	for _, p := range ps {
-		if guideCapable(p) {
-			parts = append(parts, p.Name+" "+strconv.Itoa(int(p.Priority)))
-		}
+	for _, s := range srcs {
+		parts = append(parts, s.Provider.Name+" "+strconv.Itoa(int(s.GuidePriority())))
 	}
 	return strings.Join(parts, ", ")
 }

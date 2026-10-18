@@ -11,18 +11,26 @@ import (
 )
 
 const channelGuideStatus = `-- name: ChannelGuideStatus :many
-SELECT id, number, name, tvg_id, enabled, upcoming, now_title FROM (
+SELECT id, number, name, tvg_id, enabled, source_name, upcoming, now_title FROM (
     SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
+           COALESCE(b.name, '')::text AS source_name,
            (SELECT count(*) FROM epg_programs p
-              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
-             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+             WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.stop_time > now() AND p.start_time < now() + interval '24 hours') AS upcoming,
            COALESCE((SELECT p.title FROM epg_programs p
-              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
-             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+             WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.start_time <= now() AND p.stop_time > now()
              ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
     FROM channels c
+    LEFT JOIN LATERAL (
+        SELECT s.id, s.name FROM epg_programs p
+        JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+        LEFT JOIN providers pr ON pr.id = s.provider_id
+        WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+          AND p.stop_time > now() AND p.start_time < now() + interval '24 hours'
+        ORDER BY COALESCE(s.priority, pr.priority, 2147483647), s.id
+        LIMIT 1
+    ) b ON true
     WHERE ($1::text IS NULL OR c.name ILIKE $1)
 ) g
 WHERE NOT $2::bool OR g.upcoming = 0
@@ -38,17 +46,19 @@ type ChannelGuideStatusParams struct {
 }
 
 type ChannelGuideStatusRow struct {
-	ID       int64  `json:"id"`
-	Number   *int32 `json:"number"`
-	Name     string `json:"name"`
-	TvgID    string `json:"tvg_id"`
-	Enabled  bool   `json:"enabled"`
-	Upcoming int64  `json:"upcoming"`
-	NowTitle string `json:"now_title"`
+	ID         int64  `json:"id"`
+	Number     *int32 `json:"number"`
+	Name       string `json:"name"`
+	TvgID      string `json:"tvg_id"`
+	Enabled    bool   `json:"enabled"`
+	SourceName string `json:"source_name"`
+	Upcoming   int64  `json:"upcoming"`
+	NowTitle   string `json:"now_title"`
 }
 
-// Per-channel guide coverage: programs in the next 24h from enabled
-// sources and what is on now, matched by tvg-id case-insensitively.
+// Per-channel guide coverage, as customers see it: the highest-priority
+// enabled source with programs for the channel's tvg-id (case-insensitive)
+// in the next 24h, its program count there and what is on now.
 // missing_only keeps channels without upcoming programs.
 func (q *Queries) ChannelGuideStatus(ctx context.Context, arg ChannelGuideStatusParams) ([]ChannelGuideStatusRow, error) {
 	rows, err := q.db.Query(ctx, channelGuideStatus,
@@ -70,6 +80,7 @@ func (q *Queries) ChannelGuideStatus(ctx context.Context, arg ChannelGuideStatus
 			&i.Name,
 			&i.TvgID,
 			&i.Enabled,
+			&i.SourceName,
 			&i.Upcoming,
 			&i.NowTitle,
 		); err != nil {
@@ -331,7 +342,7 @@ type ListGuideProgramsRow struct {
 
 // Programs overlapping [since, until) for the given lower-cased tvg-ids.
 // Each tvg-id takes its whole schedule from one source: the one with the
-// best priority (an extra source's own, else its provider's) that has
+// best priority (the source's own, else its provider's) that has
 // programs in the window, so overlapping guides never interleave.
 func (q *Queries) ListGuidePrograms(ctx context.Context, arg ListGuideProgramsParams) ([]ListGuideProgramsRow, error) {
 	rows, err := q.db.Query(ctx, listGuidePrograms, arg.Since, arg.Until, arg.TvgKeys)
@@ -368,6 +379,24 @@ UPDATE epg_sources SET last_refreshed_at = now() WHERE id = $1
 func (q *Queries) MarkEpgSourceRefreshed(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, markEpgSourceRefreshed, id)
 	return err
+}
+
+const setProviderGuidePriority = `-- name: SetProviderGuidePriority :execrows
+UPDATE epg_sources SET priority = $1 WHERE provider_id = $2
+`
+
+type SetProviderGuidePriorityParams struct {
+	Priority   *int32 `json:"priority"`
+	ProviderID *int64 `json:"provider_id"`
+}
+
+// A provider guide's own priority; NULL uses the provider's.
+func (q *Queries) SetProviderGuidePriority(ctx context.Context, arg SetProviderGuidePriorityParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProviderGuidePriority, arg.Priority, arg.ProviderID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateExtraEpgSource = `-- name: UpdateExtraEpgSource :one

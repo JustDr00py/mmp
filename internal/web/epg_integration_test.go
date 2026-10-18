@@ -185,3 +185,77 @@ func TestExtraGuidePages(t *testing.T) {
 		t.Errorf("unknown source = %d", resp.StatusCode)
 	}
 }
+
+// TestProviderGuidePriority: a provider's guide ranks by the provider's
+// priority unless it has its own, so guides can be reordered without
+// touching failover; every place that shows a program follows that order.
+func TestProviderGuidePriority(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	now := time.Now()
+	mk := func(name string, prio int32, title string) db.Provider {
+		t.Helper()
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "m3u", Url: "http://" + name + "/",
+			EpgUrl: "http://" + name + "/epg.xml", MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: prio, Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: name, Url: p.EpgUrl, ProviderID: &p.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := q.InsertEpgPrograms(ctx, []db.InsertEpgProgramsParams{{EpgSourceID: src.ID, ChannelTvgID: "sportsnet.us",
+			Title: title, StartTime: now.Add(-time.Hour), StopTime: now.Add(time.Hour)}}); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	mk("Alpha", 1, "Alpha's show")
+	beta := mk("Beta", 2, "Beta's show")
+	ch, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "SportsNet", TvgID: "SportsNet.us"})
+
+	nowTitle := func() string {
+		t.Helper()
+		progs, err := q.ListGuidePrograms(ctx, db.ListGuideProgramsParams{TvgKeys: []string{"sportsnet.us"}, Since: now, Until: now.Add(time.Minute)})
+		if err != nil || len(progs) != 1 {
+			t.Fatalf("guide programs = %+v, %v", progs, err)
+		}
+		info, _ := q.LiveChannelInfo(ctx, []int64{ch.ID})
+		if len(info) != 1 || info[0].NowTitle != progs[0].Title {
+			t.Errorf("dashboard now playing = %+v, customers get %q", info, progs[0].Title)
+		}
+		cov, _ := q.ChannelGuideStatus(ctx, db.ChannelGuideStatusParams{Limit: 10})
+		if len(cov) != 1 || cov[0].NowTitle != progs[0].Title || cov[0].Upcoming != 1 {
+			t.Errorf("guide coverage = %+v, customers get %q from one guide", cov, progs[0].Title)
+		}
+		return progs[0].Title
+	}
+	if got := nowTitle(); got != "Alpha's show" {
+		t.Fatalf("by provider priority: %q, want Alpha's", got)
+	}
+
+	// Beta's guide ranks first on its own; its streams keep priority 2.
+	resp, _ := b.post("/admin/epg/providers/"+strconv.FormatInt(beta.ID, 10)+"/priority", url.Values{"priority": {"0"}}, b.base)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("set priority = %d", resp.StatusCode)
+	}
+	if got := nowTitle(); got != "Beta's show" {
+		t.Errorf("with Beta's guide at 0: %q, want Beta's", got)
+	}
+	if p, _ := q.GetProvider(ctx, beta.ID); p.Priority != 2 {
+		t.Errorf("provider priority changed to %d", p.Priority)
+	}
+	if _, body := b.get("/admin/epg"); !strings.Contains(body, `name="priority" value="0" placeholder="2"`) ||
+		!strings.Contains(body, "its own (the provider's is 2") || strings.Index(body, ">Beta</a>") > strings.Index(body, ">Alpha</a>") {
+		t.Errorf("guide page does not show Beta's own priority first:\n%s", body)
+	}
+
+	// Blank goes back to the provider's priority.
+	b.post("/admin/epg/providers/"+strconv.FormatInt(beta.ID, 10)+"/priority", url.Values{"priority": {""}}, b.base)
+	if got := nowTitle(); got != "Alpha's show" {
+		t.Errorf("after clearing: %q, want Alpha's", got)
+	}
+	if resp, _ := b.post("/admin/epg/providers/"+strconv.FormatInt(beta.ID, 10)+"/priority", url.Values{"priority": {"x"}}, b.base); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("non-number = %d", resp.StatusCode)
+	}
+}

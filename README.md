@@ -170,7 +170,9 @@ page for coverage).
 **Guide sources:** Xtream providers bring their own guide, M3U providers can have an EPG URL, and on the
 **Guide** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
 guide with better coverage. They download on the guide schedule (`refresh.epg_interval`). When several
-sources list a channel, the lowest priority number wins (providers use their own priority).
+sources list a channel, the lowest priority number wins. A provider's guide uses the provider's priority
+unless you give it its own on the Guide page, so you can rank guides without changing the failover order.
+The channel coverage table there shows which guide each channel gets.
 
 **East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
 Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are

@@ -3,12 +3,14 @@
 <div class="head"><h1>Guide (EPG)</h1><a class="button secondary" href="#extra">Add a guide source</a></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
-  A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source; if several sources have it, the highest-priority provider wins.</p>
+  A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
+  with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
+  rank guides without changing the failover order.</p>
 <h2>Sources</h2>
 {{if $d.Sources}}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Provider</th><th class="num">Programs</th><th class="num">Channels</th><th>Last download</th><th></th></tr></thead>
+  <thead><tr><th>Provider</th><th>Guide priority</th><th class="num">Programs</th><th class="num">Channels</th><th>Last download</th><th></th></tr></thead>
   <tbody>{{range $d.Sources}}{{template "source-row" .}}{{end}}</tbody>
 </table>
 </div>
@@ -19,7 +21,7 @@
 <h2 id="extra">Extra guide sources</h2>
 <p class="muted">Add any XMLTV guide (<span class="mono">.xml</span> or <span class="mono">.xml.gz</span>), for example a community
   guide with better coverage than your providers'. It downloads with the other guides. When several sources list a channel,
-  the lowest priority number wins; your providers use their own priority.</p>
+  the lowest priority number wins; provider guides are ranked in the table above.</p>
 {{if $d.Extras}}
 <div class="table-wrap">
 <table class="stack">
@@ -56,6 +58,12 @@
   <td><a href="/admin/providers/{{.Provider.ID}}/edit">{{.Provider.Name}}</a>
     {{with .Stats}}<div class="sub mono">{{redact .Url}}</div>{{end}}
     {{if not .Provider.Enabled}}<span class="pill off">provider disabled</span>{{end}}</td>
+  <td>{{if .Stats}}
+    <form class="row prio-form" method="post" action="/admin/epg/providers/{{.Provider.ID}}/priority">
+      <input class="prio" type="number" name="priority" value="{{.OwnPriority}}" placeholder="{{.Provider.Priority}}" aria-label="Guide priority for {{.Provider.Name}}">
+      <button type="submit" class="small secondary">Save</button></form>
+    <div class="sub">{{if .OwnPriority}}its own (the provider's is {{.Provider.Priority}}; clear to follow it){{else}}follows the provider's ({{.Provider.Priority}}){{end}}</div>
+    {{else}}<span class="muted small">{{.Provider.Priority}} (the provider's), settable after the first download</span>{{end}}</td>
   {{with .Stats}}
   <td class="num">{{.Programs}}</td><td class="num">{{.Channels}}</td><td>{{ago .LastRefreshedAt}}</td>
   {{else}}
@@ -97,7 +105,7 @@
 {{if .Guide}}
 <div class="table-wrap">
 <table>
-  <thead><tr><th class="num">#</th><th>Channel</th><th>tvg-id</th><th>Now</th><th class="num">Next 24h</th></tr></thead>
+  <thead><tr><th class="num">#</th><th>Channel</th><th>tvg-id</th><th>Now</th><th>From</th><th class="num">Next 24h</th></tr></thead>
   <tbody>
   {{range .Guide}}
   <tr{{if not .Enabled}} class="dim"{{end}}>
@@ -105,6 +113,7 @@
     <td><a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
     <td class="mono">{{if .TvgID}}{{.TvgID}}{{else}}<span class="pill warn">none</span>{{end}}</td>
     <td>{{if .NowTitle}}{{.NowTitle}}{{else}}<span class="muted">—</span>{{end}}</td>
+    <td>{{if .SourceName}}{{.SourceName}}{{else}}<span class="muted">—</span>{{end}}</td>
     <td class="num">{{if .Upcoming}}{{.Upcoming}}{{else}}<span class="pill warn">no guide</span>{{end}}</td>
   </tr>
   {{end}}

@@ -29,7 +29,7 @@ SELECT * FROM epg_sources WHERE provider_id = $1;
 -- name: ListGuidePrograms :many
 -- Programs overlapping [since, until) for the given lower-cased tvg-ids.
 -- Each tvg-id takes its whole schedule from one source: the one with the
--- best priority (an extra source's own, else its provider's) that has
+-- best priority (the source's own, else its provider's) that has
 -- programs in the window, so overlapping guides never interleave.
 WITH best AS (
     SELECT DISTINCT ON (lower(p.channel_tvg_id))
@@ -59,26 +59,39 @@ LEFT JOIN providers pr ON pr.id = s.provider_id
 ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name;
 
 -- name: ChannelGuideStatus :many
--- Per-channel guide coverage: programs in the next 24h from enabled
--- sources and what is on now, matched by tvg-id case-insensitively.
+-- Per-channel guide coverage, as customers see it: the highest-priority
+-- enabled source with programs for the channel's tvg-id (case-insensitive)
+-- in the next 24h, its program count there and what is on now.
 -- missing_only keeps channels without upcoming programs.
 SELECT * FROM (
     SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
+           COALESCE(b.name, '')::text AS source_name,
            (SELECT count(*) FROM epg_programs p
-              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
-             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+             WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.stop_time > now() AND p.start_time < now() + interval '24 hours') AS upcoming,
            COALESCE((SELECT p.title FROM epg_programs p
-              JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
-             WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+             WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.start_time <= now() AND p.stop_time > now()
              ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
     FROM channels c
+    LEFT JOIN LATERAL (
+        SELECT s.id, s.name FROM epg_programs p
+        JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+        LEFT JOIN providers pr ON pr.id = s.provider_id
+        WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
+          AND p.stop_time > now() AND p.start_time < now() + interval '24 hours'
+        ORDER BY COALESCE(s.priority, pr.priority, 2147483647), s.id
+        LIMIT 1
+    ) b ON true
     WHERE (sqlc.narg('search')::text IS NULL OR c.name ILIKE sqlc.narg('search'))
 ) g
 WHERE NOT sqlc.arg('missing_only')::bool OR g.upcoming = 0
 ORDER BY g.number NULLS LAST, g.name
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: SetProviderGuidePriority :execrows
+-- A provider guide's own priority; NULL uses the provider's.
+UPDATE epg_sources SET priority = sqlc.narg('priority') WHERE provider_id = sqlc.arg('provider_id');
 
 -- Extra guide sources: XMLTV URLs not tied to a provider (e.g. a
 -- community guide), managed on the Guide page.
