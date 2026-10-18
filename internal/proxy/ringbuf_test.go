@@ -60,6 +60,19 @@ func readPackets(ctx context.Context, rd *Reader, want int) ([]uint64, error) {
 	return seqs, nil
 }
 
+// readThrough reads packets until it has read the one numbered last.
+func readThrough(ctx context.Context, rd *Reader, last uint64) ([]uint64, error) {
+	var seqs []uint64
+	for len(seqs) == 0 || seqs[len(seqs)-1] < last {
+		got, err := readPackets(ctx, rd, 1)
+		seqs = append(seqs, got...)
+		if err != nil {
+			return seqs, err
+		}
+	}
+	return seqs, nil
+}
+
 func TestRingBasicOrderAndWrap(t *testing.T) {
 	r := NewRing(10 * TSPacketSize)
 	rd := r.NewReader(0)
@@ -140,7 +153,10 @@ func TestRingSlowReaderSkipsAhead(t *testing.T) {
 	var fastSeqs []uint64
 	var fastErr error
 	var wg sync.WaitGroup
-	wg.Go(func() { fastSeqs, fastErr = readPackets(ctx, fast, total) })
+	// Read through the last packet rather than a count: a fast reader the
+	// scheduler stalls can be lapped and skip some, and must not then wait
+	// for packets that never come.
+	wg.Go(func() { fastSeqs, fastErr = readThrough(ctx, fast, total-1) })
 
 	done := make(chan struct{})
 	go func() {
