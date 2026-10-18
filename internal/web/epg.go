@@ -1,7 +1,10 @@
 package web
 
 import (
+	"cmp"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ const guideRowsPerPage = 100
 func (ui *UI) mountEPG(r chi.Router) {
 	r.Get("/epg", ui.epgPage)
 	r.Post("/epg/providers/{id}/refresh", ui.epgRefresh)
+	r.Post("/epg/providers/{id}/priority", ui.epgPriority)
 	ui.mountEPGExtra(r)
 }
 
@@ -36,6 +40,24 @@ type epgData struct {
 	Offset      int
 	NextOffset  int
 	PrevOffset  int
+}
+
+// GuidePriority is the priority the provider's guide ranks at: its own,
+// else the provider's.
+func (s epgSource) GuidePriority() int32 {
+	if s.Stats != nil && s.Stats.Priority != nil {
+		return *s.Stats.Priority
+	}
+	return s.Provider.Priority
+}
+
+// OwnPriority is the guide's own priority as the form shows it ("" when it
+// follows the provider's).
+func (s epgSource) OwnPriority() string {
+	if s.Stats != nil && s.Stats.Priority != nil {
+		return strconv.Itoa(int(*s.Stats.Priority))
+	}
+	return ""
 }
 
 // guideCapable: Xtream panels serve XMLTV themselves; others need an EPG URL.
@@ -67,6 +89,7 @@ func (ui *UI) epgSources(r *http.Request) ([]epgSource, error) {
 		}
 		out = append(out, src)
 	}
+	slices.SortStableFunc(out, func(a, b epgSource) int { return cmp.Compare(a.GuidePriority(), b.GuidePriority()) })
 	return out, nil
 }
 
@@ -74,6 +97,7 @@ var epgFlashes = map[string]string{
 	"extra-added":   "Guide source added. It is downloading now; reload in a minute to see its programs.",
 	"extra-saved":   "Guide source saved.",
 	"extra-deleted": "Guide source deleted.",
+	"priority":      "Guide priority saved. Channels take their guide from the new order at once.",
 }
 
 func (ui *UI) epgPage(w http.ResponseWriter, r *http.Request) {
@@ -154,4 +178,38 @@ func (ui *UI) epgRefresh(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// epgPriority sets a provider guide's own priority (blank: the provider's
+// stream priority), independent of the provider's failover order.
+func (ui *UI) epgPriority(w http.ResponseWriter, r *http.Request) {
+	p, ok := ui.provider(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	var prio *int32
+	if v := strings.TrimSpace(r.PostForm.Get("priority")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			http.Error(w, "priority must be a whole number", http.StatusBadRequest)
+			return
+		}
+		n32 := int32(n)
+		prio = &n32
+	}
+	n, err := ui.Store.SetProviderGuidePriority(r.Context(), db.SetProviderGuidePriorityParams{Priority: prio, ProviderID: &p.ID})
+	if err != nil {
+		ui.fail(w, "set guide priority", err)
+		return
+	}
+	if n == 0 {
+		http.Error(w, "this provider's guide has not been downloaded yet", http.StatusConflict)
+		return
+	}
+	ui.Log.Info("web: guide priority saved", "provider_id", p.ID)
+	ui.redirect(w, r, Prefix+"/epg?msg=priority")
 }

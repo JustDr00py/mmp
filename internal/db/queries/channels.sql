@@ -123,14 +123,16 @@ SELECT id, name FROM channels WHERE id = ANY(sqlc.arg('ids')::bigint[]);
 
 -- name: LiveChannelInfo :many
 -- What the dashboard's channel cards show besides the session: logo,
--- stream profile, and what is on now (by tvg-id, case-insensitively).
+-- stream profile, and what is on now (by tvg-id, case-insensitively, from
+-- the highest-priority guide that has it, as customers see it).
 SELECT c.id, c.number, c.name, c.logo_url,
        COALESCE(sp.name, '')::text AS profile_name, COALESCE(sp.mode, '')::text AS profile_mode,
        COALESCE((SELECT p.title FROM epg_programs p
           JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
+          LEFT JOIN providers pr ON pr.id = s.provider_id
          WHERE c.tvg_id <> '' AND lower(p.channel_tvg_id) = lower(c.tvg_id)
            AND p.start_time <= now() AND p.stop_time > now()
-         ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
+         ORDER BY COALESCE(s.priority, pr.priority, 2147483647), s.id, p.start_time DESC LIMIT 1), '')::text AS now_title
 FROM channels c
 LEFT JOIN stream_profiles sp ON sp.id = c.stream_profile_id
 WHERE c.id = ANY(sqlc.arg('ids')::bigint[]);
