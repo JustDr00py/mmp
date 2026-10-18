@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -35,6 +36,8 @@ type providerJSON struct {
 	// GroupFilter limits matching and the stream picker to the selected
 	// groups (see /providers/{id}/groups).
 	GroupFilter bool `json:"group_filter"`
+	// Backbone labels the upstream network the provider resells; "" = none.
+	Backbone string `json:"backbone"`
 }
 
 func toJSON(p db.Provider) providerJSON {
@@ -44,7 +47,7 @@ func toJSON(p db.Provider) providerJSON {
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
 		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
 		VODEnabled:           p.VodEnabled, VODRefreshedAt: p.VodRefreshedAt,
-		GroupFilter: p.GroupFilter,
+		GroupFilter: p.GroupFilter, Backbone: p.Backbone,
 	}
 }
 
@@ -65,6 +68,8 @@ type providerInput struct {
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	// Absent keeps the current setting (off for new providers).
 	VODEnabled *bool `json:"vod_enabled"`
+	// Absent keeps the current label (none for new providers); "" clears it.
+	Backbone *string `json:"backbone"`
 }
 
 func (in *providerInput) validate() error {
@@ -76,6 +81,24 @@ func (in *providerInput) validate() error {
 	}
 	return source.ValidateProvider(in.Name, in.Type, in.URL, in.EPGURL,
 		defInt32(in.MaxConnections, 0), defInt32(in.RefreshIntervalSecs, 1))
+}
+
+// backbone normalizes in.Backbone (def when absent) against the labels in
+// use. bad is set for a label the caller must fix (400).
+func (env *Env) backbone(ctx context.Context, in *string, def string) (label string, bad, err error) {
+	if in == nil {
+		return def, nil, nil
+	}
+	rows, err := env.Store.ListBackbones(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	known := make([]string, len(rows))
+	for i, b := range rows {
+		known[i] = b.Backbone
+	}
+	label, bad = source.NormalizeBackbone(*in, known)
+	return label, bad, nil
 }
 
 func defInt32(p *int32, def int32) int32 {
@@ -133,6 +156,16 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	backbone, bad, err := env.backbone(r.Context(), in.Backbone, "")
+	if bad != nil {
+		writeErr(w, http.StatusBadRequest, bad.Error())
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: list backbones", "err", err)
+		writeErr(w, http.StatusInternalServerError, "create provider failed")
+		return
+	}
 	p, err := env.Store.CreateProvider(r.Context(), db.CreateProviderParams{
 		Name: in.Name, Type: in.Type, Url: in.URL,
 		Username: in.Username, Password: in.Password, EpgUrl: in.EPGURL,
@@ -142,6 +175,7 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		Priority:             defInt32(in.Priority, 0),
 		Enabled:              defBool(in.Enabled, true),
 		RefreshMaxDisablePct: in.RefreshMaxDisablePct,
+		Backbone:             backbone,
 	})
 	if err != nil {
 		env.Log.Error("api: create provider", "err", err)
@@ -214,6 +248,16 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 	if pct == nil {
 		pct = current.RefreshMaxDisablePct
 	}
+	backbone, bad, err := env.backbone(r.Context(), in.Backbone, current.Backbone)
+	if bad != nil {
+		writeErr(w, http.StatusBadRequest, bad.Error())
+		return
+	}
+	if err != nil {
+		env.Log.Error("api: list backbones", "err", err)
+		writeErr(w, http.StatusInternalServerError, "update provider failed")
+		return
+	}
 	p, err := env.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
 		ID:   id,
 		Name: in.Name, Type: in.Type, Url: in.URL,
@@ -224,6 +268,7 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 		Priority:             defInt32(in.Priority, current.Priority),
 		Enabled:              defBool(in.Enabled, current.Enabled),
 		RefreshMaxDisablePct: pct,
+		Backbone:             backbone,
 	})
 	if err != nil {
 		env.Log.Error("api: update provider", "provider_id", id, "err", err)

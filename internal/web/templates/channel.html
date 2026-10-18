@@ -10,8 +10,15 @@
     {{template "stream-list" $d.Streams}}
     <h2>Add streams</h2>
     <form class="search" method="get" action="/admin/channels/{{$d.Form.ID}}/picker"
-      hx-get="/admin/channels/{{$d.Form.ID}}/picker" hx-target="#picker" hx-trigger="input changed delay:300ms from:input, submit">
+      hx-get="/admin/channels/{{$d.Form.ID}}/picker" hx-target="#picker" hx-trigger="input changed delay:300ms from:input, change, submit">
+      <div class="row">
       <input type="search" name="q" placeholder="Search streams across all providers" aria-label="Search streams to add">
+      {{if $d.Backbones}}<select name="backbone" aria-label="Backbone">
+        <option value="">All backbones</option>
+        {{range $d.Backbones}}<option value="{{.Backbone}}">{{.Backbone}}</option>{{end}}
+        <option value="-">No backbone</option>
+      </select>{{end}}
+      </div>
     </form>
     <div id="picker"></div>
   </section>
@@ -72,7 +79,7 @@
 <ul class="picker">
 {{range .Results}}
   <li>
-    <span class="what"><strong>{{.Name}}</strong><span class="sub">{{.ProviderName}}{{with .GroupTitle}} · {{.}}{{end}}{{with .TvgID}} · {{.}}{{end}}</span></span>
+    <span class="what"><strong>{{.Name}}</strong><span class="sub">{{.ProviderName}}{{with .Backbone}} ({{.}}){{end}}{{with .GroupTitle}} · {{.}}{{end}}{{with .TvgID}} · {{.}}{{end}}</span></span>
     {{if index $.Listed .ID}}<span class="pill off">in list</span>{{else}}
     <span id="pick-{{.ID}}"><form method="post" action="/admin/channels/{{$.ChannelID}}/streams" hx-post="/admin/channels/{{$.ChannelID}}/streams"
       hx-target="#stream-list" hx-swap="outerHTML">

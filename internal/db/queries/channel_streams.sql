@@ -85,12 +85,13 @@ SELECT channel_id, count(*) AS bouquets FROM bouquet_channels GROUP BY channel_i
 
 -- name: SearchStreamsAllProviders :many
 -- Admin stream picker: live streams of every provider matching a name, in
--- the groups selected for their provider.
+-- the groups selected for their provider, optionally on one backbone.
 SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, ps.logo_url, ps.health_score,
-       pr.id AS provider_id, pr.name AS provider_name
+       pr.id AS provider_id, pr.name AS provider_name, pr.backbone
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE NOT ps.disabled AND ps.name ILIKE sqlc.arg('pattern')
+  AND (sqlc.narg('backbone')::text IS NULL OR pr.backbone = sqlc.narg('backbone'))
   AND (NOT pr.group_filter OR EXISTS (SELECT 1 FROM provider_groups pg
        WHERE pg.provider_id = ps.provider_id AND pg.group_title = ps.group_title))
 ORDER BY ps.name, pr.priority, ps.id

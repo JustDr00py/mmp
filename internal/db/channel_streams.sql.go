@@ -438,19 +438,21 @@ func (q *Queries) ReorderChannelStreams(ctx context.Context, arg ReorderChannelS
 
 const searchStreamsAllProviders = `-- name: SearchStreamsAllProviders :many
 SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, ps.logo_url, ps.health_score,
-       pr.id AS provider_id, pr.name AS provider_name
+       pr.id AS provider_id, pr.name AS provider_name, pr.backbone
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE NOT ps.disabled AND ps.name ILIKE $1
+  AND ($2::text IS NULL OR pr.backbone = $2)
   AND (NOT pr.group_filter OR EXISTS (SELECT 1 FROM provider_groups pg
        WHERE pg.provider_id = ps.provider_id AND pg.group_title = ps.group_title))
 ORDER BY ps.name, pr.priority, ps.id
-LIMIT $2
+LIMIT $3
 `
 
 type SearchStreamsAllProvidersParams struct {
-	Pattern string `json:"pattern"`
-	Limit   int32  `json:"limit"`
+	Pattern  string  `json:"pattern"`
+	Backbone *string `json:"backbone"`
+	Limit    int32   `json:"limit"`
 }
 
 type SearchStreamsAllProvidersRow struct {
@@ -462,12 +464,13 @@ type SearchStreamsAllProvidersRow struct {
 	HealthScore  float32 `json:"health_score"`
 	ProviderID   int64   `json:"provider_id"`
 	ProviderName string  `json:"provider_name"`
+	Backbone     string  `json:"backbone"`
 }
 
 // Admin stream picker: live streams of every provider matching a name, in
-// the groups selected for their provider.
+// the groups selected for their provider, optionally on one backbone.
 func (q *Queries) SearchStreamsAllProviders(ctx context.Context, arg SearchStreamsAllProvidersParams) ([]SearchStreamsAllProvidersRow, error) {
-	rows, err := q.db.Query(ctx, searchStreamsAllProviders, arg.Pattern, arg.Limit)
+	rows, err := q.db.Query(ctx, searchStreamsAllProviders, arg.Pattern, arg.Backbone, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -484,6 +487,7 @@ func (q *Queries) SearchStreamsAllProviders(ctx context.Context, arg SearchStrea
 			&i.HealthScore,
 			&i.ProviderID,
 			&i.ProviderName,
+			&i.Backbone,
 		); err != nil {
 			return nil, err
 		}

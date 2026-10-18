@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"context"
 	"net/http"
 	"net/url"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 // matchPageSize is how many suggestions one page shows.
@@ -40,15 +42,19 @@ type proposalView struct {
 
 // matchFilter is the page's filter state, carried through apply.
 type matchFilter struct {
-	Query   string
-	Group   string // provider group title; "" = any
-	Show    string // "" = all, "new" = new channels, "existing" = additions to existing ones
-	MinProv int
-	Offset  int
+	Query    string
+	Group    string // provider group title; "" = any
+	Show     string // "" = all, "new" = new channels, "existing" = additions to existing ones
+	Backbone string // "" = any, source.NoBackbone = providers without one, else the label
+	MinProv  int
+	Offset   int
+
+	provs map[int64]bool // with Backbone set: its providers (see withBackbone)
 }
 
 func parseMatchFilter(v url.Values) matchFilter {
-	f := matchFilter{Query: strings.TrimSpace(v.Get("q")), Group: v.Get("group"), MinProv: 2, Offset: max(atoi(v.Get("offset")), 0)}
+	f := matchFilter{Query: strings.TrimSpace(v.Get("q")), Group: v.Get("group"), Backbone: v.Get("backbone"),
+		MinProv: 2, Offset: max(atoi(v.Get("offset")), 0)}
 	if s := v.Get("show"); s == "new" || s == "existing" {
 		f.Show = s
 	}
@@ -70,7 +76,32 @@ func (f matchFilter) Values() url.Values {
 	if f.Show != "" {
 		v.Set("show", f.Show)
 	}
+	if f.Backbone != "" {
+		v.Set("backbone", f.Backbone)
+	}
 	return v
+}
+
+// withBackbone resolves f.Backbone to the providers on it.
+func (ui *UI) withBackbone(ctx context.Context, f *matchFilter) error {
+	if f.Backbone == "" {
+		return nil
+	}
+	ps, err := ui.Store.ListProviders(ctx)
+	if err != nil {
+		return err
+	}
+	want := f.Backbone
+	if want == source.NoBackbone {
+		want = ""
+	}
+	f.provs = map[int64]bool{}
+	for _, p := range ps {
+		if p.Backbone == want {
+			f.provs[p.ID] = true
+		}
+	}
+	return nil
 }
 
 // PageURL links to the page at offset with the same filter.
@@ -90,6 +121,7 @@ type groupOption struct {
 type matchData struct {
 	Filter    matchFilter
 	Groups    []groupOption // provider groups among suggestions at MinProv
+	Backbones []db.ListBackbonesRow
 	Proposals []proposalView
 	Matching  int // suggestions passing the whole filter
 	AtMin     int // suggestions seen at >= MinProv providers
@@ -123,6 +155,14 @@ func filterProposals(props []channel.Proposal, f matchFilter) (out []channel.Pro
 	terms := strings.Fields(strings.ToLower(f.Query))
 	counts := map[string]int{}
 	for _, p := range props {
+		if f.provs != nil {
+			// Only the backbone's streams, so "2+ providers" means two of
+			// its providers carry the channel.
+			var ok bool
+			if p, ok = p.InProviders(f.provs); !ok {
+				continue
+			}
+		}
 		if p.Providers < f.MinProv {
 			hidden++
 			continue
@@ -170,6 +210,13 @@ func filterProposals(props []channel.Proposal, f matchFilter) (out []channel.Pro
 func (ui *UI) matchData(r *http.Request, f matchFilter) (matchData, error) {
 	ctx := r.Context()
 	d := matchData{Filter: f, Prev: -1, Next: -1}
+	if err := ui.withBackbone(ctx, &f); err != nil {
+		return d, err
+	}
+	var err error
+	if d.Backbones, err = ui.Store.ListBackbones(ctx); err != nil {
+		return d, err
+	}
 	props, err := ui.Match.Propose(ctx)
 	if err != nil {
 		return d, err
@@ -308,7 +355,12 @@ func (ui *UI) matchApply(w http.ResponseWriter, r *http.Request) {
 		}
 		opts.Streams[key] = ids
 	}
-	if pf.Get("scope") == "all" || f.Group != "" {
+	if err := ui.withBackbone(r.Context(), &f); err != nil {
+		ui.fail(w, "match backbone", err)
+		return
+	}
+	narrowed := f.Group != "" || f.Backbone != ""
+	if pf.Get("scope") == "all" || narrowed {
 		props, err := ui.Match.Propose(r.Context())
 		if err != nil {
 			ui.fail(w, "match proposals", err)
@@ -319,9 +371,9 @@ func (ui *UI) matchApply(w http.ResponseWriter, r *http.Request) {
 			if pf.Get("scope") == "all" {
 				opts.Keys = append(opts.Keys, p.Key)
 			}
-			// Suggestions narrowed to a provider group apply only its
-			// streams (rows on the page already post just those).
-			if _, onPage := opts.Streams[p.Key]; !onPage && f.Group != "" {
+			// Suggestions narrowed to a provider group or backbone apply
+			// only its streams (rows on the page already post just those).
+			if _, onPage := opts.Streams[p.Key]; !onPage && narrowed {
 				opts.Streams[p.Key] = p.StreamIDs
 			}
 		}

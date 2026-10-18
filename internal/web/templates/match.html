@@ -18,6 +18,12 @@
       <option value="">All groups</option>
       {{range $d.Groups}}<option value="{{.Name}}"{{if eq .Name $d.Filter.Group}} selected{{end}}>{{if .Name}}{{.Name}}{{else}}(no group){{end}} ({{.Count}})</option>{{end}}
     </select></label>
+  {{if $d.Backbones}}<label>Backbone
+    <select name="backbone" data-autosubmit>
+      <option value="">All backbones</option>
+      {{range $d.Backbones}}<option value="{{.Backbone}}"{{if eq .Backbone $d.Filter.Backbone}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
+      <option value="-"{{if eq $d.Filter.Backbone "-"}} selected{{end}}>No backbone</option>
+    </select></label>{{end}}
   <label>Show
     <select name="show" data-autosubmit>
       <option value="">all suggestions</option>
@@ -85,6 +91,7 @@
   <input type="hidden" name="group" value="{{.Filter.Group}}">
   <input type="hidden" name="min" value="{{.Filter.MinProv}}">
   <input type="hidden" name="show" value="{{.Filter.Show}}">
+  <input type="hidden" name="backbone" value="{{.Filter.Backbone}}">
   <input type="hidden" name="offset" value="{{.Filter.Offset}}">
   {{if .Proposals}}
   <div class="match-bar">

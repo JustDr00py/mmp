@@ -4,18 +4,24 @@
   <a class="button" href="/admin/providers/new">Add provider</a>
 </div>
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-{{if .Data.Rows}}
-<div class="table-wrap">
-<table class="stack">
-  <thead><tr>
-    <th>Name</th><th>Type</th><th class="num">Priority</th><th class="num">Slots</th>
-    <th class="num">Streams</th><th>Last refresh</th><th>Status</th><th></th>
-  </tr></thead>
-  <tbody>
-  {{range .Data.Rows}}{{template "provider-row" .}}{{end}}
-  </tbody>
-</table>
-</div>
+{{if .Data.Refreshing}}<p class="hint" role="status">A bulk refresh is running in the background.</p>{{end}}
+{{if .Data.Total}}
+<form class="search row" method="get" action="/admin/providers"
+  hx-get="/admin/providers" hx-target="#providers" hx-swap="outerHTML" hx-push-url="true"
+  hx-trigger="input changed delay:300ms from:find input, change, submit">
+  <input type="search" name="q" value="{{.Data.Filter.Query}}" placeholder="Search providers" aria-label="Search providers">
+  <select name="backbone" aria-label="Backbone">
+    <option value="">All backbones</option>
+    {{range .Data.Backbones}}<option value="{{.Backbone}}"{{if eq .Backbone $.Data.Filter.Backbone}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
+    {{if .Data.Unlabeled}}<option value="-"{{if eq .Data.Filter.Backbone "-"}} selected{{end}}>No backbone ({{.Data.Unlabeled}})</option>{{end}}
+  </select>
+  <select name="status" aria-label="Status">
+    <option value="">Enabled and disabled</option>
+    <option value="enabled"{{if eq .Data.Filter.Status "enabled"}} selected{{end}}>Enabled</option>
+    <option value="disabled"{{if eq .Data.Filter.Status "disabled"}} selected{{end}}>Disabled</option>
+  </select>
+</form>
+{{template "providers-table" .Data}}
 {{else}}
 <div class="card empty">
   <p>No providers yet.</p>
@@ -25,9 +31,58 @@
 {{end}}
 {{end}}
 
+{{define "providers-table"}}
+<div id="providers">
+{{if .Rows}}
+<form id="bulk" method="post" action="/admin/providers/bulk">
+  <input type="hidden" name="q" value="{{.Filter.Query}}"><input type="hidden" name="backbone" value="{{.Filter.Backbone}}"><input type="hidden" name="status" value="{{.Filter.Status}}">
+  <div class="row bulk">
+    <label class="check small"><input type="checkbox" data-check-all="provider"> all on this page</label>
+    <select name="scope" aria-label="Apply to">
+      <option value="">Selected providers</option>
+      <option value="all">All {{.Matching}} {{if .Filter.Active}}matching{{else}}providers{{end}}</option>
+    </select>
+    <select name="action" aria-label="Action" required data-reveal>
+      <option value="">Action…</option>
+      <option value="backbone">Set backbone</option>
+      <option value="enable">Enable</option>
+      <option value="disable">Disable</option>
+      <option value="priority">Set priority</option>
+      <option value="refresh">Refresh now</option>
+    </select>
+    <input name="backbone_to" list="backbone-names" maxlength="60" placeholder="Backbone (blank clears)" aria-label="New backbone" data-reveal-for="backbone" hidden>
+    <input name="priority_to" type="number" placeholder="Priority" aria-label="New priority" data-reveal-for="priority" hidden>
+    <button type="submit" class="small secondary">Apply</button>
+  </div>
+  <datalist id="backbone-names">{{range .Backbones}}<option value="{{.Backbone}}">{{end}}</datalist>
+</form>
+<div class="table-wrap">
+<table class="stack">
+  <thead><tr>
+    <th class="check" aria-label="Select"></th><th>Name</th><th>Backbone</th><th>Type</th><th class="num">Priority</th><th class="num">Slots</th>
+    <th class="num">Streams</th><th>Last refresh</th><th>Status</th><th></th>
+  </tr></thead>
+  <tbody>
+  {{range .Rows}}{{template "provider-row" .}}{{end}}
+  </tbody>
+</table>
+</div>
+<nav class="pager">
+  <span class="muted small">{{.From}}–{{.To}} of {{.Matching}}{{if ne .Matching .Total}} (of {{.Total}} providers){{end}}</span>
+  {{if ge .Prev 0}}<a href="{{.Filter.PageURL .Prev}}">← Previous</a>{{end}}
+  {{if ge .Next 0}}<a href="{{.Filter.PageURL .Next}}">Next →</a>{{end}}
+</nav>
+{{else}}
+<div class="card empty"><p>No providers match.</p><p class="muted"><a href="/admin/providers">Show all providers</a></p></div>
+{{end}}
+</div>
+{{end}}
+
 {{define "provider-row"}}
 <tr id="provider-{{.ID}}">
+  <td class="check"><input type="checkbox" form="bulk" name="provider" value="{{.ID}}" aria-label="Select {{.Name}}"></td>
   <td class="name-col cell-title"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub url">{{redact .Url}}</div></td>
+  <td data-label="Backbone">{{if .Backbone}}<a href="/admin/providers?backbone={{.Backbone}}">{{.Backbone}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Type">{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
   <td class="num" data-label="Priority">{{.Priority}}</td>
   <td class="num" data-label="Slots">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>

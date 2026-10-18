@@ -152,6 +152,7 @@ type Provider struct {
 	VodEnabled           bool       `json:"vod_enabled"`
 	VodRefreshedAt       *time.Time `json:"vod_refreshed_at"`
 	GroupFilter          bool       `json:"group_filter"`
+	Backbone             string     `json:"backbone"`
 }
 
 type ProviderGroup struct {

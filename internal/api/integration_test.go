@@ -951,3 +951,39 @@ func mustURL(t *testing.T, s string) *url.URL {
 	}
 	return u
 }
+
+func TestProviderBackboneAPI(t *testing.T) {
+	env := newAPITestEnv(t)
+	h := apiServer(env)
+	base := map[string]any{"name": "A", "type": "m3u", "url": "http://a/"}
+	with := func(kv ...any) map[string]any {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
+	}
+	code, p, _ := call(t, h, http.MethodPost, "/api/v1/providers", with("backbone", " Strong "))
+	if code != http.StatusCreated || p["backbone"] != "Strong" {
+		t.Fatalf("create = %d %v", code, p)
+	}
+	// A second provider's label joins the first's spelling.
+	code, p2, _ := call(t, h, http.MethodPost, "/api/v1/providers", with("name", "B", "backbone", "STRONG"))
+	if code != http.StatusCreated || p2["backbone"] != "Strong" {
+		t.Fatalf("create B = %d %v", code, p2)
+	}
+	path := "/api/v1/providers/" + strconv.FormatInt(int64(p["id"].(float64)), 10)
+	// Absent keeps the label, "" clears it.
+	if code, got, _ := call(t, h, http.MethodPut, path, with("name", "A2")); code != 200 || got["backbone"] != "Strong" {
+		t.Errorf("update without backbone = %d %v", code, got)
+	}
+	if code, got, _ := call(t, h, http.MethodPut, path, with("backbone", "")); code != 200 || got["backbone"] != "" {
+		t.Errorf("clear = %d %v", code, got)
+	}
+	if code, _, _ := call(t, h, http.MethodPut, path, with("backbone", strings.Repeat("x", 61))); code != http.StatusBadRequest {
+		t.Errorf("long backbone = %d", code)
+	}
+}

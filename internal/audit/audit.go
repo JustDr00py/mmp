@@ -181,6 +181,12 @@ var verbs = map[string]string{
 	"match": "changed automatic matching", "events": "changed the history setting",
 }
 
+// pageVerbs name page-level actions whose last word means something else
+// on a single row ("order" of a channel's streams vs. of all channels).
+var pageVerbs = map[string]string{
+	"channels/order": "reordered", "groups/order": "reordered", "providers/bulk": "changed several",
+}
+
 // Description is what Describe makes of a request.
 type Description struct {
 	Action, TargetType, TargetID string
@@ -219,6 +225,10 @@ func Describe(method, path string) Description {
 		if d.Resource == "" && len(segs) > 0 {
 			rest = segs[len(segs)-1:]
 		}
+	}
+	if v, ok := pageVerbs[d.Resource+"/"+strings.Join(rest, "/")]; ok && d.TargetID == "" {
+		d.Action = v
+		return d
 	}
 	// The last word that means something says what happened.
 	for i := len(rest) - 1; i >= 0; i-- {
