@@ -66,20 +66,38 @@ type Proposal struct {
 // InGroup narrows p to its streams in provider group g. ok is false when
 // none of its streams are in g.
 func (p Proposal) InGroup(g string) (Proposal, bool) {
+	return p.narrow(func(i int) bool { return p.StreamGroups[i] == g })
+}
+
+// InProviders narrows p to its streams from the providers in set. ok is
+// false when none of its streams are.
+func (p Proposal) InProviders(set map[int64]bool) (Proposal, bool) {
+	return p.narrow(func(i int) bool { return set[p.StreamProviders[i]] })
+}
+
+// narrow keeps the streams i of p that keep(i) accepts, with the provider
+// count and groups recomputed for them.
+func (p Proposal) narrow(keep func(i int) bool) (Proposal, bool) {
 	q := p
-	q.StreamIDs, q.StreamNames, q.StreamGroups, q.StreamProviders = nil, nil, nil, nil
+	q.StreamIDs, q.StreamNames, q.StreamGroups, q.StreamProviders, q.Groups = nil, nil, nil, nil, nil
 	provs := map[int64]bool{}
-	for i, sg := range p.StreamGroups {
-		if sg != g {
+	for i := range p.StreamIDs {
+		if !keep(i) {
 			continue
 		}
 		q.StreamIDs = append(q.StreamIDs, p.StreamIDs[i])
 		q.StreamNames = append(q.StreamNames, p.StreamNames[i])
-		q.StreamGroups = append(q.StreamGroups, sg)
+		q.StreamGroups = append(q.StreamGroups, p.StreamGroups[i])
 		q.StreamProviders = append(q.StreamProviders, p.StreamProviders[i])
 		provs[p.StreamProviders[i]] = true
+		if !slices.Contains(q.Groups, p.StreamGroups[i]) {
+			q.Groups = append(q.Groups, p.StreamGroups[i])
+		}
 	}
-	q.Providers, q.Group, q.Groups = len(provs), g, []string{g}
+	q.Providers = len(provs)
+	if len(q.StreamGroups) > 0 {
+		q.Group = q.StreamGroups[0]
+	}
 	return q, len(q.StreamIDs) > 0
 }
 

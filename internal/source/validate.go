@@ -2,8 +2,10 @@ package source
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // ValidateProvider checks provider settings, shared by the REST API and
@@ -46,4 +48,32 @@ func ValidateRefreshMaxDisablePct(pct *int32) error {
 		return errors.New("refresh_max_disable_pct must be within 0-100")
 	}
 	return nil
+}
+
+// MaxBackboneLen bounds a provider's backbone label.
+const MaxBackboneLen = 60
+
+// NoBackbone is the filter value for providers without a backbone.
+const NoBackbone = "-"
+
+// ErrBackboneTooLong: a backbone label longer than MaxBackboneLen.
+var ErrBackboneTooLong = fmt.Errorf("backbone must be at most %d characters", MaxBackboneLen)
+
+// NormalizeBackbone tidies a backbone label: trimmed, inner whitespace
+// collapsed, and spelled like a known label that differs only in case, so
+// "strong" joins an existing "Strong" instead of starting a second one.
+func NormalizeBackbone(s string, known []string) (string, error) {
+	s = strings.Join(strings.Fields(s), " ")
+	if s == NoBackbone { // the filter's "no backbone" value is not a label
+		s = ""
+	}
+	if utf8.RuneCountInString(s) > MaxBackboneLen {
+		return "", ErrBackboneTooLong
+	}
+	for _, k := range known {
+		if strings.EqualFold(k, s) {
+			return k, nil
+		}
+	}
+	return s, nil
 }

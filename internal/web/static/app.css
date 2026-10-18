@@ -393,6 +393,10 @@ fieldset > legend + * { clear: both; }
   table.stack td[data-label]::before { content: attr(data-label); color: var(--faint); font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; flex: none; }
   table.stack tr { display: flex; flex-direction: column; }
   table.stack td.cell-title { display: block; order: -1; font-size: 1rem; padding-bottom: .35rem; }
+  /* A row's select box sits at the top right of its card, by the title. */
+  table.stack tr:has(> td.check) { position: relative; }
+  table.stack td.check { position: absolute; top: .7rem; right: .9rem; width: auto; padding: 0; }
+  table.stack tr:has(> td.check) td.cell-title { padding-right: 2rem; }
   table.stack td > * { min-width: 0; }
   table.stack td.cell-actions .actions { justify-content: flex-start; padding-top: .45rem; }
   table.stack .sub.url { max-width: 100%; }

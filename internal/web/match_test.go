@@ -38,6 +38,17 @@ func TestFilterProposals(t *testing.T) {
 	if len(out) != 1 || !slices.Equal(out[0].StreamIDs, []int64{1, 3}) || out[0].Group != "US| NEWS" {
 		t.Errorf("group filter: %+v", out)
 	}
+	// A backbone narrows to its providers' streams: on provider 2 alone
+	// every suggestion has one provider.
+	out, _, _, hidden = filterProposals(props, matchFilter{MinProv: 2, provs: map[int64]bool{2: true}})
+	if len(out) != 0 || hidden != 2 {
+		t.Errorf("backbone at 2+: %+v hidden=%d", out, hidden)
+	}
+	out, groups, _, _ = filterProposals(props, matchFilter{MinProv: 1, provs: map[int64]bool{2: true}})
+	if len(out) != 2 || !slices.Equal(out[0].StreamIDs, []int64{3, 4}) || !slices.Equal(out[1].StreamIDs, []int64{6}) ||
+		out[1].Group != "UK| NEWS" || len(groups) != 2 {
+		t.Errorf("backbone at 1+: %+v groups=%v", out, groups)
+	}
 	out, _, _, _ = filterProposals(props, matchFilter{MinProv: 1, Query: "solo us"})
 	if len(out) != 1 || out[0].Key != "name:solo" {
 		t.Errorf("search: %+v", out)

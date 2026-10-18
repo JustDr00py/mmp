@@ -52,7 +52,7 @@ func (q *Queries) CountProviderStreams(ctx context.Context, providerID int64) (i
 }
 
 const listDueProviders = `-- name: ListDueProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter FROM providers
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers
 WHERE enabled
   AND (last_refreshed_at IS NULL
        OR last_refreshed_at <= now() - make_interval(secs => refresh_interval_secs))
@@ -88,6 +88,7 @@ func (q *Queries) ListDueProviders(ctx context.Context) ([]Provider, error) {
 			&i.VodEnabled,
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
+			&i.Backbone,
 		); err != nil {
 			return nil, err
 		}
@@ -146,7 +147,7 @@ func (q *Queries) ListProviderStreams(ctx context.Context, arg ListProviderStrea
 }
 
 const listProvidersDueForEpg = `-- name: ListProvidersDueForEpg :many
-SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at, p.refresh_max_disable_pct, p.vod_enabled, p.vod_refreshed_at, p.group_filter FROM providers p
+SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at, p.refresh_max_disable_pct, p.vod_enabled, p.vod_refreshed_at, p.group_filter, p.backbone FROM providers p
 LEFT JOIN epg_sources s ON s.provider_id = p.id
 WHERE p.enabled
   AND (p.type = 'xtream' OR p.epg_url <> '')
@@ -184,6 +185,7 @@ func (q *Queries) ListProvidersDueForEpg(ctx context.Context, dollar_1 float64) 
 			&i.VodEnabled,
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
+			&i.Backbone,
 		); err != nil {
 			return nil, err
 		}

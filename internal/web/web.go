@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -64,6 +65,11 @@ type Store interface {
 	UpdateProvider(ctx context.Context, arg db.UpdateProviderParams) (db.Provider, error)
 	DeleteProvider(ctx context.Context, id int64) error
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
+	ListBackbones(ctx context.Context) ([]db.ListBackbonesRow, error)
+	GetProvidersByIDs(ctx context.Context, ids []int64) ([]db.Provider, error)
+	SetProvidersBackbone(ctx context.Context, arg db.SetProvidersBackboneParams) (int64, error)
+	SetProvidersEnabled(ctx context.Context, arg db.SetProvidersEnabledParams) (int64, error)
+	SetProvidersPriority(ctx context.Context, arg db.SetProvidersPriorityParams) (int64, error)
 	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
 	SetupProgress(ctx context.Context) (db.SetupProgressRow, error)
 	ProviderGroupSummary(ctx context.Context) ([]db.ProviderGroupSummaryRow, error)
@@ -221,6 +227,8 @@ type UI struct {
 
 	pages     map[string]*template.Template
 	assetHash string // busts browser caches when the embedded assets change
+
+	bulkRefreshing atomic.Bool // a bulk provider refresh is running
 }
 
 // navItem is one entry of the sidebar navigation; Section starts a new

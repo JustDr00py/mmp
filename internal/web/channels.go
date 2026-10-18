@@ -14,6 +14,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 const (
@@ -370,9 +371,10 @@ func formFromChannel(c db.Channel) channelForm {
 }
 
 type channelPageData struct {
-	Form    channelForm
-	Streams streamListData
-	Flash   string
+	Form      channelForm
+	Streams   streamListData
+	Flash     string
+	Backbones []db.ListBackbonesRow // the picker's backbone filter
 }
 
 // streamListData is the failover list fragment's state.
@@ -405,10 +407,15 @@ func (ui *UI) renderChannel(w http.ResponseWriter, r *http.Request, status int, 
 		ui.fail(w, "channel streams", err)
 		return
 	}
+	backbones, err := ui.Store.ListBackbones(r.Context())
+	if err != nil {
+		ui.fail(w, "list backbones", err)
+		return
+	}
 	if r.URL.Query().Get("msg") == "saved" {
 		flash = "Channel saved."
 	}
-	ui.render(w, r, status, "channel", c.Name, channelPageData{Form: f, Streams: sl, Flash: flash})
+	ui.render(w, r, status, "channel", c.Name, channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones})
 }
 
 func (ui *UI) channelUpdate(w http.ResponseWriter, r *http.Request) {
@@ -633,9 +640,16 @@ func (ui *UI) channelPicker(w http.ResponseWriter, r *http.Request) {
 	}
 	d := pickerData{ChannelID: c.ID, Query: strings.TrimSpace(r.URL.Query().Get("q")), Listed: map[int64]bool{}}
 	if d.Query != "" {
+		params := db.SearchStreamsAllProvidersParams{Pattern: "%" + likeEscape(d.Query) + "%", Limit: pickerResults}
+		switch b := r.URL.Query().Get("backbone"); b {
+		case "":
+		case source.NoBackbone:
+			params.Backbone = new(string)
+		default:
+			params.Backbone = &b
+		}
 		var err error
-		d.Results, err = ui.Store.SearchStreamsAllProviders(r.Context(), db.SearchStreamsAllProvidersParams{
-			Pattern: "%" + likeEscape(d.Query) + "%", Limit: pickerResults})
+		d.Results, err = ui.Store.SearchStreamsAllProviders(r.Context(), params)
 		if err != nil {
 			ui.fail(w, "search streams", err)
 			return

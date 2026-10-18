@@ -58,7 +58,7 @@ func (f *fakeStore) CreateProvider(_ context.Context, a db.CreateProviderParams)
 	defer f.mu.Unlock()
 	p := db.Provider{ID: f.nextID, Name: a.Name, Type: a.Type, Url: a.Url, Username: a.Username, Password: a.Password,
 		EpgUrl: a.EpgUrl, MaxConnections: a.MaxConnections, UserAgent: a.UserAgent,
-		RefreshIntervalSecs: a.RefreshIntervalSecs, Priority: a.Priority, Enabled: a.Enabled}
+		RefreshIntervalSecs: a.RefreshIntervalSecs, Priority: a.Priority, Enabled: a.Enabled, Backbone: a.Backbone}
 	f.nextID++
 	f.providers[p.ID] = p
 	return p, nil
@@ -70,8 +70,26 @@ func (f *fakeStore) UpdateProvider(_ context.Context, a db.UpdateProviderParams)
 	p := f.providers[a.ID]
 	p.Name, p.Type, p.Url, p.Username, p.Password, p.EpgUrl = a.Name, a.Type, a.Url, a.Username, a.Password, a.EpgUrl
 	p.MaxConnections, p.UserAgent, p.RefreshIntervalSecs, p.Priority, p.Enabled = a.MaxConnections, a.UserAgent, a.RefreshIntervalSecs, a.Priority, a.Enabled
+	p.Backbone = a.Backbone
 	f.providers[a.ID] = p
 	return p, nil
+}
+
+func (f *fakeStore) ListBackbones(context.Context) ([]db.ListBackbonesRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := map[string]int64{}
+	for _, p := range f.providers {
+		if p.Backbone != "" {
+			n[p.Backbone]++
+		}
+	}
+	var out []db.ListBackbonesRow
+	for b, c := range n {
+		out = append(out, db.ListBackbonesRow{Backbone: b, Providers: c})
+	}
+	slices.SortFunc(out, func(a, b db.ListBackbonesRow) int { return strings.Compare(a.Backbone, b.Backbone) })
+	return out, nil
 }
 
 func (f *fakeStore) DeleteProvider(_ context.Context, id int64) error {

@@ -62,6 +62,7 @@ type Store interface {
 	GetProvider(ctx context.Context, id int64) (db.Provider, error)
 	ListProviders(ctx context.Context) ([]db.Provider, error)
 	UpdateProvider(ctx context.Context, arg db.UpdateProviderParams) (db.Provider, error)
+	ListBackbones(ctx context.Context) ([]db.ListBackbonesRow, error)
 	DeleteProvider(ctx context.Context, id int64) error
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
 	ListProviderStreams(ctx context.Context, arg db.ListProviderStreamsParams) ([]db.ProviderStream, error)

@@ -164,10 +164,18 @@
 
   document.addEventListener('change', (e) => {
     const t = e.target;
-    // [data-check-all="name"] toggles every checkbox called name in its form.
+    // [data-check-all="name"] toggles every checkbox called name in its
+    // form, including ones outside it that join it with form="…".
     if (t.matches('[data-check-all]')) {
       // Rows hidden by a [data-filter] box are left alone.
-      t.form.querySelectorAll(`input[type=checkbox][name="${t.dataset.checkAll}"]`).forEach((c) => { if (!c.closest('[hidden]')) c.checked = t.checked; });
+      Array.from(t.form.elements).forEach((c) => {
+        if (c.type === 'checkbox' && c.name === t.dataset.checkAll && !c.closest('[hidden]')) c.checked = t.checked;
+      });
+    }
+    // select[data-reveal] shows the [data-reveal-for] fields of its form
+    // that belong to the chosen option, and hides the rest.
+    if (t.matches('select[data-reveal]')) {
+      t.form.querySelectorAll('[data-reveal-for]').forEach((el) => { el.hidden = el.dataset.revealFor !== t.value; });
     }
     if (t.matches('[data-autosubmit]')) t.form.requestSubmit();
     // Editing a row of [data-row] (other than its key box) selects the row.

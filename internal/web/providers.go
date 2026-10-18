@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ func (ui *UI) mountProviders(r chi.Router) {
 	r.Get("/providers", ui.providersPage)
 	r.Get("/providers/new", ui.providerNew)
 	r.Post("/providers/new", ui.providerCreate)
+	r.Post("/providers/bulk", ui.providersBulk)
 	r.Route("/providers/{id}", func(r chi.Router) {
 		r.Get("/edit", ui.providerEdit)
 		r.Post("/edit", ui.providerUpdate)
@@ -56,9 +58,21 @@ var flashes = map[string]string{
 	"deleted": "Provider deleted.",
 }
 
+// providersPerPage is the providers table's page size.
+const providersPerPage = 100
+
 type providersData struct {
-	Rows  []providerRow
-	Flash string
+	Rows       []providerRow
+	Flash      string
+	Filter     providerFilter
+	Backbones  []db.ListBackbonesRow
+	Unlabeled  int // providers without a backbone
+	Total      int // providers before filtering
+	Matching   int // providers passing the filter
+	From, To   int
+	Prev       int  // offset of the previous page, -1 = none
+	Next       int  // offset of the next page, -1 = none
+	Refreshing bool // a bulk refresh is running
 }
 
 func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
@@ -105,7 +119,44 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "list providers", err)
 		return
 	}
-	ui.render(w, r, http.StatusOK, "providers", "Providers", providersData{Rows: rows, Flash: flashes[r.URL.Query().Get("msg")]})
+	backbones, err := ui.Store.ListBackbones(r.Context())
+	if err != nil {
+		ui.fail(w, "list backbones", err)
+		return
+	}
+	q := r.URL.Query()
+	f := parseProviderFilter(q)
+	d := providersData{Filter: f, Backbones: backbones, Total: len(rows), Prev: -1, Next: -1,
+		Flash: flashes[q.Get("msg")], Refreshing: ui.bulkRefreshing.Load()}
+	if msg, ok := bulkFlash(q); ok {
+		d.Flash = msg
+	}
+	for _, p := range rows {
+		if p.Backbone == "" {
+			d.Unlabeled++
+		}
+	}
+	shown := slices.DeleteFunc(rows, func(p providerRow) bool { return !f.keep(p.Provider) })
+	d.Matching = len(shown)
+	if f.Offset >= len(shown) {
+		f.Offset = max(0, (len(shown)-1)/providersPerPage*providersPerPage)
+		d.Filter.Offset = f.Offset
+	}
+	d.Rows = shown[f.Offset:min(f.Offset+providersPerPage, len(shown))]
+	if len(d.Rows) > 0 {
+		d.From, d.To = f.Offset+1, f.Offset+len(d.Rows)
+	}
+	if f.Offset > 0 {
+		d.Prev = max(f.Offset-providersPerPage, 0)
+	}
+	if d.To < len(shown) {
+		d.Next = d.To
+	}
+	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "providers" {
+		ui.fragment(w, r, "providers", "providers-table", d)
+		return
+	}
+	ui.render(w, r, http.StatusOK, "providers", "Providers", d)
 }
 
 // providerForm is the create/edit form's state. The password is never
@@ -113,7 +164,8 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 type providerForm struct {
 	ID                                int64
 	Name, Type, URL, Username, EPGURL string
-	UserAgent                         string
+	UserAgent, Backbone               string
+	Backbones                         []db.ListBackbonesRow // suggestions
 	MaxConnections, RefreshMinutes    string
 	Priority                          string
 	MaxDisablePct                     string // blank = server default
@@ -126,7 +178,7 @@ type providerForm struct {
 func formFromProvider(p db.Provider) providerForm {
 	f := providerForm{
 		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username, EPGURL: p.EpgUrl,
-		UserAgent: p.UserAgent, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
+		UserAgent: p.UserAgent, Backbone: p.Backbone, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
 		RefreshMinutes: strconv.Itoa(int(p.RefreshIntervalSecs / 60)), Priority: strconv.Itoa(int(p.Priority)),
 		Enabled: p.Enabled, HasPassword: p.Password != "", VODEnabled: p.VodEnabled,
 	}
@@ -146,10 +198,10 @@ func (ui *UI) defaultRefreshMinutes() int {
 
 // parsed is a validated form.
 type parsedProvider struct {
-	name, typ, url, username, password, epgURL, userAgent string
-	maxConns, refreshSecs, priority                       int32
-	maxDisablePct                                         *int32
-	enabled                                               bool
+	name, typ, url, username, password, epgURL, userAgent, backbone string
+	maxConns, refreshSecs, priority                                 int32
+	maxDisablePct                                                   *int32
+	enabled                                                         bool
 }
 
 func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes int) (providerForm, parsedProvider, error) {
@@ -161,7 +213,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 	trim := func(k string) string { return strings.TrimSpace(f.Get(k)) }
 	form := providerForm{
 		Name: trim("name"), Type: trim("type"), URL: trim("url"), Username: trim("username"),
-		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
+		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), Backbone: trim("backbone"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
 		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
 	}
@@ -176,7 +228,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 		return int32(n), nil
 	}
 	p := parsedProvider{name: form.Name, typ: form.Type, url: form.URL, username: form.Username,
-		password: f.Get("password"), epgURL: form.EPGURL, userAgent: form.UserAgent, enabled: form.Enabled}
+		password: f.Get("password"), epgURL: form.EPGURL, userAgent: form.UserAgent, backbone: form.Backbone, enabled: form.Enabled}
 	var err error
 	if p.maxConns, err = num(form.MaxConnections, "Max connections", 1); err != nil {
 		return form, p, err
@@ -215,21 +267,72 @@ func humanize(msg string) string {
 }
 
 func (ui *UI) providerNew(w http.ResponseWriter, r *http.Request) {
-	ui.render(w, r, http.StatusOK, "provider_form", "Add provider",
-		providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: strconv.Itoa(ui.defaultRefreshMinutes()), Priority: "0", Enabled: true})
+	f := providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: strconv.Itoa(ui.defaultRefreshMinutes()), Priority: "0", Enabled: true}
+	if !ui.withBackbones(w, r, &f) {
+		return
+	}
+	ui.render(w, r, http.StatusOK, "provider_form", "Add provider", f)
+}
+
+// withBackbones loads the backbone suggestions into f, answering 500
+// itself on failure.
+func (ui *UI) withBackbones(w http.ResponseWriter, r *http.Request, f *providerForm) bool {
+	var err error
+	if f.Backbones, err = ui.Store.ListBackbones(r.Context()); err != nil {
+		ui.fail(w, "list backbones", err)
+		return false
+	}
+	return true
+}
+
+// backboneLabel normalizes a backbone label against the ones in use.
+func (ui *UI) backboneLabel(ctx context.Context, s string) (string, error) {
+	rows, err := ui.Store.ListBackbones(ctx)
+	if err != nil {
+		return "", err
+	}
+	known := make([]string, len(rows))
+	for i, b := range rows {
+		known[i] = b.Backbone
+	}
+	return source.NormalizeBackbone(s, known)
+}
+
+// parseProviderFormFull is parseProviderForm plus the backbone, spelled
+// like a label already in use. ok=false: a store failure, already
+// answered with a 500.
+func (ui *UI) parseProviderFormFull(w http.ResponseWriter, r *http.Request) (form providerForm, p parsedProvider, ok bool, err error) {
+	if form, p, err = parseProviderForm(w, r, ui.defaultRefreshMinutes()); err != nil {
+		return form, p, true, err
+	}
+	p.backbone, err = ui.backboneLabel(r.Context(), p.backbone)
+	switch {
+	case errors.Is(err, source.ErrBackboneTooLong):
+		return form, p, true, errors.New(humanize(err.Error()))
+	case err != nil:
+		ui.fail(w, "list backbones", err)
+		return form, p, false, nil
+	}
+	return form, p, true, nil
 }
 
 func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
-	form, p, err := parseProviderForm(w, r, ui.defaultRefreshMinutes())
+	form, p, ok, err := ui.parseProviderFormFull(w, r)
+	if !ok {
+		return
+	}
 	if err != nil {
 		form.Error = err.Error()
+		if !ui.withBackbones(w, r, &form) {
+			return
+		}
 		ui.render(w, r, http.StatusUnprocessableEntity, "provider_form", "Add provider", form)
 		return
 	}
 	created, err := ui.Store.CreateProvider(r.Context(), db.CreateProviderParams{
 		Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password, EpgUrl: p.epgURL,
 		MaxConnections: p.maxConns, UserAgent: p.userAgent, RefreshIntervalSecs: p.refreshSecs,
-		Priority: p.priority, Enabled: p.enabled, RefreshMaxDisablePct: p.maxDisablePct,
+		Priority: p.priority, Enabled: p.enabled, RefreshMaxDisablePct: p.maxDisablePct, Backbone: p.backbone,
 	})
 	if err != nil {
 		ui.fail(w, "create provider", err)
@@ -269,7 +372,11 @@ func (ui *UI) providerEdit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ui.render(w, r, http.StatusOK, "provider_form", "Edit "+p.Name, formFromProvider(p))
+	f := formFromProvider(p)
+	if !ui.withBackbones(w, r, &f) {
+		return
+	}
+	ui.render(w, r, http.StatusOK, "provider_form", "Edit "+p.Name, f)
 }
 
 func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
@@ -277,10 +384,16 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	form, p, err := parseProviderForm(w, r, ui.defaultRefreshMinutes())
+	form, p, ok, err := ui.parseProviderFormFull(w, r)
+	if !ok {
+		return
+	}
 	form.ID, form.HasPassword = cur.ID, cur.Password != ""
 	if err != nil {
 		form.Error = err.Error()
+		if !ui.withBackbones(w, r, &form) {
+			return
+		}
 		ui.render(w, r, http.StatusUnprocessableEntity, "provider_form", "Edit "+cur.Name, form)
 		return
 	}
@@ -294,7 +407,7 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 		ID: cur.ID, Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password,
 		EpgUrl: p.epgURL, MaxConnections: p.maxConns, UserAgent: p.userAgent,
 		RefreshIntervalSecs: p.refreshSecs, Priority: p.priority, Enabled: p.enabled,
-		RefreshMaxDisablePct: p.maxDisablePct,
+		RefreshMaxDisablePct: p.maxDisablePct, Backbone: p.backbone,
 	}); err != nil {
 		ui.fail(w, "update provider", err)
 		return

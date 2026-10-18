@@ -14,10 +14,10 @@ const createProvider = `-- name: CreateProvider :one
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
     max_connections, user_agent, refresh_interval_secs, priority, enabled,
-    refresh_max_disable_pct
+    refresh_max_disable_pct, backbone
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone
 `
 
 type CreateProviderParams struct {
@@ -33,6 +33,7 @@ type CreateProviderParams struct {
 	Priority             int32  `json:"priority"`
 	Enabled              bool   `json:"enabled"`
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
+	Backbone             string `json:"backbone"`
 }
 
 // Providers: basic CRUD used by the admin API and the refresher.
@@ -50,6 +51,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.Priority,
 		arg.Enabled,
 		arg.RefreshMaxDisablePct,
+		arg.Backbone,
 	)
 	var i Provider
 	err := row.Scan(
@@ -72,6 +74,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.VodEnabled,
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
+		&i.Backbone,
 	)
 	return i, err
 }
@@ -86,7 +89,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -112,12 +115,89 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.VodEnabled,
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
+		&i.Backbone,
 	)
 	return i, err
 }
 
+const getProvidersByIDs = `-- name: GetProvidersByIDs :many
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
+`
+
+func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provider, error) {
+	rows, err := q.db.Query(ctx, getProvidersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Provider
+	for rows.Next() {
+		var i Provider
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Url,
+			&i.Username,
+			&i.Password,
+			&i.EpgUrl,
+			&i.MaxConnections,
+			&i.UserAgent,
+			&i.RefreshIntervalSecs,
+			&i.Priority,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
+			&i.VodEnabled,
+			&i.VodRefreshedAt,
+			&i.GroupFilter,
+			&i.Backbone,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBackbones = `-- name: ListBackbones :many
+SELECT backbone, count(*) AS providers FROM providers
+WHERE backbone <> '' GROUP BY backbone ORDER BY lower(backbone), backbone
+`
+
+type ListBackbonesRow struct {
+	Backbone  string `json:"backbone"`
+	Providers int64  `json:"providers"`
+}
+
+// Backbone labels in use, with how many providers carry each.
+func (q *Queries) ListBackbones(ctx context.Context) ([]ListBackbonesRow, error) {
+	rows, err := q.db.Query(ctx, listBackbones)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBackbonesRow
+	for rows.Next() {
+		var i ListBackbonesRow
+		if err := rows.Scan(&i.Backbone, &i.Providers); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -149,6 +229,7 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.VodEnabled,
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
+			&i.Backbone,
 		); err != nil {
 			return nil, err
 		}
@@ -174,13 +255,67 @@ func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabled
 	return err
 }
 
+const setProvidersBackbone = `-- name: SetProvidersBackbone :execrows
+UPDATE providers SET backbone = $1, updated_at = now()
+WHERE id = ANY($2::bigint[])
+`
+
+type SetProvidersBackboneParams struct {
+	Backbone string  `json:"backbone"`
+	Ids      []int64 `json:"ids"`
+}
+
+func (q *Queries) SetProvidersBackbone(ctx context.Context, arg SetProvidersBackboneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProvidersBackbone, arg.Backbone, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setProvidersEnabled = `-- name: SetProvidersEnabled :execrows
+UPDATE providers SET enabled = $1, updated_at = now()
+WHERE id = ANY($2::bigint[])
+`
+
+type SetProvidersEnabledParams struct {
+	Enabled bool    `json:"enabled"`
+	Ids     []int64 `json:"ids"`
+}
+
+func (q *Queries) SetProvidersEnabled(ctx context.Context, arg SetProvidersEnabledParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProvidersEnabled, arg.Enabled, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setProvidersPriority = `-- name: SetProvidersPriority :execrows
+UPDATE providers SET priority = $1, updated_at = now()
+WHERE id = ANY($2::bigint[])
+`
+
+type SetProvidersPriorityParams struct {
+	Priority int32   `json:"priority"`
+	Ids      []int64 `json:"ids"`
+}
+
+func (q *Queries) SetProvidersPriority(ctx context.Context, arg SetProvidersPriorityParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProvidersPriority, arg.Priority, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateProvider = `-- name: UpdateProvider :one
 UPDATE providers SET
     name = $2, type = $3, url = $4, username = $5, password = $6, epg_url = $7,
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
-    priority = $11, enabled = $12, refresh_max_disable_pct = $13, updated_at = now()
+    priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone
 `
 
 type UpdateProviderParams struct {
@@ -197,6 +332,7 @@ type UpdateProviderParams struct {
 	Priority             int32  `json:"priority"`
 	Enabled              bool   `json:"enabled"`
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
+	Backbone             string `json:"backbone"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) (Provider, error) {
@@ -214,6 +350,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.Priority,
 		arg.Enabled,
 		arg.RefreshMaxDisablePct,
+		arg.Backbone,
 	)
 	var i Provider
 	err := row.Scan(
@@ -236,6 +373,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.VodEnabled,
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
+		&i.Backbone,
 	)
 	return i, err
 }

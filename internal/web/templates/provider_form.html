@@ -14,6 +14,9 @@
       </select>
     </label>
   </div>
+  <label>Backbone<input name="backbone" value="{{$f.Backbone}}" list="backbone-names" maxlength="60" placeholder="optional, e.g. the network this reseller uses">
+    <span class="hint">Providers reselling the same upstream network share a backbone. Use it to filter and manage providers in bulk.</span></label>
+  <datalist id="backbone-names">{{range $f.Backbones}}<option value="{{.Backbone}}">{{end}}</datalist>
   <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
     <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
   <div class="grid2">
