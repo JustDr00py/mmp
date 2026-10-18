@@ -43,8 +43,14 @@ func TestViewersListAndKickTS(t *testing.T) {
 		t.Fatal("kick = false")
 	}
 	waitViewers(t, access, 0)
-	if n := access.ActiveConnections(1); n != 0 {
-		t.Errorf("alice still holds %d slots after the kick", n)
+	// The handler unlists the viewer before its deferred slot release
+	// runs, so the slot frees a moment after the list empties.
+	deadline := time.Now().Add(3 * time.Second)
+	for access.ActiveConnections(1) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("alice still holds %d slots after the kick", access.ActiveConnections(1))
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
