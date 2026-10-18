@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -243,5 +244,107 @@ func TestChannelsBouquetFilter(t *testing.T) {
 	resp, _ := b.post("/admin/channels/group", url.Values{"to": {"none"}, "bouquet": {"-1"}, "channel": {strconv.FormatInt(ids["Loose"], 10)}}, b.base)
 	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "bouquet=-1") {
 		t.Errorf("after a bulk move: %s, want the bouquet filter kept", loc)
+	}
+}
+
+func TestChannelsReorder(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	sports, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "Sports"})
+	num := func(n int32) *int32 { return &n }
+	ids := map[string]int64{}
+	for _, c := range []struct {
+		name string
+		n    *int32
+		g    *int64
+	}{{"A", num(201), &sports.ID}, {"B", num(202), &sports.ID}, {"C", num(205), &sports.ID}, {"D", nil, &sports.ID}, {"News", num(101), nil}} {
+		ch, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: c.name, Number: c.n, GroupID: c.g})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[c.name] = ch.ID
+	}
+	order := func(names ...string) url.Values {
+		f := url.Values{"group": {strconv.FormatInt(sports.ID, 10)}}
+		for _, n := range names {
+			f.Add("channel", strconv.FormatInt(ids[n], 10))
+		}
+		return f
+	}
+	numbers := func() map[string]int32 {
+		out := map[string]int32{}
+		for n, id := range ids {
+			c, _ := q.GetChannel(ctx, id)
+			if c.Number != nil {
+				out[n] = *c.Number
+			}
+		}
+		return out
+	}
+
+	// D (no number) to the front, C before A: the group keeps 201, 202,
+	// 205 and D gets the next free number; News is untouched.
+	resp, _ := b.post("/admin/channels/order", order("D", "C", "A", "B"), b.base)
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(resp.Header.Get("Location"), "group=") {
+		t.Fatalf("reorder = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	got := numbers()
+	if got["D"] != 201 || got["C"] != 202 || got["A"] != 205 || got["B"] != 206 || got["News"] != 101 {
+		t.Errorf("numbers = %v", got)
+	}
+	// The list shows the new order (htmx: the table fragment).
+	req, _ := http.NewRequest(http.MethodPost, b.base+"/admin/channels/order", strings.NewReader(order("A", "B", "C", "D").Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", b.base)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "channels")
+	hresp, err := b.c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(hresp.Body)
+	hresp.Body.Close()
+	if a, d := strings.Index(string(body), ">A</a>"), strings.Index(string(body), ">D</a>"); hresp.StatusCode != 200 || a < 0 || d < a ||
+		strings.Contains(string(body), "<html") {
+		t.Errorf("htmx reorder = %d, A before D in a fragment:\n%s", hresp.StatusCode, body)
+	}
+	if got := numbers(); got["A"] != 201 || got["D"] != 206 {
+		t.Errorf("after the second reorder: %v", got)
+	}
+
+	for _, bad := range []url.Values{order(), order("A", "A")} {
+		if resp, _ := b.post("/admin/channels/order", bad, b.base); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%v = %d, want 400", bad, resp.StatusCode)
+		}
+	}
+	gone := order("A", "B")
+	gone.Add("channel", "999999")
+	if resp, _ := b.post("/admin/channels/order", gone, b.base); resp.StatusCode != http.StatusConflict {
+		t.Errorf("deleted channel = %d, want 409", resp.StatusCode)
+	}
+}
+
+func TestChannelGroupsOrder(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	var ids []string
+	for _, n := range []string{"News", "Sports", "Kids"} {
+		g, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: n})
+		ids = append(ids, strconv.FormatInt(g.ID, 10))
+	}
+	resp, _ := b.post("/admin/groups/order", url.Values{"group": {ids[2], ids[0], ids[1]}}, b.base)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("order = %d", resp.StatusCode)
+	}
+	groups, _ := q.ListChannelGroups(ctx)
+	var names []string
+	for _, g := range groups {
+		names = append(names, g.Name+"="+strconv.Itoa(int(g.SortOrder)))
+	}
+	if got := strings.Join(names, " "); got != "Kids=10 News=20 Sports=30" {
+		t.Errorf("groups = %s", got)
+	}
+	if _, body := b.get("/admin/groups?msg=ordered"); !strings.Contains(body, "Group order saved") {
+		t.Error("flash missing")
 	}
 }

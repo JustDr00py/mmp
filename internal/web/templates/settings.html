@@ -42,6 +42,21 @@
 </section>
 
 <section class="settings-section">
+  <h2>Guide from stream names</h2>
+  <form class="card form" method="post" action="/admin/settings/nameguide">
+    <label class="check"><input type="checkbox" name="enabled"{{if $d.NameGuide.Enabled}} checked{{end}}> Give channels without a guide one made from their stream name</label>
+    <span class="hint">Event feeds are often named like <span class="mono">Next | Jets @ Patriots | NFL Game Pass | 2026-10-18 | 17:00</span>.
+      The guide then shows “Up next: Jets @ Patriots” until 17:00, the game for three hours, and “Ended” after. Real guides always win.</span>
+    <label class="check"><input type="checkbox" name="all"{{if $d.NameGuide.All}} checked{{end}}> Also give other channels without a guide an all-day entry with their name</label>
+    <label>Times without a zone are in
+      <input class="zone" name="zone" value="{{$d.NameGuide.Zone}}" list="zones" required>
+      <datalist id="zones">{{range $d.Zones}}<option value="{{.}}">{{end}}</datalist>
+      <span class="hint">for names like <span class="mono">17:00</span>; names that say <span class="mono">CEST</span>, <span class="mono">ET</span> or <span class="mono">GMT</span> use that zone</span></label>
+    <div class="row"><button type="submit">Save</button></div>
+  </form>
+</section>
+
+<section class="settings-section">
   <h2>History</h2>
   <form class="card form narrow" method="post" action="/admin/settings/events">
     <label>Keep events for

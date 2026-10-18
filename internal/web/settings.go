@@ -11,6 +11,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/events"
+	"github.com/JustDr00py/mmp/internal/nameguide"
 )
 
 // The Settings page holds settings that apply while MMP runs (stored in
@@ -21,11 +22,14 @@ func (ui *UI) mountSettings(r chi.Router) {
 	r.Get("/settings", ui.settingsPage)
 	r.Post("/settings/match", ui.settingsMatchSave)
 	r.Post("/settings/events", ui.settingsEventsSave)
+	r.Post("/settings/nameguide", ui.settingsNameGuideSave)
 }
 
 type settingsData struct {
 	Match         channel.MatchSettings
 	Events        events.Retention
+	NameGuide     nameguide.Settings
+	Zones         []string // suggestions for the name guide's zone
 	ChannelGroups []db.ChannelGroup
 	Bouquets      []db.Bouquet
 	Picked        map[int64]bool // ticked bouquets
@@ -53,6 +57,10 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 	if d.Events, err = events.LoadRetention(r.Context(), ui.Store); err != nil {
 		return d, err
 	}
+	if d.NameGuide, err = nameguide.Load(r.Context(), ui.Store); err != nil {
+		return d, err
+	}
+	d.Zones = commonZones
 	if d.ChannelGroups, err = ui.Store.ListChannelGroups(r.Context()); err != nil {
 		return d, err
 	}
@@ -80,6 +88,8 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Matching settings saved. They apply from the next provider refresh."
 	case "events":
 		d.Flash = "History setting saved. Older events and activity are deleted within the hour."
+	case "nameguide":
+		d.Flash = "Stream-name guide saved. Players get it the next time they load the guide."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
@@ -144,4 +154,34 @@ func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: event retention saved", "keep_days", ret.KeepDays)
 	ui.redirect(w, r, Prefix+"/settings?msg=events")
+}
+
+// commonZones are offered for the stream-name guide's zone (any IANA name
+// works).
+var commonZones = []string{"UTC", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Stockholm",
+	"America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Australia/Sydney"}
+
+func (ui *UI) settingsNameGuideSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	s := nameguide.Settings{Enabled: f.Get("enabled") != "", All: f.Get("all") != "", Zone: strings.TrimSpace(f.Get("zone"))}
+	if err := s.Validate(); err != nil {
+		d, derr := ui.settingsData(r, nil)
+		if derr != nil {
+			ui.fail(w, "settings", derr)
+			return
+		}
+		d.NameGuide, d.Error = s, err.Error()
+		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
+		return
+	}
+	if err := nameguide.Save(r.Context(), ui.Store, s); err != nil {
+		ui.fail(w, "save stream-name guide", err)
+		return
+	}
+	ui.Log.Info("web: stream-name guide saved", "enabled", s.Enabled, "all", s.All, "zone", s.Zone)
+	ui.redirect(w, r, Prefix+"/settings?msg=nameguide")
 }

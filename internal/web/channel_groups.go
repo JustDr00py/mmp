@@ -22,6 +22,7 @@ func (ui *UI) mountChannelGroups(r chi.Router) {
 	r.Get("/groups", ui.channelGroupsPage)
 	r.Post("/groups", ui.channelGroupCreate)
 	r.Post("/groups/fill", ui.channelGroupsFill)
+	r.Post("/groups/order", ui.channelGroupsOrder)
 	r.Post("/groups/{id}", ui.channelGroupUpdate)
 	r.Post("/groups/{id}/delete", ui.channelGroupDelete)
 }
@@ -75,6 +76,8 @@ func (ui *UI) channelGroupsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Group saved."
 	case "deleted":
 		d.Flash = "Group deleted. Its channels now have no group."
+	case "ordered":
+		d.Flash = "Group order saved. Players show the groups in this order."
 	case "filled":
 		d.Flash = "Put " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " in the group named after their provider group."
 	}
@@ -221,4 +224,30 @@ func assignSourceGroups(ctx context.Context, q Store, ids []int64) (int64, error
 		n += moved
 	}
 	return n, nil
+}
+
+// channelGroupsOrder sorts the groups in the posted order (group=id, all
+// of them): sort orders 10, 20, 30…
+func (ui *UI) channelGroupsOrder(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var ids []int64
+	for _, v := range r.PostForm["group"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		http.Error(w, "no groups listed", http.StatusBadRequest)
+		return
+	}
+	if err := ui.Store.SetChannelGroupOrder(r.Context(), ids); err != nil {
+		ui.fail(w, "order channel groups", err)
+		return
+	}
+	ui.Log.Info("web: channel groups ordered", "groups", len(ids))
+	ui.redirect(w, r, Prefix+"/groups?msg=ordered")
 }

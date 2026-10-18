@@ -85,8 +85,11 @@ func TestXMLTVPHPAdminDedupesAndParses(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("xmltv.php = %d", code)
 	}
-	if n := strings.Count(body, "<channel "); n != 2 {
-		t.Errorf("channels = %d, want 2 (no tvg-id dropped, case-duplicate merged):\n%s", n, body)
+	if n := strings.Count(body, "<channel "); n != 3 {
+		t.Errorf("channels = %d, want 3 (one without a tvg-id under its own id, case-duplicate merged):\n%s", n, body)
+	}
+	if !strings.Contains(body, `<channel id="mmp.11">`) {
+		t.Errorf("channel without a tvg-id lacks its guide id:\n%s", body)
 	}
 	if !strings.Contains(body, `<channel id="Sports.UK">`) || !strings.Contains(body, `channel="Sports.UK"`) {
 		t.Errorf("program must reference the listed channel id:\n%s", body)
@@ -94,7 +97,7 @@ func TestXMLTVPHPAdminDedupesAndParses(t *testing.T) {
 	if !strings.Contains(body, `src="http://logo/s.png?a=1&amp;b=2"`) {
 		t.Errorf("icon not escaped:\n%s", body)
 	}
-	if got := fmt.Sprint(store.fetchs[0].TvgKeys); got != "[news.us sports.uk]" {
+	if got := fmt.Sprint(store.fetchs[0].TvgKeys); got != "[news.us mmp.11 sports.uk]" {
 		t.Errorf("keys = %s", got)
 	}
 
@@ -124,7 +127,7 @@ func TestGuideBatches(t *testing.T) {
 	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error) {
 		return store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{TvgKeys: keys})
 	}
-	if err := WriteXMLTV(context.Background(), &buf, chans, fetch); err != nil {
+	if err := WriteXMLTV(context.Background(), &buf, chans, fetch, nil, guideNow, guideNow.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.fetchs) != 3 || len(store.fetchs[0].TvgKeys) != guideBatch || len(store.fetchs[2].TvgKeys) != 50 {
@@ -135,7 +138,7 @@ func TestGuideBatches(t *testing.T) {
 	}
 	// No channels at all is still a valid, empty guide.
 	buf.Reset()
-	if err := WriteXMLTV(context.Background(), &buf, nil, fetch); err != nil || !strings.Contains(buf.String(), "</tv>") {
+	if err := WriteXMLTV(context.Background(), &buf, nil, fetch, nil, guideNow, guideNow.Add(time.Hour)); err != nil || !strings.Contains(buf.String(), "</tv>") {
 		t.Errorf("empty guide = %q %v", buf.String(), err)
 	}
 }

@@ -3,15 +3,56 @@
 (() => {
   'use strict';
 
-  // Drag-and-drop reordering of [data-sortable] lists. On drop, the
-  // enclosing [data-sortable-form] is submitted (htmx), carrying the
-  // rows' hidden inputs in their new order.
+  // Drag-and-drop reordering of [data-sortable] lists (list items or table
+  // rows). On drop, the enclosing [data-sortable-form] is submitted (htmx),
+  // carrying the rows' inputs in their new order; with
+  // data-sortable-submit="#form" that form is filled with the rows' first
+  // inputs (name and value) and submitted instead. [data-move=up|down]
+  // buttons move their row one place, for touch screens.
+  const rowSel = '[data-sortable] > li, [data-sortable] > tr';
   let dragged = null;
   let before = '';
   const order = (list) => [...list.children].map((li) => li.querySelector('input')?.value).join(',');
+  const submitOrder = (list) => {
+    const sel = list.dataset.sortableSubmit;
+    if (!sel) { list.closest('[data-sortable-form]')?.requestSubmit(); return; }
+    const form = document.querySelector(sel);
+    if (!form) return;
+    form.querySelectorAll(`input[data-order]`).forEach((i) => i.remove());
+    [...list.children].forEach((row) => {
+      const src = row.querySelector('input');
+      if (!src) return;
+      const i = document.createElement('input');
+      Object.assign(i, { type: 'hidden', name: src.name, value: src.value });
+      i.dataset.order = '';
+      form.appendChild(i);
+    });
+    form.requestSubmit();
+  };
+
+  // Table rows drag by their .grip only, so their inputs and text stay
+  // usable: grabbing the grip makes the row draggable until the drag ends.
+  document.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest?.('[data-sortable] > tr .grip');
+    if (grip) grip.closest('tr').draggable = true;
+  });
+  document.addEventListener('pointerup', () => {
+    document.querySelectorAll('[data-sortable] > tr[draggable=true]').forEach((tr) => { if (tr !== dragged) tr.draggable = false; });
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-move]');
+    if (!btn) return;
+    const row = btn.closest(rowSel);
+    if (!row) return;
+    const sib = btn.dataset.move === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (!sib) return;
+    row.parentNode.insertBefore(row, btn.dataset.move === 'up' ? sib : sib.nextSibling);
+    submitOrder(row.parentNode);
+  });
 
   document.addEventListener('dragstart', (e) => {
-    const li = e.target.closest?.('[data-sortable] > li');
+    const li = e.target.closest?.(rowSel);
     if (!li) return;
     dragged = li;
     before = order(li.parentNode);
@@ -21,7 +62,7 @@
   });
   document.addEventListener('dragover', (e) => {
     if (!dragged) return;
-    const li = e.target.closest?.('[data-sortable] > li');
+    const li = e.target.closest?.(rowSel);
     if (!li || li.parentNode !== dragged.parentNode) return;
     e.preventDefault();
     if (li === dragged) return;
@@ -34,7 +75,8 @@
     const li = dragged;
     dragged = null;
     li.classList.remove('dragging');
-    if (order(li.parentNode) !== before) li.closest('[data-sortable-form]')?.requestSubmit();
+    if (li.tagName === 'TR') li.draggable = false;
+    if (order(li.parentNode) !== before) submitOrder(li.parentNode);
   });
 
   // [data-count-of="name"] shows how many name checkboxes are ticked.

@@ -113,8 +113,8 @@
     <td><a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
     <td class="mono">{{if .TvgID}}{{.TvgID}}{{else}}<span class="pill warn">none</span>{{end}}</td>
     <td>{{if .NowTitle}}{{.NowTitle}}{{else}}<span class="muted">—</span>{{end}}</td>
-    <td>{{if .SourceName}}{{.SourceName}}{{else}}<span class="muted">—</span>{{end}}</td>
-    <td class="num">{{if .Upcoming}}{{.Upcoming}}{{else}}<span class="pill warn">no guide</span>{{end}}</td>
+    <td>{{if eq .SourceName "stream name"}}<span class="muted">its stream name</span>{{else if .SourceName}}{{.SourceName}}{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="num">{{if .Upcoming}}{{.Upcoming}}{{else if eq .SourceName "stream name"}}<span class="pill off">generated</span>{{else}}<span class="pill warn">no guide</span>{{end}}</td>
   </tr>
   {{end}}
   </tbody>

@@ -70,6 +70,35 @@ func (q *Queries) ChannelNamesByIDs(ctx context.Context, ids []int64) ([]Channel
 	return items, nil
 }
 
+const channelNumbersByIDs = `-- name: ChannelNumbersByIDs :many
+SELECT id, number FROM channels WHERE id = ANY($1::bigint[])
+`
+
+type ChannelNumbersByIDsRow struct {
+	ID     int64  `json:"id"`
+	Number *int32 `json:"number"`
+}
+
+func (q *Queries) ChannelNumbersByIDs(ctx context.Context, ids []int64) ([]ChannelNumbersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, channelNumbersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChannelNumbersByIDsRow
+	for rows.Next() {
+		var i ChannelNumbersByIDsRow
+		if err := rows.Scan(&i.ID, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelSourceGroups = `-- name: ChannelSourceGroups :many
 SELECT DISTINCT ON (cs.channel_id) cs.channel_id, btrim(ps.group_title) AS group_title
 FROM channel_streams cs
@@ -107,6 +136,17 @@ func (q *Queries) ChannelSourceGroups(ctx context.Context, channelIds []int64) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const clearChannelNumbers = `-- name: ClearChannelNumbers :exec
+UPDATE channels SET number = NULL WHERE id = ANY($1::bigint[])
+`
+
+// Frees the numbers of channels about to be renumbered (numbers are
+// unique, so a permutation cannot be written in place).
+func (q *Queries) ClearChannelNumbers(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, clearChannelNumbers, ids)
+	return err
 }
 
 const createChannel = `-- name: CreateChannel :one
@@ -373,7 +413,9 @@ func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]C
 const listEnabledChannels = `-- name: ListEnabledChannels :many
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled
@@ -381,15 +423,16 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListEnabledChannelsRow struct {
-	ID        int64     `json:"id"`
-	Number    *int32    `json:"number"`
-	Name      string    `json:"name"`
-	TvgID     string    `json:"tvg_id"`
-	LogoUrl   string    `json:"logo_url"`
-	GroupID   int64     `json:"group_id"`
-	GroupName string    `json:"group_name"`
-	GroupSort int32     `json:"group_sort"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Number     *int32    `json:"number"`
+	Name       string    `json:"name"`
+	TvgID      string    `json:"tvg_id"`
+	LogoUrl    string    `json:"logo_url"`
+	GroupID    int64     `json:"group_id"`
+	GroupName  string    `json:"group_name"`
+	GroupSort  int32     `json:"group_sort"`
+	CreatedAt  time.Time `json:"created_at"`
+	StreamName string    `json:"stream_name"`
 }
 
 // Every enabled channel (admin playlists).
@@ -412,6 +455,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 			&i.GroupName,
 			&i.GroupSort,
 			&i.CreatedAt,
+			&i.StreamName,
 		); err != nil {
 			return nil, err
 		}
@@ -426,7 +470,9 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 const listUserChannels = `-- name: ListUserChannels :many
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM user_bouquets ub
 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
 JOIN channels c ON c.id = bc.channel_id
@@ -436,18 +482,20 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListUserChannelsRow struct {
-	ID        int64     `json:"id"`
-	Number    *int32    `json:"number"`
-	Name      string    `json:"name"`
-	TvgID     string    `json:"tvg_id"`
-	LogoUrl   string    `json:"logo_url"`
-	GroupID   int64     `json:"group_id"`
-	GroupName string    `json:"group_name"`
-	GroupSort int32     `json:"group_sort"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Number     *int32    `json:"number"`
+	Name       string    `json:"name"`
+	TvgID      string    `json:"tvg_id"`
+	LogoUrl    string    `json:"logo_url"`
+	GroupID    int64     `json:"group_id"`
+	GroupName  string    `json:"group_name"`
+	GroupSort  int32     `json:"group_sort"`
+	CreatedAt  time.Time `json:"created_at"`
+	StreamName string    `json:"stream_name"`
 }
 
-// Enabled channels in any of the user's bouquets (customer playlists).
+// Enabled channels in any of the user's bouquets (customer playlists),
+// with the name of their first failover stream (for stream-name guides).
 func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUserChannelsRow, error) {
 	rows, err := q.db.Query(ctx, listUserChannels, userID)
 	if err != nil {
@@ -467,6 +515,7 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 			&i.GroupName,
 			&i.GroupSort,
 			&i.CreatedAt,
+			&i.StreamName,
 		); err != nil {
 			return nil, err
 		}
@@ -584,6 +633,33 @@ func (q *Queries) NextChannelNumber(ctx context.Context) (int32, error) {
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const setChannelGroupOrder = `-- name: SetChannelGroupOrder :exec
+UPDATE channel_groups SET sort_order = 10 * array_position($1::bigint[], id)
+WHERE id = ANY($1::bigint[])
+`
+
+// Sorts the listed groups in the given order: 10, 20, 30…
+func (q *Queries) SetChannelGroupOrder(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, setChannelGroupOrder, ids)
+	return err
+}
+
+const setChannelNumbers = `-- name: SetChannelNumbers :exec
+UPDATE channels SET number = ($1::int[])[array_position($2::bigint[], id)], updated_at = now()
+WHERE id = ANY($2::bigint[])
+`
+
+type SetChannelNumbersParams struct {
+	Numbers []int32 `json:"numbers"`
+	Ids     []int64 `json:"ids"`
+}
+
+// ids[i] gets numbers[i].
+func (q *Queries) SetChannelNumbers(ctx context.Context, arg SetChannelNumbersParams) error {
+	_, err := q.db.Exec(ctx, setChannelNumbers, arg.Numbers, arg.Ids)
+	return err
 }
 
 const setChannelsGroup = `-- name: SetChannelsGroup :execrows

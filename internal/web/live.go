@@ -14,6 +14,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -219,9 +220,22 @@ func (ui *UI) cardDetails(ctx context.Context, chans []liveChannel) error {
 	if err != nil {
 		return err
 	}
+	streamName := map[int64]string{} // the stream each channel plays (else its first)
 	for _, r := range streams {
 		c := byID[r.ChannelID]
 		c.Streams = append(c.Streams, liveStreamOption{ID: r.ProviderStreamID, Label: r.StreamName + " [" + r.ProviderName + "]"})
+		if _, ok := streamName[c.ID]; !ok || r.ProviderStreamID == c.StreamID {
+			streamName[c.ID] = r.StreamName
+		}
+	}
+	// No guide: what the stream name says is on.
+	if names, err := nameguide.Load(ctx, ui.Store); err == nil {
+		now := time.Now()
+		for i := range chans {
+			if c := &chans[i]; c.NowPlaying == "" {
+				c.NowPlaying = names.NowTitle(c.Name, streamName[c.ID], now)
+			}
+		}
 	}
 	if ui.Viewers == nil {
 		return nil

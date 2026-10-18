@@ -18,6 +18,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -51,6 +52,9 @@ type Handlers struct {
 	// Activity records where customers authenticate from and their wrong
 	// passwords (nil = not recorded).
 	Activity *activity.Tracker
+	// NameGuide gives the stream-name guide settings for channels without
+	// a guide (nil = no stream-name guides).
+	NameGuide func(ctx context.Context) nameguide.Settings
 }
 
 // Mount registers the customer routes on the root router.
@@ -71,15 +75,26 @@ func (h *Handlers) Mount(r chi.Router) {
 
 // Channel is one playable channel as customers see it.
 type Channel struct {
-	ID        int64
-	Number    *int32
-	Name      string
-	TvgID     string
-	Logo      string
-	GroupID   int64
-	GroupName string
-	GroupSort int32
-	Added     time.Time
+	ID         int64
+	Number     *int32
+	Name       string
+	TvgID      string
+	Logo       string
+	GroupID    int64
+	GroupName  string
+	GroupSort  int32
+	Added      time.Time
+	StreamName string // its first failover stream's name, for stream-name guides
+}
+
+// GuideID links the channel to its guide in playlists and the XMLTV:
+// its tvg-id, or one made from its id when it has none (its guide then
+// comes from the stream name).
+func (c Channel) GuideID() string {
+	if id := strings.TrimSpace(c.TvgID); id != "" {
+		return id
+	}
+	return "mmp." + strconv.FormatInt(c.ID, 10)
 }
 
 // channelsFor lists what u may watch: admins see every enabled channel,
@@ -92,7 +107,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt})
+			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName})
 		}
 		return out, nil
 	}
@@ -101,7 +116,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt})
+		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName})
 	}
 	return out, nil
 }
@@ -319,7 +334,7 @@ func WriteM3U(w io.Writer, chans []Channel, plus bool, streamURL func(int64) str
 				chno = strconv.Itoa(int(*c.Number))
 			}
 			fmt.Fprintf(bw, "#EXTINF:-1 tvg-id=\"%s\" tvg-name=\"%s\" tvg-logo=\"%s\" tvg-chno=\"%s\" group-title=\"%s\",%s\n",
-				attr(c.TvgID), attr(c.Name), attr(c.Logo), chno, attr(c.GroupName), name)
+				attr(c.GuideID()), attr(c.Name), attr(c.Logo), chno, attr(c.GroupName), name)
 		} else {
 			fmt.Fprintf(bw, "#EXTINF:-1,%s\n", name)
 		}

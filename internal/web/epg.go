@@ -11,9 +11,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/nameguide"
 )
 
 const guideRowsPerPage = 100
+
+// fromStreamName marks coverage rows whose guide is made from the stream
+// name.
+const fromStreamName = "stream name"
 
 func (ui *UI) mountEPG(r chi.Router) {
 	r.Get("/epg", ui.epgPage)
@@ -122,6 +127,17 @@ func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, fo
 	d := epgData{Query: q, MissingOnly: missing, Offset: offset, PrevOffset: max(offset-guideRowsPerPage, 0)}
 	if len(guide) > guideRowsPerPage {
 		guide, d.NextOffset = guide[:guideRowsPerPage], offset+guideRowsPerPage
+	}
+	// Channels without a guide: what the stream-name guide gives them.
+	if names, err := nameguide.Load(r.Context(), ui.Store); err == nil {
+		now := time.Now()
+		for i := range guide {
+			if g := &guide[i]; g.SourceName == "" {
+				if g.NowTitle = names.NowTitle(g.Name, g.StreamName, now); g.NowTitle != "" {
+					g.SourceName = fromStreamName
+				}
+			}
+		}
 	}
 	d.Guide = guide
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "guide" {

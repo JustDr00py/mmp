@@ -26,8 +26,14 @@
 {{define "channels-table"}}
 <div id="channels">
 {{if .Rows}}
+<form id="reorder" method="post" action="/admin/channels/order" hx-post="/admin/channels/order" hx-target="#channels" hx-swap="outerHTML">
+  <input type="hidden" name="q" value="{{.Query}}"><input type="hidden" name="group" value="{{.GroupID}}">
+  <input type="hidden" name="bouquet" value="{{.BouquetID}}"><input type="hidden" name="offset" value="{{.Offset}}">
+</form>
 <form method="post" action="/admin/channels/group">
 <input type="hidden" name="q" value="{{.Query}}"><input type="hidden" name="group" value="{{.GroupID}}"><input type="hidden" name="bouquet" value="{{.BouquetID}}"><input type="hidden" name="offset" value="{{.Offset}}">
+<p class="hint">Drag rows (or use the arrows) to change the order customers see. The channels on this page swap their numbers between
+  them, so filter to a group to arrange it without moving others.</p>
 <div class="row bulk">
   <label class="check small"><input type="checkbox" data-check-all="channel"> all on this page</label>
   <select name="to" aria-label="Move selected channels to" required>
@@ -40,11 +46,13 @@
 </div>
 <div class="table-wrap">
 <table class="stack">
-  <thead><tr><th class="check" aria-label="Select"></th><th class="num">#</th><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Streams</th><th class="num">Bouquets</th><th>Status</th></tr></thead>
-  <tbody>
+  <thead><tr><th class="check" aria-label="Select"></th><th class="grip-cell" aria-label="Order"></th><th class="num">#</th><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Streams</th><th class="num">Bouquets</th><th>Status</th></tr></thead>
+  <tbody data-sortable data-sortable-submit="#reorder">
   {{range .Rows}}
   <tr{{if not .Enabled}} class="dim"{{end}}>
     <td class="check"><input type="checkbox" name="channel" value="{{.ID}}" aria-label="Select {{.Name}}"></td>
+    <td class="grip-cell"><span class="grip" aria-hidden="true" title="Drag to reorder">⠿</span>
+      <button type="button" class="move" data-move="up" aria-label="Move {{.Name}} up">↑</button><button type="button" class="move" data-move="down" aria-label="Move {{.Name}} down">↓</button></td>
     <td class="num" data-label="#">{{with .Number}}{{.}}{{end}}</td>
     <td class="cell-title">{{if .LogoUrl}}<img class="logo" src="{{.LogoUrl}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}<a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
     <td data-label="Group">{{if .Group}}{{.Group}}{{else}}<span class="muted">none</span>{{end}}</td>

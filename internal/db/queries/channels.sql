@@ -84,10 +84,13 @@ SELECT COALESCE(max(number), 100) + 1 FROM channels;
 SELECT * FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1;
 
 -- name: ListUserChannels :many
--- Enabled channels in any of the user's bouquets (customer playlists).
+-- Enabled channels in any of the user's bouquets (customer playlists),
+-- with the name of their first failover stream (for stream-name guides).
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM user_bouquets ub
 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
 JOIN channels c ON c.id = bc.channel_id
@@ -99,7 +102,9 @@ ORDER BY c.number NULLS LAST, c.name, c.id;
 -- Every enabled channel (admin playlists).
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled
@@ -156,3 +161,21 @@ SELECT
     (SELECT count(*) FROM bouquets b WHERE EXISTS (SELECT 1 FROM bouquet_channels bc WHERE bc.bouquet_id = b.id))::bigint AS bouquets,
     (SELECT count(*) FROM users u WHERE u.role = 'customer'
         AND EXISTS (SELECT 1 FROM user_bouquets ub WHERE ub.user_id = u.id))::bigint AS customers;
+
+-- name: ChannelNumbersByIDs :many
+SELECT id, number FROM channels WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: ClearChannelNumbers :exec
+-- Frees the numbers of channels about to be renumbered (numbers are
+-- unique, so a permutation cannot be written in place).
+UPDATE channels SET number = NULL WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: SetChannelNumbers :exec
+-- ids[i] gets numbers[i].
+UPDATE channels SET number = (sqlc.arg('numbers')::int[])[array_position(sqlc.arg('ids')::bigint[], id)], updated_at = now()
+WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: SetChannelGroupOrder :exec
+-- Sorts the listed groups in the given order: 10, 20, 30…
+UPDATE channel_groups SET sort_order = 10 * array_position(sqlc.arg('ids')::bigint[], id)
+WHERE id = ANY(sqlc.arg('ids')::bigint[]);

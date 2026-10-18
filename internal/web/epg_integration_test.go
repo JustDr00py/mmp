@@ -259,3 +259,50 @@ func TestProviderGuidePriority(t *testing.T) {
 		t.Errorf("non-number = %d", resp.StatusCode)
 	}
 }
+
+// TestStreamNameGuidePages: channels without a guide show what their
+// stream name says on the Guide page; the Settings page turns it off and
+// validates the zone.
+func TestStreamNameGuidePages(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "P", Type: "m3u", Url: "http://p/", MaxConnections: 1,
+		RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Add(-time.Hour) // on now
+	name := "Live | UFC Fight Night | Buckley vs Malott | " + start.Format("2006-01-02") + " | " + start.Format("15:04") + " (GMT)"
+	sid, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: p.ID, ExternalID: "1", Name: name, StreamUrl: "http://p/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "PPV 1"})
+	if err := q.AddStreamToChannel(ctx, db.AddStreamToChannelParams{ChannelID: ch.ID, ProviderStreamID: sid, Priority: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := q.ListEnabledChannels(ctx); len(rows) != 1 || rows[0].StreamName != name {
+		t.Fatalf("channels carry their stream name: %+v", rows)
+	}
+
+	_, body := b.get("/admin/epg")
+	for _, want := range []string{"UFC Fight Night: Buckley vs Malott", "its stream name", ">generated<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("guide coverage lacks %q", want)
+		}
+	}
+
+	if resp, body := b.post("/admin/settings/nameguide", url.Values{"zone": {"Mars/Olympus"}}, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "unknown time zone") {
+		t.Errorf("bad zone = %d", resp.StatusCode)
+	}
+	if resp, _ := b.post("/admin/settings/nameguide", url.Values{"zone": {"Europe/Stockholm"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save = %d", resp.StatusCode) // both boxes unticked: off
+	}
+	if _, body := b.get("/admin/settings"); !strings.Contains(body, `value="Europe/Stockholm"`) || strings.Contains(body, `name="enabled" checked`) {
+		t.Error("settings not saved")
+	}
+	if _, body := b.get("/admin/epg"); strings.Contains(body, "its stream name") {
+		t.Error("turned off, the coverage still shows a stream-name guide")
+	}
+}
