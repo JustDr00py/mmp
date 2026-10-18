@@ -84,10 +84,13 @@ SELECT COALESCE(max(number), 100) + 1 FROM channels;
 SELECT * FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1;
 
 -- name: ListUserChannels :many
--- Enabled channels in any of the user's bouquets (customer playlists).
+-- Enabled channels in any of the user's bouquets (customer playlists),
+-- with the name of their first failover stream (for stream-name guides).
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM user_bouquets ub
 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
 JOIN channels c ON c.id = bc.channel_id
@@ -99,7 +102,9 @@ ORDER BY c.number NULLS LAST, c.name, c.id;
 -- Every enabled channel (admin playlists).
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled

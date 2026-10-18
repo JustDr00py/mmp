@@ -68,7 +68,7 @@ type xtreamLiveStream struct {
 	StreamType        string  `json:"stream_type"`
 	StreamID          int64   `json:"stream_id"`
 	StreamIcon        string  `json:"stream_icon"`
-	EPGChannelID      *string `json:"epg_channel_id"` // null without a tvg-id
+	EPGChannelID      *string `json:"epg_channel_id"`
 	Added             string  `json:"added"`
 	IsAdult           string  `json:"is_adult"`
 	CategoryID        string  `json:"category_id"`
@@ -260,13 +260,10 @@ func liveStreams(chans []Channel, categoryID string) []xtreamLiveStream {
 		if categoryID != "" && categoryID != cat {
 			continue
 		}
-		var epgID *string
-		if id := strings.TrimSpace(c.TvgID); id != "" {
-			epgID = &id
-		}
+		epgID := c.GuideID()
 		out = append(out, xtreamLiveStream{
 			Num: num, Name: c.Name, StreamType: "live", StreamID: c.ID, StreamIcon: c.Logo,
-			EPGChannelID: epgID, Added: unixString(c.Added), IsAdult: "0",
+			EPGChannelID: &epgID, Added: unixString(c.Added), IsAdult: "0",
 			CategoryID: cat, CategoryIDs: []int64{c.GroupID},
 		})
 	}
@@ -284,11 +281,11 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 		return
 	}
 	i := slices.IndexFunc(chans, func(c Channel) bool { return c.ID == id })
-	if i < 0 || strings.TrimSpace(chans[i].TvgID) == "" {
+	if i < 0 {
 		writeXtream(w, empty)
 		return
 	}
-	tvgID := strings.TrimSpace(chans[i].TvgID)
+	tvgID := chans[i].GuideID()
 
 	now := h.now()
 	since := now
@@ -300,6 +297,9 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 		h.Log.Error("output: short epg", "user_id", u.ID, "channel_id", id, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
+	}
+	if len(rows) == 0 {
+		rows = h.nameGuideFor(r.Context(), now)(chans[i], since, now.Add(guideAhead))
 	}
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]

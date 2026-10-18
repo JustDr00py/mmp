@@ -373,7 +373,9 @@ func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]C
 const listEnabledChannels = `-- name: ListEnabledChannels :many
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM channels c
 LEFT JOIN channel_groups g ON g.id = c.group_id
 WHERE c.enabled
@@ -381,15 +383,16 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListEnabledChannelsRow struct {
-	ID        int64     `json:"id"`
-	Number    *int32    `json:"number"`
-	Name      string    `json:"name"`
-	TvgID     string    `json:"tvg_id"`
-	LogoUrl   string    `json:"logo_url"`
-	GroupID   int64     `json:"group_id"`
-	GroupName string    `json:"group_name"`
-	GroupSort int32     `json:"group_sort"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Number     *int32    `json:"number"`
+	Name       string    `json:"name"`
+	TvgID      string    `json:"tvg_id"`
+	LogoUrl    string    `json:"logo_url"`
+	GroupID    int64     `json:"group_id"`
+	GroupName  string    `json:"group_name"`
+	GroupSort  int32     `json:"group_sort"`
+	CreatedAt  time.Time `json:"created_at"`
+	StreamName string    `json:"stream_name"`
 }
 
 // Every enabled channel (admin playlists).
@@ -412,6 +415,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 			&i.GroupName,
 			&i.GroupSort,
 			&i.CreatedAt,
+			&i.StreamName,
 		); err != nil {
 			return nil, err
 		}
@@ -426,7 +430,9 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 const listUserChannels = `-- name: ListUserChannels :many
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at
+       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                  WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM user_bouquets ub
 JOIN bouquet_channels bc ON bc.bouquet_id = ub.bouquet_id
 JOIN channels c ON c.id = bc.channel_id
@@ -436,18 +442,20 @@ ORDER BY c.number NULLS LAST, c.name, c.id
 `
 
 type ListUserChannelsRow struct {
-	ID        int64     `json:"id"`
-	Number    *int32    `json:"number"`
-	Name      string    `json:"name"`
-	TvgID     string    `json:"tvg_id"`
-	LogoUrl   string    `json:"logo_url"`
-	GroupID   int64     `json:"group_id"`
-	GroupName string    `json:"group_name"`
-	GroupSort int32     `json:"group_sort"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	Number     *int32    `json:"number"`
+	Name       string    `json:"name"`
+	TvgID      string    `json:"tvg_id"`
+	LogoUrl    string    `json:"logo_url"`
+	GroupID    int64     `json:"group_id"`
+	GroupName  string    `json:"group_name"`
+	GroupSort  int32     `json:"group_sort"`
+	CreatedAt  time.Time `json:"created_at"`
+	StreamName string    `json:"stream_name"`
 }
 
-// Enabled channels in any of the user's bouquets (customer playlists).
+// Enabled channels in any of the user's bouquets (customer playlists),
+// with the name of their first failover stream (for stream-name guides).
 func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUserChannelsRow, error) {
 	rows, err := q.db.Query(ctx, listUserChannels, userID)
 	if err != nil {
@@ -467,6 +475,7 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 			&i.GroupName,
 			&i.GroupSort,
 			&i.CreatedAt,
+			&i.StreamName,
 		); err != nil {
 			return nil, err
 		}

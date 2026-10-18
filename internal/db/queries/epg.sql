@@ -66,6 +66,8 @@ ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name;
 SELECT * FROM (
     SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
            COALESCE(b.name, '')::text AS source_name,
+           COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                      WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name,
            (SELECT count(*) FROM epg_programs p
              WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.stop_time > now() AND p.start_time < now() + interval '24 hours') AS upcoming,

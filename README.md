@@ -174,6 +174,16 @@ sources list a channel, the lowest priority number wins. A provider's guide uses
 unless you give it its own on the Guide page, so you can rank guides without changing the failover order.
 The channel coverage table there shows which guide each channel gets.
 
+**Guide from stream names:** event feeds (PPV, game passes) rarely have a guide, but their stream names
+often say what is on: `Next | Jets @ Patriots | NFL Game Pass | 2026-10-18 | 17:00`. For channels without a
+guide, MMP reads the name of the channel's first stream and builds one: "Up next: Jets @ Patriots" for a
+day before, the event for three hours from its start, then "Ended: …" for a day. It understands a status
+(`Next`, `Live`, `End`…), ISO or written dates (`Sun 18 Oct`), 12- and 24-hour times and zones such as
+`GMT`, `CEST`, `ET` or `PT`; times without a zone use the zone set under **Settings → Guide from stream
+names**. Names without a time give an all-day entry, and other channels without a guide get one with their
+name (both can be turned off there). Channels without a tvg-id get one (`mmp.<id>`) in playlists so
+players link them to it. Real guides always win.
+
 **East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
 Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are
 separate channels), so a channel never fails over into a feed that airs hours later.

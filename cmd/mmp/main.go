@@ -30,6 +30,7 @@ import (
 	eventlog "github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/health"
 	"github.com/JustDr00py/mmp/internal/metrics"
+	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/server"
@@ -200,6 +201,13 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	})
 	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log, Activity: tracker,
 		Limit: loginLimit}
+	outputs.NameGuide = func(ctx context.Context) nameguide.Settings {
+		s, err := nameguide.Load(ctx, queries)
+		if err != nil {
+			log.Warn("stream-name guide settings", "err", err)
+		}
+		return s
+	}
 	outputs.Slots = capacity // VOD playback shares provider slots with live sessions
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
 		InfoTTL: cfg.VOD.InfoTTL.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration}

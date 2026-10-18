@@ -5,7 +5,7 @@
     "stream_type": "live",
     "stream_id": 11,
     "stream_icon": "",
-    "epg_channel_id": null,
+    "epg_channel_id": "mmp.11",
     "added": "0",
     "is_adult": "0",
     "category_id": "0",

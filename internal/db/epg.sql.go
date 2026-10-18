@@ -11,9 +11,11 @@ import (
 )
 
 const channelGuideStatus = `-- name: ChannelGuideStatus :many
-SELECT id, number, name, tvg_id, enabled, source_name, upcoming, now_title FROM (
+SELECT id, number, name, tvg_id, enabled, source_name, stream_name, upcoming, now_title FROM (
     SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
            COALESCE(b.name, '')::text AS source_name,
+           COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+                      WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name,
            (SELECT count(*) FROM epg_programs p
              WHERE p.epg_source_id = b.id AND lower(p.channel_tvg_id) = lower(c.tvg_id)
                AND p.stop_time > now() AND p.start_time < now() + interval '24 hours') AS upcoming,
@@ -52,6 +54,7 @@ type ChannelGuideStatusRow struct {
 	TvgID      string `json:"tvg_id"`
 	Enabled    bool   `json:"enabled"`
 	SourceName string `json:"source_name"`
+	StreamName string `json:"stream_name"`
 	Upcoming   int64  `json:"upcoming"`
 	NowTitle   string `json:"now_title"`
 }
@@ -81,6 +84,7 @@ func (q *Queries) ChannelGuideStatus(ctx context.Context, arg ChannelGuideStatus
 			&i.TvgID,
 			&i.Enabled,
 			&i.SourceName,
+			&i.StreamName,
 			&i.Upcoming,
 			&i.NowTitle,
 		); err != nil {
