@@ -93,10 +93,23 @@ func TestPrograms(t *testing.T) {
 	if got := Programs(ev, at(21), at(23)); len(got) != 1 || got[0].Title != "Ended: Jets @ Patriots" {
 		t.Errorf("after the event = %+v", got)
 	}
-	// "Up next" and "Ended" stay within a day of the event.
-	got = Programs(ev, at(17).Add(-72*time.Hour), at(17).Add(72*time.Hour))
-	if first, last := got[0], got[len(got)-1]; !first.Start.Equal(at(17).Add(-24*time.Hour)) || !last.Stop.Equal(at(20).Add(24*time.Hour)) {
-		t.Errorf("filler spans %v .. %v, want a day either side", first.Start, last.Stop)
+	// The whole window is covered, however far the event is: a week out
+	// it is "Up next" throughout, long over it is "Ended".
+	week := 7 * 24 * time.Hour
+	got = Programs(ev, at(17).Add(-week), at(17).Add(week))
+	if first, last := got[0], got[len(got)-1]; !first.Start.Equal(at(17).Add(-week)) || !last.Stop.Equal(at(17).Add(week)) {
+		t.Errorf("programs span %v .. %v, want the whole window", first.Start, last.Stop)
+	}
+	for i := 1; i < len(got); i++ {
+		if !got[i].Start.Equal(got[i-1].Stop) {
+			t.Errorf("gap between %+v and %+v", got[i-1], got[i])
+		}
+	}
+	if got := Programs(ev, at(17).Add(-week), at(17).Add(-week+time.Hour)); len(got) != 1 || got[0].Title != "Up next: Jets @ Patriots" {
+		t.Errorf("a week before = %+v", got)
+	}
+	if got := Programs(ev, at(17).Add(week), at(17).Add(week+time.Hour)); len(got) != 1 || got[0].Title != "Ended: Jets @ Patriots" {
+		t.Errorf("a week after = %+v", got)
 	}
 	if got := Programs(Event{}, at(1), at(2)); got != nil {
 		t.Errorf("no title = %+v", got)

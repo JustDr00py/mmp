@@ -12,10 +12,6 @@ const EventLength = 3 * time.Hour
 // enough to keep guides small, short enough that players show the day.
 const block = 6 * time.Hour
 
-// around is how long "Up next" runs before an event and "Ended" after it:
-// further out the name is unlikely to still describe the stream.
-const around = 24 * time.Hour
-
 // Program is one generated guide entry.
 type Program struct {
 	Start, Stop time.Time
@@ -23,9 +19,11 @@ type Program struct {
 }
 
 // Programs fills [since, until) for ev. An event with a start time gets
-// "Up next: …" for a day before it, itself for EventLength, then
-// "Ended: …" for a day; one without gets its title (with its status)
-// throughout. Filler is cut into blocks aligned in UTC.
+// "Up next: …" until it starts, itself for EventLength, then "Ended: …";
+// one without gets its title (with its status) throughout. The whole
+// window is covered, so the channel never shows an empty guide: when the
+// provider renames the stream, the next refresh changes the entries.
+// Filler is cut into blocks aligned in UTC.
 func Programs(ev Event, since, until time.Time) []Program {
 	if ev.Title == "" || !until.After(since) {
 		return nil
@@ -42,13 +40,13 @@ func Programs(ev Event, since, until time.Time) []Program {
 	}
 	start, end := *ev.Start, ev.Start.Add(EventLength)
 	var out []Program
-	if from, to := maxTime(since, start.Add(-around)), minTime(start, until); from.Before(to) {
+	if from, to := since, minTime(start, until); from.Before(to) {
 		out = append(out, fill(from, to, "Up next: "+ev.Title, ev.Desc)...)
 	}
 	if start.Before(until) && end.After(since) {
 		out = append(out, Program{Start: start, Stop: end, Title: ev.Title, Desc: ev.Desc})
 	}
-	if from, to := maxTime(end, since), minTime(end.Add(around), until); from.Before(to) {
+	if from, to := maxTime(end, since), until; from.Before(to) {
 		out = append(out, fill(from, to, "Ended: "+ev.Title, ev.Desc)...)
 	}
 	return out
