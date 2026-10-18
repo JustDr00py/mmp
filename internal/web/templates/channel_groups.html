@@ -16,12 +16,16 @@
 {{end}}
 
 {{if $d.Rows}}
+<form id="group-order" method="post" action="/admin/groups/order"></form>
+<p class="hint">Drag groups (or use the arrows) into the order players should show them.</p>
 <div class="table-wrap">
 <table class="stack group-table">
-  <thead><tr><th>Name</th><th class="num">Sort</th><th class="num">Channels</th><th></th></tr></thead>
-  <tbody>
+  <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th class="num">Sort</th><th class="num">Channels</th><th></th></tr></thead>
+  <tbody data-sortable data-sortable-submit="#group-order">
   {{range $d.Rows}}
   <tr>
+    <td class="grip-cell"><input type="hidden" name="group" value="{{.ID}}"><span class="grip" aria-hidden="true" title="Drag to reorder">⠿</span>
+      <button type="button" class="move" data-move="up" aria-label="Move {{.Name}} up">↑</button><button type="button" class="move" data-move="down" aria-label="Move {{.Name}} down">↓</button></td>
     <td class="cell-title"><form id="group-{{.ID}}" method="post" action="/admin/groups/{{.ID}}"></form>
       <input form="group-{{.ID}}" name="name" value="{{.Name}}" maxlength="100" required aria-label="Name of {{.Name}}"></td>
     <td class="num" data-label="Sort"><input form="group-{{.ID}}" name="sort_order" type="number" value="{{.SortOrder}}" aria-label="Sort order of {{.Name}}"></td>

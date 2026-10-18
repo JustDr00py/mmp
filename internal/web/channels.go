@@ -26,6 +26,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 	r.Get("/channels/new", ui.channelNew)
 	r.Post("/channels/new", ui.channelCreate)
 	r.Post("/channels/group", ui.channelsSetGroup)
+	r.Post("/channels/order", ui.channelsReorder)
 	r.Route("/channels/{id}", func(r chi.Router) {
 		r.Get("/", ui.channelPage)
 		r.Post("/", ui.channelUpdate)
@@ -653,3 +654,83 @@ func (ui *UI) channelPicker(w http.ResponseWriter, r *http.Request) {
 }
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
+
+// errReorderStale: a channel being reordered was deleted meanwhile.
+var errReorderStale = errors.New("a channel in the list no longer exists")
+
+// channelsReorder renumbers the listed channels (channel=id, in their new
+// order) with the numbers they already hold, so only they move: dragging
+// the Sports group into a new order keeps it at 201-215. Channels without
+// a number get new ones after the highest. It answers with the list as it
+// was filtered.
+func (ui *UI) channelsReorder(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	ids := channelIDs(r)
+	if len(ids) == 0 || len(ids) != len(uniqueIDs(ids)) {
+		http.Error(w, "list the channels once each, in their new order", http.StatusBadRequest)
+		return
+	}
+	err := ui.inTx(r.Context(), func(q Store) error {
+		cur, err := q.ChannelNumbersByIDs(r.Context(), ids)
+		if err != nil {
+			return err
+		}
+		if len(cur) != len(ids) {
+			return errReorderStale
+		}
+		var nums []int32
+		missing := 0
+		for _, c := range cur {
+			if c.Number != nil {
+				nums = append(nums, *c.Number)
+			} else {
+				missing++
+			}
+		}
+		slices.Sort(nums)
+		if missing > 0 {
+			next, err := q.NextChannelNumber(r.Context())
+			if err != nil {
+				return err
+			}
+			for i := range int32(missing) {
+				nums = append(nums, next+i)
+			}
+		}
+		if err := q.ClearChannelNumbers(r.Context(), ids); err != nil {
+			return err
+		}
+		return q.SetChannelNumbers(r.Context(), db.SetChannelNumbersParams{Ids: ids, Numbers: nums})
+	})
+	switch {
+	case errors.Is(err, errReorderStale):
+		http.Error(w, "a channel in the list was deleted; reload the page", http.StatusConflict)
+		return
+	case err != nil:
+		ui.fail(w, "reorder channels", err)
+		return
+	}
+	ui.Log.Info("web: channels reordered", "channels", len(ids))
+	back := url.Values{}
+	for _, k := range []string{"q", "group", "bouquet", "offset"} {
+		if v := r.PostForm.Get(k); v != "" && v != "0" {
+			back.Set(k, v)
+		}
+	}
+	if r.Header.Get("HX-Request") != "true" {
+		ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+		return
+	}
+	r.URL.RawQuery = back.Encode() // the list as it was filtered, renumbered
+	ui.channelsPage(w, r)
+}
+
+func uniqueIDs(ids []int64) []int64 {
+	out := slices.Clone(ids)
+	slices.Sort(out)
+	return slices.Compact(out)
+}

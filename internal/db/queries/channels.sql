@@ -161,3 +161,21 @@ SELECT
     (SELECT count(*) FROM bouquets b WHERE EXISTS (SELECT 1 FROM bouquet_channels bc WHERE bc.bouquet_id = b.id))::bigint AS bouquets,
     (SELECT count(*) FROM users u WHERE u.role = 'customer'
         AND EXISTS (SELECT 1 FROM user_bouquets ub WHERE ub.user_id = u.id))::bigint AS customers;
+
+-- name: ChannelNumbersByIDs :many
+SELECT id, number FROM channels WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: ClearChannelNumbers :exec
+-- Frees the numbers of channels about to be renumbered (numbers are
+-- unique, so a permutation cannot be written in place).
+UPDATE channels SET number = NULL WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: SetChannelNumbers :exec
+-- ids[i] gets numbers[i].
+UPDATE channels SET number = (sqlc.arg('numbers')::int[])[array_position(sqlc.arg('ids')::bigint[], id)], updated_at = now()
+WHERE id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: SetChannelGroupOrder :exec
+-- Sorts the listed groups in the given order: 10, 20, 30…
+UPDATE channel_groups SET sort_order = 10 * array_position(sqlc.arg('ids')::bigint[], id)
+WHERE id = ANY(sqlc.arg('ids')::bigint[]);
