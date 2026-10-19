@@ -206,6 +206,10 @@ After every refresh, new streams join the channels they match as extra failover 
 channels for new streams* on, a channel is also created once enough providers offer it, in the group and
 bouquets you choose there. Existing channels never change group or bouquets.
 
+**Labelled names:** if a provider puts a label before every name (`AT&T: MTV`), list `AT&T` under
+**Settings → Name prefixes to ignore**, and those streams match the plain `MTV`. Superscript tags such as
+`ᴿᴬᵂ` or `ᴴᴰ` are always left out when matching.
+
 **See what is playing:** the ▶ next to a stream on Match, on a channel's page and in its stream search, or
 next to a channel on **Channels**, opens a small player in the corner (drag it by its title bar; Esc or ✕
 closes it). A stream preview uses one of the provider's connections (never more than its limit) unless a

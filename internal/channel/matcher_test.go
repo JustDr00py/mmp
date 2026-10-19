@@ -142,6 +142,8 @@ func TestDisplayName(t *testing.T) {
 		{"TF1 FR", "TF1 FR"},
 		{"HD", "HD"},
 		{"ESPN2", "ESPN2"},
+		{"MTV ᴿᴬᵂ", "MTV"},
+		{"US: Fox News ᴴᴰ", "Fox News"},
 	}
 	for _, tt := range tests {
 		if got := DisplayName(tt.in); got != tt.want {

@@ -60,7 +60,7 @@ func NormalizeName(name string) string {
 	}
 
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+		if unicode.IsPunct(r) || unicode.IsSymbol(r) || isSuperscript(r) {
 			return ' '
 		}
 		return r
@@ -90,6 +90,23 @@ func NormalizeName(name string) string {
 	default:
 		return strings.Join(words, " ")
 	}
+}
+
+// isSuperscript reports superscript letters and digits. Panels write tags
+// with them ("MTV ᴿᴬᵂ", "ESPN ᴴᴰ", "ᵁᴴᴰ", "⁶⁰ᶠᵖˢ"); they are decoration, never
+// part of a channel's name.
+func isSuperscript(r rune) bool {
+	switch {
+	case r == '¹' || r == '²' || r == '³':
+	case r >= 0x02B0 && r <= 0x02B8, r >= 0x02E0 && r <= 0x02E4: // ʰ…ʸ, ˠ…ˤ
+	case r >= 0x1D2C && r <= 0x1D6A: // ᴬ…ᵪ
+	case r >= 0x1D9B && r <= 0x1DBF: // ᶛ…ᶿ
+	case r >= 0x2070 && r <= 0x209F: // ⁰…ₜ
+	case r == 0x2C7D, r == 0xA7F8, r == 0xA7F9: // ⱽ ꟸ ꟹ
+	default:
+		return false
+	}
+	return true
 }
 
 // foldAccents strips diacritics: "série" -> "serie".
