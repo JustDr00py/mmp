@@ -61,6 +61,8 @@
   {{template "match-results" $d}}
 </form>
 
+{{if $d.Channels}}<datalist id="match-channels">{{range $d.Channels}}<option value="{{.Name}} (#{{.ID}})">{{end}}</datalist>{{end}}
+
 <details class="rules"{{if $d.RuleError}} open{{end}}>
   <summary><h2>Advanced: matching rules</h2> <span class="muted">{{len $d.Rules}} rule{{if ne (len $d.Rules) 1}}s{{end}}</span></summary>
   <p class="muted">For a channel the automatic matching misses because providers name it too differently. A rule puts every stream whose
@@ -77,7 +79,7 @@
   {{end}}
   {{if $d.Merges}}
   <h3>Merged suggestions</h3>
-  <p class="muted">Suggestions you merged with <strong>Merge selected</strong>. They stay together after provider refreshes.</p>
+  <p class="muted">Suggestions you merged with <strong>Merge selected</strong> or <strong>Add to channel</strong>. They stay together after provider refreshes.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Suggestion</th><th>Merged into</th><th></th></tr></thead>
     <tbody>{{range $d.Merges}}<tr><td>{{.BName}} <span class="sub mono">{{.B}}</span></td><td>{{.AName}} <span class="sub mono">{{.A}}</span></td>
@@ -111,6 +113,9 @@
     <span class="muted" data-count-of="key" data-count-label="selected">0 selected</span>
     <button type="submit" name="scope" value="selected">Apply selected</button>
     <button type="submit" formaction="/admin/match/merge" class="secondary" title="Make the ticked suggestions one channel, for when automatic matching keeps them apart">Merge selected</button>
+    {{if .Channels}}<span class="merge-into">
+      <input name="channel" list="match-channels" placeholder="Existing channel…" aria-label="Existing channel to add the selected suggestions to" autocomplete="off" data-enter="#add-to-channel">
+      <button type="submit" formaction="/admin/match/merge" name="to" value="channel" id="add-to-channel" class="secondary" title="Add the ticked suggestions to this channel, now and when new streams like them appear">Add to channel</button></span>{{end}}
     <button type="submit" name="scope" value="all" class="secondary" data-confirm="Apply all {{.Matching}} suggestions matching this filter? This creates or fills that many channels.">Apply all {{.Matching}} matching</button>
     <span class="muted push">{{.From}}–{{.To}} of {{.Matching}}{{if ne .Matching .AtMin}} (filtered from {{.AtMin}}){{end}}{{if .Hidden}} · {{.Hidden}} more with “any provider”{{end}}</span>
   </div>

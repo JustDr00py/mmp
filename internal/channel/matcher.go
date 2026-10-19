@@ -166,12 +166,15 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 	for i, s := range streams {
 		owner[streamKey(s.ID)] = i
 	}
+	partners := map[string][]string{} // merged keys, both ways
 	for _, m := range merges {
 		a, okA := owner[m.A]
 		b, okB := owner[m.B]
 		if okA && okB {
 			uf.union(a, b)
 		}
+		partners[m.A] = append(partners[m.A], m.B)
+		partners[m.B] = append(partners[m.B], m.A)
 	}
 
 	groups := map[int][]int{}
@@ -198,14 +201,14 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 
 	out := make([]Proposal, 0, len(groups))
 	for _, idx := range groups {
-		out = append(out, buildProposal(streams, tvgKeys, idx, ruleOf, byTvg, byName, existingByID))
+		out = append(out, buildProposal(streams, tvgKeys, idx, ruleOf, byTvg, byName, existingByID, partners))
 	}
 	slices.SortFunc(out, func(a, b Proposal) int { return cmp.Compare(a.Key, b.Key) })
 	return out
 }
 
 func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf []*Rule,
-	byTvg, byName map[string]int64, existing map[int64]Existing) Proposal {
+	byTvg, byName map[string]int64, existing map[int64]Existing, partners map[string][]string) Proposal {
 	// Failover order: preferred providers first, then stream id.
 	slices.SortFunc(idx, func(a, b int) int {
 		return cmp.Or(
@@ -276,8 +279,31 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 		p.Key = streamKey(p.StreamIDs[0])
 	}
 
-	// Existing channel: tvg-id beats rule target beats name.
+	// Every key the group carries, for merges.
+	keys := slices.Concat(tvgKeys, nameKeys)
+	if rule != nil {
+		keys = append(keys, "name:"+NormalizeName(rule.ChannelName))
+	}
+	for _, id := range p.StreamIDs {
+		keys = append(keys, streamKey(id))
+	}
+
+	// Existing channel: a channel the admin merged the group into, then
+	// tvg-id, rule target and name, then a channel matching a key merged
+	// with the group's (its other side was applied).
+	for _, k := range keys {
+		for _, m := range partners[k] {
+			if id, ok := channelOfKey(m); ok && p.ChannelID == 0 {
+				if _, exists := existing[id]; exists {
+					p.ChannelID = id
+				}
+			}
+		}
+	}
 	for _, t := range tvgKeys {
+		if p.ChannelID != 0 {
+			break
+		}
 		if id, ok := byTvg[t]; ok {
 			p.ChannelID = id
 			break
@@ -291,6 +317,18 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 			if id, ok := byName[k]; ok {
 				p.ChannelID = id
 				break
+			}
+		}
+	}
+	for _, k := range keys {
+		for _, m := range partners[k] {
+			if p.ChannelID != 0 {
+				break
+			}
+			if id, ok := byTvg[m]; ok {
+				p.ChannelID = id
+			} else if id, ok := byName[m]; ok {
+				p.ChannelID = id
 			}
 		}
 	}
@@ -352,6 +390,19 @@ func DisplayName(name string) string {
 }
 
 func streamKey(id int64) string { return "stream:" + strconv.FormatInt(id, 10) }
+
+// ChannelKey is the merge key of an existing channel: a group merged with
+// it is offered as additions to that channel.
+func ChannelKey(id int64) string { return "channel:" + strconv.FormatInt(id, 10) }
+
+func channelOfKey(k string) (int64, bool) {
+	rest, ok := strings.CutPrefix(k, "channel:")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(rest, 10, 64)
+	return id, err == nil
+}
 
 // sharedTvgKeys finds the tvg-id keys that some provider gives to streams
 // with different names. Copies of one channel (HD, FHD) normalize to the

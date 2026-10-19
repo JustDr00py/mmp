@@ -159,7 +159,9 @@ Two ways to build channels:
   Applied suggestions leave the list. **Advanced: matching rules** handles channels whose names differ too much
   between providers: a regular expression (e.g. `lakers`) puts every matching stream under one channel name.
   When the same channel shows up as two suggestions (one provider uses another tvg-id), tick both and press
-  **Merge selected**. The merge is kept across provider refreshes; undo it under **Advanced**.
+  **Merge selected**. If the channel already exists, tick the suggestion, pick the channel in **Add to channel**
+  and press the button: the streams join it, and new streams like them are offered to it later. Merges are kept
+  across provider refreshes; undo them under **Advanced**.
 
   ![Match: the same channel found at several providers, ready to become one channel with failover](docs/screenshots/match.png)
 
