@@ -149,7 +149,7 @@ func (o *HLSOpener) get(ctx context.Context, c Candidate, rawURL string, timeout
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, nil, &StatusError{Code: resp.StatusCode}
+		return nil, nil, statusError(resp)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {

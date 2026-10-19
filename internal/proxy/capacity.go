@@ -4,6 +4,7 @@ import (
 	"maps"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Capacity accounts provider connection slots. Slots are a scarce, paid
@@ -12,26 +13,45 @@ import (
 type Capacity struct {
 	mu   sync.Mutex
 	used map[int64]int
+	busy map[int64]time.Time // provider refused for lack of connections, until
 }
 
 // NewCapacity returns an empty slot table.
 func NewCapacity() *Capacity {
-	return &Capacity{used: map[int64]int{}}
+	return &Capacity{used: map[int64]int{}, busy: map[int64]time.Time{}}
 }
 
 // TryAcquire takes a slot at providerID if fewer than limit are in use.
 // limit is the provider's current max_connections, passed per call so admin
 // edits apply immediately; 0 means unlimited. It never blocks: a full
 // provider returns ok=false and the caller moves to its next candidate.
-// Lowering a limit below current use only refuses new acquires.
+// Lowering a limit below current use only refuses new acquires. A
+// provider marked busy is full until its time is up.
 func (c *Capacity) TryAcquire(providerID int64, limit int) (*Slot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if limit > 0 && c.used[providerID] >= limit {
 		return nil, false
 	}
+	if until, ok := c.busy[providerID]; ok {
+		if time.Now().Before(until) {
+			return nil, false
+		}
+		delete(c.busy, providerID)
+	}
 	c.used[providerID]++
 	return &Slot{c: c, providerID: providerID}, true
+}
+
+// MarkBusy refuses new slots at providerID until until: the provider said
+// it has no free connection, whatever its max_connections says. Slots
+// already held are kept.
+func (c *Capacity) MarkBusy(providerID int64, until time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if until.After(c.busy[providerID]) {
+		c.busy[providerID] = until
+	}
 }
 
 // InUse is the number of slots held at providerID.
