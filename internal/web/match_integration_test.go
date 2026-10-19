@@ -240,3 +240,70 @@ func TestMatchMerge(t *testing.T) {
 		t.Errorf("undo did not split the suggestions: %v", keysOn(body))
 	}
 }
+
+// TestMatchMergeIntoChannel: a suggestion added to an existing channel
+// joins it now, and later streams like it are offered to that channel.
+func TestMatchMergeIntoChannel(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	addStream := func(pn, name, tvg string, prio int) {
+		prov, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: pn, Type: "m3u", Url: "http://" + pn + "/", MaxConnections: 1,
+			RefreshIntervalSecs: 3600, Priority: int32(prio), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: prov.ID, ExternalID: "k", Name: name,
+			TvgID: tvg, StreamUrl: "http://" + pn + "/k"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addStream("A", "KTLA Los Angeles", "ca.KTLA", 1)
+	addStream("B", "KTLA Los Angeles", "ca.KTLA", 2)
+	_, body := b.get("/admin/match?q=ktla&min=1")
+	la := keysOn(body)["KTLA Los Angeles"]
+	if resp, _ := b.post("/admin/match/apply", url.Values{"scope": {"selected"}, "key": {la}, "min": {"1"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("apply = %d", resp.StatusCode)
+	}
+	chans, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10})
+	if len(chans) != 1 {
+		t.Fatalf("channels = %+v", chans)
+	}
+	ch := chans[0]
+	ref := fmt.Sprintf("%s (#%d)", ch.Name, ch.ID)
+
+	addStream("C", "KTLA 5", "ktla.us", 3)
+	_, body = b.get("/admin/match?q=ktla&min=1")
+	five := keysOn(body)["KTLA 5"]
+	if five == "" || !strings.Contains(body, `<option value="`+ref+`">`) || !strings.Contains(body, "Add to channel") {
+		t.Fatalf("before: %v\n%s", keysOn(body), body)
+	}
+
+	// Typing in the field without the channel button merges as before.
+	resp, _ := b.post("/admin/match/merge", url.Values{"key": {five}, "channel": {ref}}, b.base)
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=mergeone") {
+		t.Errorf("Merge selected with a channel typed: %s", loc)
+	}
+	resp, _ = b.post("/admin/match/merge", url.Values{"key": {five}, "to": {"channel"}, "channel": {"no such channel"}}, b.base)
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=nochannel") {
+		t.Errorf("unknown channel: %s", loc)
+	}
+
+	resp, _ = b.post("/admin/match/merge", url.Values{"key": {five}, "to": {"channel"}, "channel": {ref}, "q": {"ktla"}, "min": {"1"}}, b.base)
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "msg=mergedch") || !strings.Contains(loc, "applied=0-1") {
+		t.Fatalf("add to channel = %d %s", resp.StatusCode, loc)
+	}
+	if got := order(t, q, ch.ID); len(got) != 3 {
+		t.Errorf("channel streams = %v, want 3", got)
+	}
+
+	// A new provider's ktla.us stream is offered to the channel.
+	addStream("D", "KTLA 5 HD", "ktla.us", 4)
+	_, body = b.get("/admin/match?q=ktla&min=1")
+	if !strings.Contains(body, "adds to</span> <a href=\"/admin/channels/"+strconv.FormatInt(ch.ID, 10)+"\">") || len(keysOn(body)) != 1 {
+		t.Errorf("new ktla.us stream not offered to the channel:\n%s", body)
+	}
+	if !strings.Contains(body, "Merged suggestions") {
+		t.Error("merge not listed")
+	}
+}

@@ -111,6 +111,15 @@
     if (e.key === 'Escape' && document.body.classList.contains('nav-open')) document.querySelector('button[data-nav-toggle]')?.click();
   });
 
+  // <input data-enter="#button"> presses that button on Enter instead of the
+  // form's first one.
+  document.addEventListener('keydown', (e) => {
+    const sel = e.key === 'Enter' && e.target.dataset?.enter;
+    if (!sel) return;
+    e.preventDefault();
+    document.querySelector(sel)?.click();
+  });
+
   // <form data-confirm="question"> (or its clicked button) asks before submitting.
   document.addEventListener('submit', (e) => {
     const msg = e.submitter?.dataset?.confirm || e.target.dataset?.confirm;

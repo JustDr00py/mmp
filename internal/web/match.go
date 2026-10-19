@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -139,6 +140,7 @@ type matchData struct {
 
 	Rules     []db.MatchRule
 	Merges    []channel.Merge
+	Channels  []db.ListChannelMatchKeysRow // for "Add to channel"
 	RuleError string
 	RuleForm  db.CreateMatchRuleParams
 	Flash     string
@@ -293,6 +295,10 @@ func (ui *UI) matchData(r *http.Request, f matchFilter) (matchData, error) {
 	if d.Merges, err = channel.LoadMerges(ctx, ui.Store); err != nil {
 		return d, err
 	}
+	if d.Channels, err = ui.Store.ListChannelMatchKeys(ctx); err != nil {
+		return d, err
+	}
+	slices.SortFunc(d.Channels, func(a, b db.ListChannelMatchKeysRow) int { return naturalCompare(a.Name, b.Name) })
 	return d, nil
 }
 
@@ -302,6 +308,8 @@ var matchFlashes = map[string]string{
 	"mergeone":  "Tick two or more suggestions to merge them.",
 	"mergegone": "Those suggestions changed since the page loaded. Check the list and try again.",
 	"mergedel":  "Merge undone.",
+	"mergedch":  "Added to the channel. New streams like these will be offered to it too; undo under Advanced.",
+	"nochannel": "Pick a channel from the list to add the suggestions to.",
 }
 
 func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
@@ -529,6 +537,10 @@ func (ui *UI) matchMerge(w http.ResponseWriter, r *http.Request) {
 			keys = append(keys, k)
 		}
 	}
+	if pf.Get("to") == "channel" {
+		ui.mergeIntoChannel(w, r, strings.TrimSpace(pf.Get("channel")), keys, back)
+		return
+	}
 	if len(keys) < 2 {
 		back.Set("msg", "mergeone")
 		ui.redirect(w, r, Prefix+"/match?"+back.Encode())
@@ -567,6 +579,98 @@ func (ui *UI) matchMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: match suggestions merged", "into", into, "merged", len(keys)-1)
 	back.Set("msg", "merged")
+	ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+}
+
+// channelRefRe reads the channel id from an "Add to channel" pick.
+var channelRefRe = regexp.MustCompile(`\(#(\d+)\)\s*$`)
+
+// mergeIntoChannel merges the ticked suggestions into an existing channel
+// and applies them: their streams join the channel now, and later streams
+// with the same keys are offered to it.
+func (ui *UI) mergeIntoChannel(w http.ResponseWriter, r *http.Request, target string, keys []string, back url.Values) {
+	ctx := r.Context()
+	if len(keys) == 0 {
+		back.Set("msg", "mergeone")
+		ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+		return
+	}
+	chans, err := ui.Store.ListChannelMatchKeys(ctx)
+	if err != nil {
+		ui.fail(w, "match channels", err)
+		return
+	}
+	var ch *db.ListChannelMatchKeysRow
+	if m := channelRefRe.FindStringSubmatch(target); m != nil {
+		id, _ := strconv.ParseInt(m[1], 10, 64)
+		if i := slices.IndexFunc(chans, func(c db.ListChannelMatchKeysRow) bool { return c.ID == id }); i >= 0 {
+			ch = &chans[i]
+		}
+	} else { // typed without picking: a name only one channel has
+		for i := range chans {
+			if strings.EqualFold(chans[i].Name, target) {
+				if ch != nil {
+					ch = nil
+					break
+				}
+				ch = &chans[i]
+			}
+		}
+	}
+	if ch == nil {
+		back.Set("msg", "nochannel")
+		ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+		return
+	}
+	props, err := ui.Match.Propose(ctx)
+	if err != nil {
+		ui.fail(w, "match proposals", err)
+		return
+	}
+	names := map[string]string{}
+	for _, p := range props {
+		names[p.Key] = p.Name
+	}
+	merges, err := channel.LoadMerges(ctx, ui.Store)
+	if err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	into := channel.ChannelKey(ch.ID)
+	opts := channel.ApplyOptions{Streams: map[string][]int64{}, ExistingOnly: true}
+	pf := r.PostForm
+	for _, k := range keys {
+		if _, ok := names[k]; !ok {
+			back.Set("msg", "mergegone")
+			ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+			return
+		}
+		if !slices.ContainsFunc(merges, func(m channel.Merge) bool { return m.Joins(into, k) }) {
+			merges = append(merges, channel.Merge{A: into, B: k, AName: ch.Name, BName: names[k]})
+		}
+		opts.Keys = append(opts.Keys, k)
+		if slices.Contains(pf["row"], k) { // the page posts its ticked streams
+			ids := []int64{}
+			for _, v := range pf["stream|"+k] {
+				if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+					ids = append(ids, id)
+				}
+			}
+			opts.Streams[k] = ids
+		}
+	}
+	if err := channel.SaveMerges(ctx, ui.Store, merges); err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	res, err := ui.Match.Apply(ctx, opts)
+	if err != nil {
+		ui.fail(w, "match apply", err)
+		return
+	}
+	ui.Log.Info("web: match suggestions merged into channel", "channel_id", ch.ID, "merged", len(keys), "attached", res.Attached)
+	back.Set("msg", "mergedch")
+	back.Set("applied", strconv.Itoa(res.Created)+"-"+strconv.Itoa(res.Attached))
 	ui.redirect(w, r, Prefix+"/match?"+back.Encode())
 }
 

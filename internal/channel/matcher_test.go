@@ -276,3 +276,28 @@ func TestMatchMerges(t *testing.T) {
 		t.Errorf("KCAL changed by a merge with a missing key: %v", got)
 	}
 }
+
+// TestMatchMergesWithChannels: once one side of a merge is a channel, new
+// streams carrying the other side's key are offered to that channel, and
+// a group merged straight into a channel joins it.
+func TestMatchMergesWithChannels(t *testing.T) {
+	streams := []Stream{{ID: 3, ProviderID: 3, Name: "KTLA 5", TvgID: "ktla.us"}}
+	existing := []Existing{{ID: 12, Name: "KTLA Los Angeles", TvgID: "ca.KTLA"}, {ID: 13, Name: "KCAL"}}
+	for _, tc := range []struct {
+		name   string
+		merges []Merge
+		want   int64
+	}{
+		{"no merge", nil, 0},
+		{"merged with the channel's tvg-id", []Merge{{A: "tvg:ca.ktla", B: "tvg:ktla.us"}}, 12},
+		{"merged with the channel's name", []Merge{{A: "name:ktla los angeles", B: "tvg:ktla.us"}}, 12},
+		{"merged into the channel", []Merge{{A: ChannelKey(13), B: "tvg:ktla.us"}}, 13},
+		{"merged into a deleted channel", []Merge{{A: ChannelKey(99), B: "tvg:ktla.us"}}, 0},
+		{"the explicit channel wins", []Merge{{A: "tvg:ca.ktla", B: "tvg:ktla.us"}, {A: ChannelKey(13), B: "name:ktla 5"}}, 13},
+	} {
+		got := Match(streams, existing, nil, tc.merges)
+		if len(got) != 1 || got[0].ChannelID != tc.want {
+			t.Errorf("%s: %+v, want channel %d", tc.name, got, tc.want)
+		}
+	}
+}
