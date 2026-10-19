@@ -117,8 +117,8 @@ SELECT i.id, i.provider_id, i.external_id, i.name, i.category_external_id, i.ico
        i.container_extension, i.added_at, i.disabled
 FROM vod_items i
 WHERE (sqlc.narg('provider_id')::bigint IS NULL OR i.provider_id = sqlc.narg('provider_id'))
-  AND (sqlc.narg('category_id')::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM vod_categories c WHERE c.id = sqlc.narg('category_id') AND c.kind = 'movie'
+  AND (sqlc.narg('category_ids')::bigint[] IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = ANY(sqlc.narg('category_ids')::bigint[]) AND c.kind = 'movie'
           AND c.provider_id = i.provider_id AND c.external_id = i.category_external_id))
   AND (sqlc.narg('search')::text IS NULL OR i.name ILIKE sqlc.narg('search'))
 ORDER BY i.name, i.id
@@ -129,8 +129,8 @@ SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cov
        s.release_date, s.episodes_fetched_at, s.disabled
 FROM series s
 WHERE (sqlc.narg('provider_id')::bigint IS NULL OR s.provider_id = sqlc.narg('provider_id'))
-  AND (sqlc.narg('category_id')::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM vod_categories c WHERE c.id = sqlc.narg('category_id') AND c.kind = 'series'
+  AND (sqlc.narg('category_ids')::bigint[] IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = ANY(sqlc.narg('category_ids')::bigint[]) AND c.kind = 'series'
           AND c.provider_id = s.provider_id AND c.external_id = s.category_external_id))
   AND (sqlc.narg('search')::text IS NULL OR s.name ILIKE sqlc.narg('search'))
 ORDER BY s.name, s.id
