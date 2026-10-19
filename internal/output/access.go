@@ -55,3 +55,11 @@ func (a *Access) OnViewerEnd(fn func(v Viewer, at time.Time)) {
 // Kick disconnects viewer id. Its player may reconnect; this does not lock
 // the customer out. It reports whether the viewer was found.
 func (a *Access) Kick(id uint64) bool { return a.viewers.kick(id) }
+
+// Watch lists a connection that holds no customer slot (the admin preview
+// player) with the viewers; kick must end it. Call the returned remove when
+// it ends.
+func (a *Access) Watch(v Viewer, kick func()) (remove func()) {
+	_, remove = a.viewers.add(v, kick)
+	return remove
+}

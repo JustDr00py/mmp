@@ -72,3 +72,12 @@ SELECT provider_id,
        count(*) FILTER (WHERE NOT disabled) AS active,
        count(*) FILTER (WHERE cooldown_until > now()) AS cooling
 FROM provider_streams GROUP BY provider_id;
+
+-- name: GetPreviewStream :one
+-- What the admin preview player needs to open one provider stream directly.
+SELECT ps.id, ps.name, ps.stream_url, ps.disabled,
+       pr.id AS provider_id, pr.name AS provider_name, pr.max_connections, pr.user_agent,
+       pr.enabled AS provider_enabled
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE ps.id = $1;

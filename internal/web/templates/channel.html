@@ -1,7 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}
 <p class="crumbs"><a href="/admin/channels">Channels</a> /</p>
-<div class="head"><h1>{{.Title}}</h1>{{if $d.Form.ID}}<a class="button secondary small" href="/admin/events?channel={{$d.Form.ID}}">Events</a>{{end}}</div>
+<div class="head"><h1>{{.Title}}</h1>{{if $d.Form.ID}}<div class="row">{{if and preview $d.Streams.Rows}}<button type="button" class="small secondary" data-preview="/admin/preview/channel/{{$d.Form.ID}}.ts"
+  data-preview-title="{{$d.Form.Name}}"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Preview</button>{{end}}<a class="button secondary small" href="/admin/events?channel={{$d.Form.ID}}">Events</a></div>{{end}}</div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <div class="split">
   <section>
@@ -47,7 +48,8 @@
     <span class="grip" aria-hidden="true">⠿</span>
     <span class="rank">{{inc $i}}</span>
     <span class="what">
-      <strong>{{$s.StreamName}}</strong>
+      <span class="what-name"><strong>{{$s.StreamName}}</strong>{{if preview}}<button type="button" class="iconbtn preview-btn" data-preview="/admin/preview/stream/{{$s.ProviderStreamID}}.ts"
+        data-preview-title="{{$s.StreamName}} · {{$s.ProviderName}}" aria-label="Preview {{$s.StreamName}} from {{$s.ProviderName}}" title="Preview"><svg class="i"><use href="#i-play"/></svg></button>{{end}}</span>
       <span class="sub">{{$s.ProviderName}}{{with $s.GroupTitle}} · {{.}}{{end}}{{with $s.StreamTvgID}} · {{.}}{{end}}</span>
     </span>
     <span class="state">
@@ -79,7 +81,8 @@
 <ul class="picker">
 {{range .Results}}
   <li>
-    <span class="what"><strong>{{.Name}}</strong><span class="sub">{{.ProviderName}}{{with .Backbone}} ({{.}}){{end}}{{with .GroupTitle}} · {{.}}{{end}}{{with .TvgID}} · {{.}}{{end}}</span></span>
+    <span class="what"><span class="what-name"><strong>{{.Name}}</strong>{{if preview}}<button type="button" class="iconbtn preview-btn" data-preview="/admin/preview/stream/{{.ID}}.ts"
+      data-preview-title="{{.Name}} · {{.ProviderName}}" aria-label="Preview {{.Name}} from {{.ProviderName}}" title="Preview"><svg class="i"><use href="#i-play"/></svg></button>{{end}}</span><span class="sub">{{.ProviderName}}{{with .Backbone}} ({{.}}){{end}}{{with .GroupTitle}} · {{.}}{{end}}{{with .TvgID}} · {{.}}{{end}}</span></span>
     {{if index $.Listed .ID}}<span class="pill off">in list</span>{{else}}
     <span id="pick-{{.ID}}"><form method="post" action="/admin/channels/{{$.ChannelID}}/streams" hx-post="/admin/channels/{{$.ChannelID}}/streams"
       hx-target="#stream-list" hx-swap="outerHTML">

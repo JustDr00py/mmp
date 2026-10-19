@@ -197,6 +197,9 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
 	access.OnViewerEnd(func(v output.Viewer, at time.Time) {
+		if v.Output == "preview" {
+			return // the admin's preview player is not watch history
+		}
 		tracker.Watched(v.UserID, v.ChannelID, v.Addr, v.Output, v.Since, at)
 	})
 	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log, Activity: tracker,
@@ -226,6 +229,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
 		LoginLimit: loginLimit, Audit: auditLog,
+		Preview: &web.Preview{Attach: streams.Attach, Stream: queries.GetPreviewStream, Upstream: direct,
+			Capacity: capacity, FFmpeg: previewFFmpeg(pc.FFmpegPath, log), Watch: access.Watch},
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {
 			return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return fn(db.New(tx)) })
 		}})
@@ -339,6 +344,17 @@ func restartSelf(log *slog.Logger) {
 	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
 		log.Error("restart after restore failed; restart MMP by hand", "err", err)
 	}
+}
+
+// previewFFmpeg is the ffmpeg the admin preview player converts audio with,
+// or "" when it is not installed.
+func previewFFmpeg(path string, log *slog.Logger) string {
+	p, err := exec.LookPath(cmp.Or(path, "ffmpeg"))
+	if err != nil {
+		log.Info("ffmpeg not found: previews play streams as they are (AC-3 audio stays silent)", "path", cmp.Or(path, "ffmpeg"))
+		return ""
+	}
+	return p
 }
 
 // mediaProbe runs ffprobe for the dashboard's stream details (resolution,

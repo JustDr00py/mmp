@@ -186,4 +186,94 @@
     const on = t.closest('[data-check-on-change]');
     if (on && t.type === 'checkbox') document.querySelector(on.dataset.checkOnChange).checked = true;
   });
+
+  // Pop-up preview player. A [data-preview] button plays that URL (live
+  // MPEG-TS) in #pip with mpegts.js, which is loaded on first use. The
+  // window drags by its title bar and resizes from its corner. Closing it
+  // (or opening another preview) ends the request, which frees the
+  // provider connection on the server at once.
+  const pip = document.getElementById('pip');
+  if (pip) {
+    const video = pip.querySelector('video');
+    const msg = pip.querySelector('.pip-msg');
+    const title = pip.querySelector('.pip-title');
+    let player = null;
+    let lib = null;
+    const say = (text) => { msg.textContent = text; msg.hidden = !text; };
+    const loadLib = () => lib ??= new Promise((ok, fail) => {
+      const s = document.createElement('script');
+      s.src = pip.dataset.lib;
+      s.onload = () => ok(window.mpegts);
+      s.onerror = () => { lib = null; fail(new Error('load failed')); };
+      document.head.appendChild(s);
+    });
+    // The server's reason is in the response body, which mpegts.js does
+    // not expose: the status code has to do.
+    const httpText = {
+      404: 'This stream no longer exists.',
+      409: 'The provider is disabled.',
+      502: 'The provider did not deliver the stream.',
+      503: 'Not available right now: every connection to the provider may be in use.',
+    };
+    const errorText = (mpegts, type, detail, info) => {
+      if (type === mpegts.ErrorTypes.MEDIA_ERROR) return 'This browser cannot play the stream’s format (often HEVC/H.265 video).';
+      if (detail === mpegts.ErrorDetails.NETWORK_STATUS_CODE_INVALID) return httpText[info?.code] || `The server answered ${info?.code}.`;
+      return 'The stream stopped. Press ▶ to try again.';
+    };
+    const stop = () => {
+      if (player) {
+        const p = player;
+        player = null;
+        p.pause(); p.unload(); p.detachMediaElement(); p.destroy();
+      }
+      say('');
+    };
+    const close = () => { stop(); pip.hidden = true; };
+    const open = async (url, name) => {
+      stop();
+      title.textContent = name || 'Preview';
+      pip.hidden = false;
+      say('Connecting…');
+      let mpegts;
+      try { mpegts = await loadLib(); } catch { say('The player could not be loaded.'); return; }
+      if (!mpegts.isSupported()) { say('This browser cannot play live streams here (no Media Source Extensions).'); return; }
+      const p = mpegts.createPlayer({ type: 'mpegts', isLive: true, url },
+        { enableWorker: false, lazyLoad: false, liveBufferLatencyChasing: true });
+      player = p;
+      p.on(mpegts.Events.ERROR, (type, detail, info) => { if (player === p) say(errorText(mpegts, type, detail, info)); });
+      p.on(mpegts.Events.LOADING_COMPLETE, () => { if (player === p) say('The stream ended. Press ▶ to watch again.'); });
+      p.attachMediaElement(video);
+      p.load();
+      video.muted = false;
+      // The click allows sound; should the browser still refuse, play muted.
+      Promise.resolve(p.play()).catch(() => { if (player === p) { video.muted = true; Promise.resolve(p.play()).catch(() => {}); } });
+    };
+    video.addEventListener('playing', () => { if (player) say(''); });
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest?.('[data-preview]');
+      if (btn) { e.preventDefault(); open(btn.dataset.preview, btn.dataset.previewTitle); return; }
+      if (e.target.closest?.('[data-pip-close]')) close();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pip.hidden) close(); });
+    window.addEventListener('pagehide', stop);
+
+    // Dragging, kept inside the window.
+    const bar = pip.querySelector('[data-pip-drag]');
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      const r = pip.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      bar.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        pip.style.left = `${Math.min(Math.max(0, ev.clientX - dx), window.innerWidth - r.width)}px`;
+        pip.style.top = `${Math.min(Math.max(0, ev.clientY - dy), window.innerHeight - r.height)}px`;
+        pip.style.right = 'auto';
+        pip.style.bottom = 'auto';
+      };
+      const up = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); };
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('pointerup', up);
+    });
+  }
 })();

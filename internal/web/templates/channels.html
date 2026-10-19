@@ -54,7 +54,9 @@
     <td class="grip-cell"><span class="grip" aria-hidden="true" title="Drag to reorder">⠿</span>
       <button type="button" class="move" data-move="up" aria-label="Move {{.Name}} up">↑</button><button type="button" class="move" data-move="down" aria-label="Move {{.Name}} down">↓</button></td>
     <td class="num" data-label="#">{{with .Number}}{{.}}{{end}}</td>
-    <td class="cell-title">{{if .LogoUrl}}<img class="logo" src="{{.LogoUrl}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}<a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
+    <td class="cell-title">{{if .LogoUrl}}<img class="logo" src="{{.LogoUrl}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}<a href="/admin/channels/{{.ID}}">{{.Name}}</a>{{if and preview .Streams}}
+      <button type="button" class="iconbtn preview-btn" data-preview="/admin/preview/channel/{{.ID}}.ts" data-preview-title="{{.Name}}"
+        aria-label="Preview {{.Name}}" title="Preview"><svg class="i"><use href="#i-play"/></svg></button>{{end}}</td>
     <td data-label="Group">{{if .Group}}{{.Group}}{{else}}<span class="muted">none</span>{{end}}</td>
     <td class="mono" data-label="tvg-id">{{.TvgID}}</td>
     <td class="num" data-label="Streams">{{if .Streams}}{{.Streams}}{{else}}<span class="pill warn">none</span>{{end}}</td>

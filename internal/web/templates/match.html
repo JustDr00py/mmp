@@ -113,7 +113,9 @@
         <div class="sub">{{.Why}}{{with .TvgID}} · <span class="mono">{{.}}</span>{{end}} · {{.Providers}} provider{{if ne .Providers 1}}s{{end}}</div>
       </div>
       <ol class="streams">{{$k := .Key}}{{range .Streams}}
-        <li><label class="check"><input type="checkbox" name="stream|{{$k}}" value="{{.ID}}" checked> {{.Name}} <span class="sub">{{.Provider}}{{with .Group}} · {{.}}{{end}}</span></label></li>{{end}}
+        <li><label class="check"><input type="checkbox" name="stream|{{$k}}" value="{{.ID}}" checked> {{.Name}} <span class="sub">{{.Provider}}{{with .Group}} · {{.}}{{end}}</span></label>{{if preview}}
+          <button type="button" class="iconbtn preview-btn" data-preview="/admin/preview/stream/{{.ID}}.ts" data-preview-title="{{.Name}} · {{.Provider}}"
+            aria-label="Preview {{.Name}} from {{.Provider}}" title="Preview"><svg class="i"><use href="#i-play"/></svg></button>{{end}}</li>{{end}}
       </ol>
     </li>
   {{end}}

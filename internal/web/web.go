@@ -215,6 +215,9 @@ type Deps struct {
 	Backups *backup.Service
 	// Restart restarts MMP after a restore (nil: no restart).
 	Restart func()
+	// Preview powers the pop-up player on the match and channel lists;
+	// nil hides it.
+	Preview *Preview
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
@@ -294,6 +297,7 @@ func New(d Deps) (*UI, error) {
 		"upper":      strings.ToUpper,
 		"size":       humanSize,
 		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+		"preview":    func() bool { return ui.Preview != nil },
 	}
 	for _, page := range pageNames {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials/*.html", "templates/"+page+".html")
@@ -370,6 +374,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountVOD(r)
 			ui.mountBackups(r)
 			ui.mountLive(r)
+			ui.mountPreview(r)
 		})
 	})
 }
@@ -623,7 +628,7 @@ func safeNext(next string) string {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https: http:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https: http:; style-src 'self'; script-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")

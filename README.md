@@ -53,8 +53,8 @@ You need Docker (or Podman) with Compose. Releases are published as images for a
      single quotes.
 
    - `MMP_IMAGE`: pin the release, e.g. `ghcr.io/justdr00py/mmp:v0.1.0`. Use `v0.1.0-ffmpeg` for the image
-     with ffmpeg (needed only for [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode and the
-     prober's ffprobe check).
+     with ffmpeg (needed only for [stream profiles](#stream-profiles-ffmpeg) in ffmpeg mode, the
+     prober's ffprobe check and sound for AC-3 channels in the admin preview player).
 
    Postgres listens on `127.0.0.1` only.
 
@@ -205,6 +205,14 @@ them. On **Groups**, create, rename, reorder (sort order = order in the player) 
 After every refresh, new streams join the channels they match as extra failover streams. With *Create
 channels for new streams* on, a channel is also created once enough providers offer it, in the group and
 bouquets you choose there. Existing channels never change group or bouquets.
+
+**See what is playing:** the ▶ next to a stream on Match, on a channel's page and in its stream search, or
+next to a channel on **Channels**, opens a small player in the corner (drag it by its title bar; Esc or ✕
+closes it). A stream preview uses one of the provider's connections (never more than its limit) unless a
+channel is already playing that stream; a channel preview joins the channel like any viewer. Previews stop
+after 15 minutes and show on the dashboard as *PREVIEW*. With ffmpeg installed, the audio is converted to
+AAC so channels with AC-3 sound are not silent in the browser; the video is passed through as it is, so
+HEVC streams only play in browsers that support HEVC.
 
 ### 3. Put channels in a bouquet
 
