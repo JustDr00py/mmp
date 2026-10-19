@@ -59,7 +59,7 @@ func TestMatchIgnoresPrefixesAndTags(t *testing.T) {
 		stream(1, 1, "MTV"),
 		stream(2, 2, "AT&T: MTV ᴿᴬᵂ"),
 		stream(3, 2, "AT&T: MTV2"),
-	}, nil, nil)
+	}, nil, nil, nil)
 	ps := byKey(got)
 	p, ok := ps["name:mtv"]
 	if !ok {

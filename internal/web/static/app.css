@@ -353,6 +353,7 @@ details summary { cursor: pointer; color: var(--muted); margin: .25rem 0; }
 .rules { margin-top: 2rem; }
 .rules summary { cursor: pointer; display: flex; gap: .75rem; align-items: baseline; }
 .rules summary h2 { display: inline; margin: 0; }
+.rules h3 { margin-top: 1.25rem; }
 form.rule { margin-top: 1rem; }
 @media (max-width: 760px) {
   .proposal { grid-template-columns: auto 1fr; }

@@ -114,9 +114,9 @@ func (p Proposal) narrow(keep func(i int) bool) (Proposal, bool) {
 // streams (Spectrum SportsNet's Lakers and Dodgers feeds) covers several
 // channels, so under it streams only link when their names match too. Each
 // group becomes one Proposal, attached to an existing channel when the
-// group shares a tvg-id or name key with it. Output is deterministic for a
-// given input.
-func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
+// group shares a tvg-id or name key with it. Merges then join groups the
+// admin said are one channel. Output is deterministic for a given input.
+func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) []Proposal {
 	n := len(streams)
 	uf := newUnionFind(n)
 	shared := sharedTvgKeys(streams)
@@ -160,6 +160,17 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 				link(i, "name:"+NormalizeName(rules[r].ChannelName))
 				break
 			}
+		}
+	}
+	// A group with no other key is keyed by its first stream.
+	for i, s := range streams {
+		owner[streamKey(s.ID)] = i
+	}
+	for _, m := range merges {
+		a, okA := owner[m.A]
+		b, okB := owner[m.B]
+		if okA && okB {
+			uf.union(a, b)
 		}
 	}
 
@@ -262,7 +273,7 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	case len(nameKeys) > 0:
 		p.Key = nameKeys[0]
 	default:
-		p.Key = "stream:" + strconv.FormatInt(p.StreamIDs[0], 10)
+		p.Key = streamKey(p.StreamIDs[0])
 	}
 
 	// Existing channel: tvg-id beats rule target beats name.
@@ -339,6 +350,8 @@ func DisplayName(name string) string {
 	}
 	return out
 }
+
+func streamKey(id int64) string { return "stream:" + strconv.FormatInt(id, 10) }
 
 // sharedTvgKeys finds the tvg-id keys that some provider gives to streams
 // with different names. Copies of one channel (HD, FHD) normalize to the
