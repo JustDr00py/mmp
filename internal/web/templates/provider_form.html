@@ -46,6 +46,16 @@
   </div>
 </form>
 {{if $f.ID}}
+{{if $f.VODDeleted}}<p class="flash" role="status" id="catalog">Imported catalog deleted: {{$f.DeletedMovies}} movies and {{$f.DeletedSeries}} series. Live streams are unchanged.</p>{{end}}
+{{if or $f.Catalog.Movies $f.Catalog.Series $f.Catalog.Categories}}
+<form class="danger" method="post" action="/admin/providers/{{$f.ID}}/vod/delete" id="catalog"
+  data-confirm="Delete {{$f.Name}}'s {{$f.Catalog.Movies}} movies and {{$f.Catalog.Series}} series? Bouquets lose these categories. Live streams stay.">
+  <button type="submit" class="danger"{{if $f.VODEnabled}} disabled{{end}}>Delete imported catalog</button>
+  <p class="danger-text">{{$f.Catalog.Movies}} movies and {{$f.Catalog.Series}} series in {{$f.Catalog.Categories}} categories are stored for this provider.
+    {{if $f.VODEnabled}}Untick “Import movies &amp; series” and save first, or the next import brings them back.
+    {{else}}Importing is off, so customers no longer see them. Deleting frees the space; bouquets lose these categories. Live streams stay.{{end}}</p>
+</form>
+{{end}}
 <form class="danger" method="post" action="/admin/providers/{{$f.ID}}/delete"
   hx-post="/admin/providers/{{$f.ID}}/delete" hx-confirm="Delete {{$f.Name}}? Its streams leave every channel that uses them.">
   <button type="submit" class="danger">Delete provider</button>

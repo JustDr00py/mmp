@@ -194,3 +194,72 @@ func TestVODLanguages(t *testing.T) {
 		t.Errorf("after English movies & series: %v", g)
 	}
 }
+
+// TestVODDeleteCatalog: with importing off, a provider's catalog can be
+// deleted, with its episodes and bouquet grants; its live streams and
+// other providers' catalogs stay.
+func TestVODDeleteCatalog(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(name string) db.Provider {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "xtream", Url: "http://" + name + "/", Username: "u",
+			Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+		must(err)
+		must(q.SetProviderVODEnabled(ctx, db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: true}))
+		must(q.UpsertVODCategories(ctx, db.UpsertVODCategoriesParams{ProviderID: p.ID, Kind: "movie", ExternalIds: []string{"1"}, Names: []string{"EN | Action"}}))
+		must(q.UpsertVODCategories(ctx, db.UpsertVODCategoriesParams{ProviderID: p.ID, Kind: "series", ExternalIds: []string{"5"}, Names: []string{"EN | Drama"}}))
+		must(q.UpsertVODItems(ctx, db.UpsertVODItemsParams{ProviderID: p.ID, ExternalIds: []string{"11", "12"}, Names: []string{"Die Hard", "Speed"},
+			CategoryIds: []string{"1", "1"}, Icons: []string{"", ""}, Ratings: []float32{7, 7}, ContainerExtensions: []string{"mp4", "mp4"},
+			TmdbIds: []string{"", ""}, Added: []int64{0, 0}}))
+		must(q.UpsertSeries(ctx, db.UpsertSeriesParams{ProviderID: p.ID, ExternalIds: []string{"7"}, Names: []string{"The Show"}, CategoryIds: []string{"5"},
+			Covers: []string{""}, Plots: []string{""}, Casts: []string{""}, Directors: []string{""}, Genres: []string{""},
+			ReleaseDates: []string{""}, Ratings: []float32{8}, LastModified: []int64{0}}))
+		_, err = q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: p.ID, ExternalID: "live1", Name: "CNN", StreamUrl: "http://" + name + "/live1"})
+		must(err)
+		return p
+	}
+	p, other := mk("Panel"), mk("Other")
+	cats, _ := q.ListVODCategoriesAdmin(ctx, db.ListVODCategoriesAdminParams{Kind: "movie", ProviderID: &p.ID})
+	bq, _ := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "Movies"})
+	_, err := q.AddVODCategoriesToBouquet(ctx, db.AddVODCategoriesToBouquetParams{BouquetID: bq.ID, CategoryIds: []int64{cats[0].ID}})
+	must(err)
+
+	edit := "/admin/providers/" + strconv.FormatInt(p.ID, 10) + "/edit"
+	_, body := b.get(edit)
+	if !strings.Contains(body, "Delete imported catalog</button>") || !strings.Contains(body, "2 movies and 1 series in 2 categories") ||
+		!strings.Contains(body, `class="danger" disabled>Delete imported catalog`) {
+		t.Fatalf("edit page with importing on:\n%s", body)
+	}
+	del := "/admin/providers/" + strconv.FormatInt(p.ID, 10) + "/vod/delete"
+	if resp, _ := b.post(del, nil, b.base); resp.StatusCode != http.StatusConflict {
+		t.Errorf("delete with importing on = %d, want 409", resp.StatusCode)
+	}
+
+	must(q.SetProviderVODEnabled(ctx, db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: false}))
+	resp, _ := b.post(del, nil, b.base)
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "vod_deleted=2-1") {
+		t.Fatalf("delete = %d %s", resp.StatusCode, loc)
+	}
+	_, body = b.get(loc)
+	if !strings.Contains(body, "Imported catalog deleted: 2 movies and 1 series.") || strings.Contains(body, "Delete imported catalog</button>") {
+		t.Errorf("after delete:\n%s", body)
+	}
+	if n, _ := q.ProviderVODSize(ctx, p.ID); n.Movies+n.Series+n.Categories != 0 {
+		t.Errorf("catalog left: %+v", n)
+	}
+	if n, _ := q.ProviderVODSize(ctx, other.ID); n.Movies != 2 || n.Series != 1 || n.Categories != 2 {
+		t.Errorf("other provider's catalog = %+v", n)
+	}
+	if g, _ := q.ListBouquetVODCategories(ctx, bq.ID); len(g) != 0 {
+		t.Errorf("bouquet grants left: %+v", g)
+	}
+	if n, _ := q.CountProviderStreams(ctx, p.ID); n != 1 {
+		t.Errorf("live streams = %d, want 1", n)
+	}
+}

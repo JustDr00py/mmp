@@ -22,6 +22,7 @@ func (ui *UI) mountVOD(r chi.Router) {
 	r.Get("/vod", ui.vodPage)
 	r.Get("/vod/series/{id}", ui.vodSeriesPage)
 	r.Post("/providers/{id}/vod", ui.providerVODRefresh)
+	r.Post("/providers/{id}/vod/delete", ui.providerVODDelete)
 	r.Post("/bouquets/{id}/vod-categories", ui.bouquetVODAdd)
 	r.Post("/bouquets/{id}/vod-categories/{cid}/remove", ui.bouquetVODRemove)
 }
@@ -216,6 +217,29 @@ func (ui *UI) providerVODRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	rows[0].VODRefresh = &d
 	ui.fragment(w, r, "providers", "provider-row", rows[0])
+}
+
+// providerVODDelete removes a provider's imported movies, series and
+// categories, with their episodes and bouquet grants; its live streams
+// stay. Only with importing off, or the next import would bring it back.
+func (ui *UI) providerVODDelete(w http.ResponseWriter, r *http.Request) {
+	p, ok := ui.provider(w, r)
+	if !ok {
+		return
+	}
+	edit := Prefix + "/providers/" + strconv.FormatInt(p.ID, 10) + "/edit"
+	if p.VodEnabled {
+		http.Error(w, "turn off “Import movies & series” first", http.StatusConflict)
+		return
+	}
+	res, err := ui.Store.DeleteProviderVOD(r.Context(), p.ID)
+	if err != nil {
+		ui.fail(w, "delete vod catalog", err)
+		return
+	}
+	ui.Log.Info("web: provider catalog deleted", "provider_id", p.ID,
+		"movies", res.Movies, "series", res.Series, "categories", res.Categories)
+	ui.redirect(w, r, edit+"?vod_deleted="+strconv.FormatInt(res.Movies, 10)+"-"+strconv.FormatInt(res.Series, 10)+"#catalog")
 }
 
 // bouquetVODAdd grants the ticked movie/series categories, or with lang

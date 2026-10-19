@@ -163,6 +163,8 @@ type Store interface {
 	SetSetting(ctx context.Context, arg db.SetSettingParams) error
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
 	ListChannelMatchKeys(ctx context.Context) ([]db.ListChannelMatchKeysRow, error)
+	ProviderVODSize(ctx context.Context, providerID int64) (db.ProviderVODSizeRow, error)
+	DeleteProviderVOD(ctx context.Context, providerID int64) (db.DeleteProviderVODRow, error)
 	LiveChannelInfo(ctx context.Context, ids []int64) ([]db.LiveChannelInfoRow, error)
 	LiveChannelStreams(ctx context.Context, ids []int64) ([]db.LiveChannelStreamsRow, error)
 
