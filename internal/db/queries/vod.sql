@@ -259,3 +259,19 @@ WHERE sqlc.arg('is_admin')::bool OR EXISTS (
         JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
         WHERE bv.vod_category_id = c.id AND ub.user_id = sqlc.arg('user_id'))
 ORDER BY s.name, s.id, e.season, e.episode_num, e.id;
+
+-- name: ProviderVODSize :one
+SELECT (SELECT count(*) FROM vod_items i WHERE i.provider_id = $1)::bigint AS movies,
+       (SELECT count(*) FROM series s WHERE s.provider_id = $1)::bigint AS series,
+       (SELECT count(*) FROM vod_categories c WHERE c.provider_id = $1)::bigint AS categories;
+
+-- name: DeleteProviderVOD :one
+-- Removes a provider's imported catalog in one statement. Episodes and
+-- bouquet grants go with their series and categories (ON DELETE CASCADE).
+WITH items AS (DELETE FROM vod_items WHERE vod_items.provider_id = $1 RETURNING 1),
+     shows AS (DELETE FROM series WHERE series.provider_id = $1 RETURNING 1),
+     cats AS (DELETE FROM vod_categories WHERE vod_categories.provider_id = $1 RETURNING 1),
+     stamp AS (UPDATE providers SET vod_refreshed_at = NULL WHERE providers.id = $1 RETURNING 1)
+SELECT (SELECT count(*) FROM items)::bigint AS movies,
+       (SELECT count(*) FROM shows)::bigint AS series,
+       (SELECT count(*) FROM cats)::bigint AS categories;

@@ -173,6 +173,13 @@ type providerForm struct {
 	Enabled                           bool
 	HasPassword                       bool
 	Error                             string
+
+	// On edit: the imported movie/series catalog, and what a delete just
+	// removed.
+	Catalog       db.ProviderVODSizeRow
+	VODDeleted    bool
+	DeletedMovies int
+	DeletedSeries int
 }
 
 func formFromProvider(p db.Provider) providerForm {
@@ -375,6 +382,15 @@ func (ui *UI) providerEdit(w http.ResponseWriter, r *http.Request) {
 	f := formFromProvider(p)
 	if !ui.withBackbones(w, r, &f) {
 		return
+	}
+	var err error
+	if f.Catalog, err = ui.Store.ProviderVODSize(r.Context(), p.ID); err != nil {
+		ui.fail(w, "vod catalog size", err)
+		return
+	}
+	if v := r.URL.Query().Get("vod_deleted"); v != "" {
+		movies, series, _ := strings.Cut(v, "-")
+		f.VODDeleted, f.DeletedMovies, f.DeletedSeries = true, atoi(movies), atoi(series)
 	}
 	ui.render(w, r, http.StatusOK, "provider_form", "Edit "+p.Name, f)
 }

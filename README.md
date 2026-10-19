@@ -271,6 +271,11 @@ MMP reads that label: **Movies & Series** has a language filter, and a bouquet c
 series category in one language at once. Categories without a recognised label are listed as *No language
 label*; add those by hand.
 
+**Stopping imports:** unticking **Import movies & series** hides that provider's catalog from customers but
+keeps it stored, so ticking it again restores everything. To free the space, use **Delete imported catalog**
+on the provider's edit page (with importing off). It removes the movies, series, episodes and categories, and
+those categories leave bouquets; the provider's live streams stay.
+
 ## Running from source
 
 Requirements: Go 1.26+ and PostgreSQL (tested with 17, which the compose file uses).

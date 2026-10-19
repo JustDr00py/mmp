@@ -165,6 +165,10 @@ func (f *fakeStore) page(id int64, like string, limit, offset int32) []db.Provid
 // GetSetting: no setting was ever saved (defaults apply).
 func (f *fakeStore) GetSetting(context.Context, string) ([]byte, error) { return nil, pgx.ErrNoRows }
 
+func (f *fakeStore) ProviderVODSize(context.Context, int64) (db.ProviderVODSizeRow, error) {
+	return db.ProviderVODSizeRow{}, nil
+}
+
 func (f *fakeStore) ListRecentEvents(context.Context, db.ListRecentEventsParams) ([]db.Event, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

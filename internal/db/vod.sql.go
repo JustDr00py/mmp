@@ -108,6 +108,31 @@ func (q *Queries) DeleteEpisodesNotIn(ctx context.Context, arg DeleteEpisodesNot
 	return result.RowsAffected(), nil
 }
 
+const deleteProviderVOD = `-- name: DeleteProviderVOD :one
+WITH items AS (DELETE FROM vod_items WHERE vod_items.provider_id = $1 RETURNING 1),
+     shows AS (DELETE FROM series WHERE series.provider_id = $1 RETURNING 1),
+     cats AS (DELETE FROM vod_categories WHERE vod_categories.provider_id = $1 RETURNING 1),
+     stamp AS (UPDATE providers SET vod_refreshed_at = NULL WHERE providers.id = $1 RETURNING 1)
+SELECT (SELECT count(*) FROM items)::bigint AS movies,
+       (SELECT count(*) FROM shows)::bigint AS series,
+       (SELECT count(*) FROM cats)::bigint AS categories
+`
+
+type DeleteProviderVODRow struct {
+	Movies     int64 `json:"movies"`
+	Series     int64 `json:"series"`
+	Categories int64 `json:"categories"`
+}
+
+// Removes a provider's imported catalog in one statement. Episodes and
+// bouquet grants go with their series and categories (ON DELETE CASCADE).
+func (q *Queries) DeleteProviderVOD(ctx context.Context, providerID int64) (DeleteProviderVODRow, error) {
+	row := q.db.QueryRow(ctx, deleteProviderVOD, providerID)
+	var i DeleteProviderVODRow
+	err := row.Scan(&i.Movies, &i.Series, &i.Categories)
+	return i, err
+}
+
 const getSeries = `-- name: GetSeries :one
 SELECT id, provider_id, external_id, name, category_external_id, cover, plot, "cast", director, genre, release_date, rating, last_modified, info, episodes_fetched_at, disabled, last_seen, created_at FROM series WHERE id = $1
 `
@@ -873,6 +898,25 @@ type MarkSeriesEpisodesFetchedParams struct {
 func (q *Queries) MarkSeriesEpisodesFetched(ctx context.Context, arg MarkSeriesEpisodesFetchedParams) error {
 	_, err := q.db.Exec(ctx, markSeriesEpisodesFetched, arg.Info, arg.ID)
 	return err
+}
+
+const providerVODSize = `-- name: ProviderVODSize :one
+SELECT (SELECT count(*) FROM vod_items i WHERE i.provider_id = $1)::bigint AS movies,
+       (SELECT count(*) FROM series s WHERE s.provider_id = $1)::bigint AS series,
+       (SELECT count(*) FROM vod_categories c WHERE c.provider_id = $1)::bigint AS categories
+`
+
+type ProviderVODSizeRow struct {
+	Movies     int64 `json:"movies"`
+	Series     int64 `json:"series"`
+	Categories int64 `json:"categories"`
+}
+
+func (q *Queries) ProviderVODSize(ctx context.Context, providerID int64) (ProviderVODSizeRow, error) {
+	row := q.db.QueryRow(ctx, providerVODSize, providerID)
+	var i ProviderVODSizeRow
+	err := row.Scan(&i.Movies, &i.Series, &i.Categories)
+	return i, err
 }
 
 const removeVODCategoryFromBouquet = `-- name: RemoveVODCategoryFromBouquet :execrows
