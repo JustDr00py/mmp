@@ -47,6 +47,7 @@ func New(cfg config.Config, log *slog.Logger, pinger Pinger) *Server {
 	mux.Use(RealIP(trusted))                 // first: everything after sees the real client
 	mux.Use(RequestID)
 	mux.Use(RequestLogger(log))
+	mux.Use(CollapseSlashes)
 
 	s := &Server{cfg: cfg, log: log, pinger: pinger, mux: mux, serveErr: make(chan error, 1)}
 	mux.Get("/healthz", s.handleHealthz)

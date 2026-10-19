@@ -197,3 +197,25 @@ func TestGracefulShutdownDrainsInFlight(t *testing.T) {
 		t.Fatal("Run never returned")
 	}
 }
+
+// TestCollapseSlashes: "//get.php" reaches the /get.php route, and
+// ordinary paths are untouched.
+func TestCollapseSlashes(t *testing.T) {
+	s := New(testCfg(), slog.New(slog.DiscardHandler), nil)
+	s.Mux().Get("/get.php", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "playlist") })
+	s.Mux().Get("/live/{u}/{p}/{id}", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "live") })
+	for path, want := range map[string]string{
+		"/get.php?username=a":  "playlist",
+		"//get.php?username=a": "playlist",
+		"///get.php":           "playlist",
+		"//live/a/b/1.ts":      "live",
+		"/live//a/b/1.ts":      "live",
+		"/nothing//here":       "404 page not found\n",
+	} {
+		rec := httptest.NewRecorder()
+		s.Mux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://mmp.test"+path, nil))
+		if rec.Body.String() != want {
+			t.Errorf("%s = %q, want %q", path, rec.Body.String(), want)
+		}
+	}
+}

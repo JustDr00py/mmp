@@ -25,6 +25,12 @@ func TestURL(t *testing.T) {
 			in:   "http://panel.example.tv/player_api.php?USERNAME=alice&Password=s3cret&action=get_live_streams",
 			want: "http://panel.example.tv/player_api.php?USERNAME=" + Mask + "&Password=" + Mask + "&action=get_live_streams",
 		},
+		// A request URI starting with "//" is a path, not a host.
+		{
+			name: "doubled slash request",
+			in:   "//?username=alice&password=s3cret&action=login",
+			want: "//?username=" + Mask + "&password=" + Mask + "&action=login",
+		},
 		// MMP stream-token paths (relative, as the request logger sees them).
 		{
 			name: "token playlist",
