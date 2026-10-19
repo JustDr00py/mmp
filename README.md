@@ -266,6 +266,11 @@ a bouquet's page, add movie and series categories under **Movie & series categor
 bouquet see them in Xtream apps (and in M3U playlists with `&vod=1` / `&series=1`) and can seek while
 watching. Each title playing uses one of the customer's connections and one of the provider's.
 
+**By language:** providers label categories with a language (`EN | Action`, `|FR| Films`, `ENGLISH MOVIES`).
+MMP reads that label: **Movies & Series** has a language filter, and a bouquet can add every movie and/or
+series category in one language at once. Categories without a recognised label are listed as *No language
+label*; add those by hand.
+
 ## Running from source
 
 Requirements: Go 1.26+ and PostgreSQL (tested with 17, which the compose file uses).

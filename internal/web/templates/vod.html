@@ -7,20 +7,29 @@
   <a href="/admin/vod?kind=movie"{{if eq $d.Kind "movie"}} aria-current="page"{{end}}>Movies</a>
   <a href="/admin/vod?kind=series"{{if eq $d.Kind "series"}} aria-current="page"{{end}}>Series</a>
 </nav>
-<form class="search row" method="get" action="/admin/vod" hx-get="/admin/vod" hx-target="#vod-list" hx-swap="outerHTML" hx-push-url="true"
-  hx-trigger="input changed delay:300ms from:input, change from:select, submit">
-  <input type="hidden" name="kind" value="{{$d.Kind}}">
-  <input type="search" name="q" value="{{$d.Query}}" placeholder="Search titles" aria-label="Search titles">
-  <select name="category" aria-label="Category">
-    <option value="0">All categories</option>
-    {{range $d.Categories}}<option value="{{.ID}}"{{if eq .ID $d.CategoryID}} selected{{end}}>{{.Name}} ({{.Items}}) · {{.ProviderName}}</option>{{end}}
-  </select>
+<form method="get" action="/admin/vod" hx-get="/admin/vod" hx-target="#vod-list" hx-swap="outerHTML" hx-push-url="true"
+  hx-trigger="input changed delay:300ms from:input[name=q], change, submit">
+  <div class="search row">
+    <input type="hidden" name="kind" value="{{$d.Kind}}">
+    <input type="search" name="q" value="{{$d.Query}}" placeholder="Search titles" aria-label="Search titles">
+  </div>
+  {{template "vod-list" $d}}
 </form>
-{{template "vod-list" $d}}
 {{end}}
 
 {{define "vod-list"}}
 <div id="vod-list">
+<div class="search row">
+  {{if .Languages}}<select name="lang" aria-label="Language">
+    <option value="">All languages</option>
+    {{range .Languages}}<option value="{{.Value}}"{{if eq .Value $.Language}} selected{{end}}>{{.Label}} ({{.Categories}} categor{{if eq .Categories 1}}y{{else}}ies{{end}})</option>{{end}}
+  </select>{{end}}
+  <select name="category" aria-label="Category">
+    <option value="0">All categories</option>
+    {{range .Categories}}<option value="{{.ID}}"{{if eq .ID $.CategoryID}} selected{{end}}>{{.Name}} ({{.Items}}) · {{.ProviderName}}</option>{{end}}
+  </select>
+  <noscript><button type="submit" class="secondary">Filter</button></noscript>
+</div>
 {{if .Rows}}
 <div class="table-wrap"><table>
   <thead><tr><th>Title</th><th class="num">Rating</th><th>{{if eq .Kind "movie"}}Format{{else}}Released{{end}}</th><th></th></tr></thead>
@@ -33,10 +42,10 @@
   </tr>{{end}}</tbody>
 </table></div>
 <nav class="pager">
-  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&category={{.CategoryID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
-  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&category={{.CategoryID}}&offset={{.NextOffset}}">Next →</a>{{end}}
+  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>
-{{else if or .Query .CategoryID}}<div class="card empty"><p>Nothing matches.</p></div>
+{{else if or .Query .CategoryID .Language}}<div class="card empty"><p>Nothing matches.</p></div>
 {{else}}<div class="card empty"><p>No {{if eq .Kind "movie"}}movies{{else}}series{{end}} imported yet.</p>
   <p class="muted">Edit an Xtream provider, tick “Import movies &amp; series”, then use “Import catalog” on the providers page.</p></div>{{end}}
 </div>

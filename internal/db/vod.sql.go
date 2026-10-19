@@ -378,8 +378,8 @@ SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cov
        s.release_date, s.episodes_fetched_at, s.disabled
 FROM series s
 WHERE ($1::bigint IS NULL OR s.provider_id = $1)
-  AND ($2::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM vod_categories c WHERE c.id = $2 AND c.kind = 'series'
+  AND ($2::bigint[] IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'series'
           AND c.provider_id = s.provider_id AND c.external_id = s.category_external_id))
   AND ($3::text IS NULL OR s.name ILIKE $3)
 ORDER BY s.name, s.id
@@ -387,11 +387,11 @@ LIMIT $5 OFFSET $4
 `
 
 type ListSeriesAdminParams struct {
-	ProviderID *int64  `json:"provider_id"`
-	CategoryID *int64  `json:"category_id"`
-	Search     *string `json:"search"`
-	Offset     int32   `json:"offset"`
-	Limit      int32   `json:"limit"`
+	ProviderID  *int64  `json:"provider_id"`
+	CategoryIds []int64 `json:"category_ids"`
+	Search      *string `json:"search"`
+	Offset      int32   `json:"offset"`
+	Limit       int32   `json:"limit"`
 }
 
 type ListSeriesAdminRow struct {
@@ -410,7 +410,7 @@ type ListSeriesAdminRow struct {
 func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams) ([]ListSeriesAdminRow, error) {
 	rows, err := q.db.Query(ctx, listSeriesAdmin,
 		arg.ProviderID,
-		arg.CategoryID,
+		arg.CategoryIds,
 		arg.Search,
 		arg.Offset,
 		arg.Limit,
@@ -786,8 +786,8 @@ SELECT i.id, i.provider_id, i.external_id, i.name, i.category_external_id, i.ico
        i.container_extension, i.added_at, i.disabled
 FROM vod_items i
 WHERE ($1::bigint IS NULL OR i.provider_id = $1)
-  AND ($2::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM vod_categories c WHERE c.id = $2 AND c.kind = 'movie'
+  AND ($2::bigint[] IS NULL OR EXISTS (
+        SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'movie'
           AND c.provider_id = i.provider_id AND c.external_id = i.category_external_id))
   AND ($3::text IS NULL OR i.name ILIKE $3)
 ORDER BY i.name, i.id
@@ -795,11 +795,11 @@ LIMIT $5 OFFSET $4
 `
 
 type ListVODItemsAdminParams struct {
-	ProviderID *int64  `json:"provider_id"`
-	CategoryID *int64  `json:"category_id"`
-	Search     *string `json:"search"`
-	Offset     int32   `json:"offset"`
-	Limit      int32   `json:"limit"`
+	ProviderID  *int64  `json:"provider_id"`
+	CategoryIds []int64 `json:"category_ids"`
+	Search      *string `json:"search"`
+	Offset      int32   `json:"offset"`
+	Limit       int32   `json:"limit"`
 }
 
 type ListVODItemsAdminRow struct {
@@ -818,7 +818,7 @@ type ListVODItemsAdminRow struct {
 func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminParams) ([]ListVODItemsAdminRow, error) {
 	rows, err := q.db.Query(ctx, listVODItemsAdmin,
 		arg.ProviderID,
-		arg.CategoryID,
+		arg.CategoryIds,
 		arg.Search,
 		arg.Offset,
 		arg.Limit,

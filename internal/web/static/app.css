@@ -497,3 +497,4 @@ tr.dragging { opacity: .45; }
 .what-name .preview-btn { flex: none; width: 24px; height: 24px; }
 .match-bar .merge-into { display: inline-flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .match-bar .merge-into input { width: 14rem; max-width: 100%; min-height: 32px; padding: .25rem .5rem; }
+.vod-lang { flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: .75rem; }

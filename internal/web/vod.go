@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ type vodData struct {
 	Kind       string // movie | series
 	Categories []db.ListVODCategoriesAdminRow
 	CategoryID int64
+	Languages  []langOption
+	Language   string // "" = any, noLanguage = categories without a label
 	Query      string
 	Rows       []vodRow
 	Offset     int
@@ -51,7 +54,7 @@ type vodData struct {
 // &q=, &offset=.
 func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	d := vodData{Kind: q.Get("kind"), Query: strings.TrimSpace(q.Get("q")), Offset: max(atoi(q.Get("offset")), 0)}
+	d := vodData{Kind: q.Get("kind"), Query: strings.TrimSpace(q.Get("q")), Language: q.Get("lang"), Offset: max(atoi(q.Get("offset")), 0)}
 	if d.Kind != "series" {
 		d.Kind = "movie"
 	}
@@ -63,9 +66,27 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "vod categories", err)
 		return
 	}
-	var cid *int64
+	// The language narrows the category list and the titles; a category
+	// picked from another language is dropped.
+	var names []string
+	for _, c := range d.Categories {
+		names = append(names, c.Name)
+	}
+	d.Languages = languagesOf(names)
+	var cids []int64 // nil: every category
+	if d.Language != "" {
+		cids = []int64{}
+		d.Categories = slices.DeleteFunc(d.Categories, func(c db.ListVODCategoriesAdminRow) bool { return !inLanguage(c.Name, d.Language) })
+		for _, c := range d.Categories {
+			cids = append(cids, c.ID)
+		}
+	}
 	if d.CategoryID > 0 {
-		cid = &d.CategoryID
+		if d.Language != "" && !slices.Contains(cids, d.CategoryID) {
+			d.CategoryID = 0
+		} else {
+			cids = []int64{d.CategoryID}
+		}
 	}
 	var search *string
 	if d.Query != "" {
@@ -73,7 +94,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 	if d.Kind == "movie" {
-		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{CategoryID: cid, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{CategoryIds: cids, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list movies", err)
 			return
@@ -82,7 +103,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 			d.Rows = append(d.Rows, vodRow{ID: m.ID, Name: m.Name, Image: m.Icon, Rating: m.Rating, Extra: m.ContainerExtension, Disabled: m.Disabled})
 		}
 	} else {
-		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{CategoryID: cid, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{CategoryIds: cids, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list series", err)
 			return
@@ -197,7 +218,8 @@ func (ui *UI) providerVODRefresh(w http.ResponseWriter, r *http.Request) {
 	ui.fragment(w, r, "providers", "provider-row", rows[0])
 }
 
-// bouquetVODAdd grants the ticked movie/series categories.
+// bouquetVODAdd grants the ticked movie/series categories, or with lang
+// every category in that language (kind: "movie", "series" or both).
 func (ui *UI) bouquetVODAdd(w http.ResponseWriter, r *http.Request) {
 	b, ok := ui.bouquet(w, r)
 	if !ok {
@@ -208,6 +230,19 @@ func (ui *UI) bouquetVODAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ids []int64
+	if lang := r.PostForm.Get("lang"); lang != "" {
+		d, err := ui.bouquetVODData(r, b.ID)
+		if err != nil {
+			ui.fail(w, "vod categories", err)
+			return
+		}
+		kind := r.PostForm.Get("kind")
+		for _, c := range d.Available {
+			if (kind == "" || c.Kind == kind) && inLanguage(c.Name, lang) {
+				ids = append(ids, c.ID)
+			}
+		}
+	}
 	for _, v := range r.PostForm["category"] {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
 			ids = append(ids, id)
@@ -242,7 +277,14 @@ func (ui *UI) bouquetVODRemove(w http.ResponseWriter, r *http.Request) {
 // bouquetVOD is the bouquet page's movie/series section.
 type bouquetVOD struct {
 	Granted   []db.ListBouquetVODCategoriesRow
-	Available []db.ListVODCategoriesAdminRow // not yet granted
+	Available []vodCategory // not yet granted
+	Languages []langOption  // of Available
+}
+
+// vodCategory is a category with the language its name is labelled with.
+type vodCategory struct {
+	db.ListVODCategoriesAdminRow
+	Language string
 }
 
 func (ui *UI) bouquetVODData(r *http.Request, bouquetID int64) (bouquetVOD, error) {
@@ -262,9 +304,14 @@ func (ui *UI) bouquetVODData(r *http.Request, bouquetID int64) (bouquetVOD, erro
 		}
 		for _, c := range cats {
 			if !have[c.ID] && !c.Disabled {
-				d.Available = append(d.Available, c)
+				d.Available = append(d.Available, vodCategory{ListVODCategoriesAdminRow: c, Language: categoryLanguage(c.Name)})
 			}
 		}
 	}
+	names := make([]string, len(d.Available))
+	for i, c := range d.Available {
+		names[i] = c.Name
+	}
+	d.Languages = languagesOf(names)
 	return d, nil
 }
