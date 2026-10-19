@@ -118,7 +118,7 @@ func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
 
 	action := r.FormValue("action")
 	switch action {
-	case "":
+	case "", "get_account_info": // the login; some clients (IPTVnator) name it
 		writeXtream(w, map[string]any{
 			"user_info":   h.userInfo(u, user, pass),
 			"server_info": h.serverInfo(),
