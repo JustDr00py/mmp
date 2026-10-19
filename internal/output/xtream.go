@@ -99,6 +99,18 @@ type xtreamTableListing struct {
 	HasArchive int `json:"has_archive"`
 }
 
+// RootAPI answers Xtream calls that some apps (on Roku, among others)
+// send to the server's root instead of player_api.php. It reports false,
+// writing nothing, for a request without credentials.
+func (h *Handlers) RootAPI(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if q.Get("username") == "" || q.Get("password") == "" {
+		return false
+	}
+	h.playerAPI(w, r)
+	return true
+}
+
 // playerAPI is /player_api.php?username=&password=[&action=...].
 // Credentials may come in the query or a POSTed form.
 func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +130,7 @@ func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
 
 	action := r.FormValue("action")
 	switch action {
-	case "", "get_account_info": // the login; some clients (IPTVnator) name it
+	case "", "get_account_info", "login": // the login; some clients name it (IPTVnator, Roku apps)
 		writeXtream(w, map[string]any{
 			"user_info":   h.userInfo(u, user, pass),
 			"server_info": h.serverInfo(),

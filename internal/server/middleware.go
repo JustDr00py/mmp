@@ -5,7 +5,10 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/redact"
 )
@@ -91,4 +94,32 @@ func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 		})
 	}
+}
+
+// CollapseSlashes routes "//get.php" like "/get.php": some IPTV apps join
+// the server address and the path with an extra slash, especially when the
+// address was entered with a trailing one. Only runs of slashes change;
+// the request itself (and its log line) keeps the path as sent.
+func CollapseSlashes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The path as chi routes it: raw when the client escaped something,
+		// so an encoded slash (a password ending in "%2F") is not a run.
+		p := r.URL.RawPath
+		if p == "" {
+			p = r.URL.Path
+		}
+		if strings.Contains(p, "//") {
+			var b strings.Builder
+			for i := 0; i < len(p); i++ {
+				if p[i] == '/' && i > 0 && p[i-1] == '/' {
+					continue
+				}
+				b.WriteByte(p[i])
+			}
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				rctx.RoutePath = b.String()
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

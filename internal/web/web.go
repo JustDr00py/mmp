@@ -221,6 +221,9 @@ type Deps struct {
 	// Preview powers the pop-up player on the match and channel lists;
 	// nil hides it.
 	Preview *Preview
+	// RootAPI may answer a request for "/" (an app's Xtream call there);
+	// false sends it on to the admin UI. Optional.
+	RootAPI func(w http.ResponseWriter, r *http.Request) bool
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
@@ -344,6 +347,9 @@ func ago(t *time.Time) string {
 // Mount registers the UI routes on the root router.
 func (ui *UI) Mount(r chi.Router) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		if ui.RootAPI != nil && ui.RootAPI(w, r) {
+			return
+		}
 		http.Redirect(w, r, Prefix+"/", http.StatusFound)
 	})
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) { // browsers ask regardless

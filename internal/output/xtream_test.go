@@ -145,3 +145,18 @@ func TestPlayerAPIAccountInfo(t *testing.T) {
 		t.Errorf("get_account_info = %d %s", code, body)
 	}
 }
+
+// TestRootAPI: an app's Xtream call to "/" (action=login, as a Roku app
+// sends) is the login; without credentials RootAPI leaves "/" alone.
+func TestRootAPI(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	rec := httptest.NewRecorder()
+	if !h.RootAPI(rec, httptest.NewRequest(http.MethodGet, "/?username=alice&password=alice-pw1&action=login", nil)) ||
+		!strings.Contains(rec.Body.String(), `"auth":1`) || !strings.Contains(rec.Body.String(), `"server_info"`) {
+		t.Errorf("root login = %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	if h.RootAPI(rec, httptest.NewRequest(http.MethodGet, "/", nil)) || rec.Body.Len() != 0 {
+		t.Errorf("root without credentials answered %q", rec.Body.String())
+	}
+}

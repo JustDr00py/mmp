@@ -228,7 +228,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Backups: backups, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
-		LoginLimit: loginLimit, Audit: auditLog,
+		LoginLimit: loginLimit, Audit: auditLog, RootAPI: outputs.RootAPI,
 		Preview: &web.Preview{Attach: streams.Attach, Stream: queries.GetPreviewStream, Upstream: direct,
 			Capacity: capacity, FFmpeg: previewFFmpeg(pc.FFmpegPath, log), Watch: access.Watch},
 		InTx: func(ctx context.Context, fn func(web.Store) error) error {

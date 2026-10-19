@@ -55,7 +55,13 @@ func URL(s string) string {
 	if s == "" {
 		return s
 	}
-	u, err := url.Parse(s)
+	parse := url.Parse
+	if strings.HasPrefix(s, "/") {
+		// A request URI: "//x" is a path, not a host (url.Parse would
+		// read it as one and lose the path from logs).
+		parse = url.ParseRequestURI
+	}
+	u, err := parse(s)
 	if err != nil {
 		return scrub(s)
 	}
