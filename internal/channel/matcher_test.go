@@ -37,7 +37,7 @@ func byKey(ps []Proposal) map[string]Proposal {
 }
 
 func TestMatchThreeProviders(t *testing.T) {
-	got := byKey(Match(threeProviders(), nil, []Rule{skyRule()}))
+	got := byKey(Match(threeProviders(), nil, []Rule{skyRule()}, nil))
 
 	tests := []struct {
 		key       string
@@ -89,7 +89,7 @@ func TestMatchAttachesToExisting(t *testing.T) {
 		{ID: 8, Name: "Something else", TvgID: "ESPN2.US"}, // tvg match
 		{ID: 9, Name: "Sky Sports Premier League"},         // rule target
 	}
-	got := byKey(Match(threeProviders(), existing, []Rule{skyRule()}))
+	got := byKey(Match(threeProviders(), existing, []Rule{skyRule()}, nil))
 	for key, want := range map[string]int64{
 		"tvg:abc.us":                     7,
 		"tvg:espn2.us":                   8,
@@ -107,9 +107,9 @@ func TestMatchAttachesToExisting(t *testing.T) {
 
 func TestMatchDeterministic(t *testing.T) {
 	in := threeProviders()
-	first := Match(in, nil, []Rule{skyRule()})
+	first := Match(in, nil, []Rule{skyRule()}, nil)
 	slices.Reverse(in)
-	second := Match(in, nil, []Rule{skyRule()})
+	second := Match(in, nil, []Rule{skyRule()}, nil)
 	if len(first) != len(second) {
 		t.Fatalf("len %d vs %d", len(first), len(second))
 	}
@@ -127,7 +127,7 @@ func TestMatchFirstRuleWins(t *testing.T) {
 		{ID: 1, Pattern: regexp.MustCompile(`(?i)foo`), ChannelName: "Foo"},
 		{ID: 2, Pattern: regexp.MustCompile(`(?i)sports`), ChannelName: "Sports"},
 	}
-	got := Match(streams, nil, rules)
+	got := Match(streams, nil, rules, nil)
 	if len(got) != 1 || got[0].Name != "Foo" {
 		t.Errorf("got %+v", got)
 	}
@@ -177,7 +177,7 @@ func TestMatchSplitsFeeds(t *testing.T) {
 		{ID: 6, ProviderID: 1, Name: "UK: Channel 4", TvgID: "channel4.uk"},
 	}
 	byKey := map[string]Proposal{}
-	for _, p := range Match(streams, nil, nil) {
+	for _, p := range Match(streams, nil, nil, nil) {
 		byKey[p.Key] = p
 	}
 	if p := byKey["tvg:aande.us"]; !slices.Equal(p.StreamIDs, []int64{1, 3}) {
@@ -191,7 +191,7 @@ func TestMatchSplitsFeeds(t *testing.T) {
 	}
 
 	// An existing "A&E" channel takes the East feeds only; West is new.
-	props := Match(streams[:4], []Existing{{ID: 8, Name: "A&E", TvgID: "AandE.us"}}, nil)
+	props := Match(streams[:4], []Existing{{ID: 8, Name: "A&E", TvgID: "AandE.us"}}, nil, nil)
 	for _, p := range props {
 		west := strings.HasSuffix(p.Key, "|west")
 		if west && p.ChannelID != 0 {
@@ -221,7 +221,7 @@ func TestMatchSharedTvgID(t *testing.T) {
 		{ID: 9, ProviderID: 2, Name: "A&E HD", TvgID: "aande.us"},
 	}
 	groups := map[string][]int64{}
-	for _, p := range Match(streams, nil, nil) {
+	for _, p := range Match(streams, nil, nil, nil) {
 		groups[p.Name] = p.StreamIDs
 	}
 	for name, want := range map[string][]int64{
@@ -237,10 +237,42 @@ func TestMatchSharedTvgID(t *testing.T) {
 
 	// An existing Dodgers channel with the shared tvg-id takes the Dodgers
 	// streams only.
-	for _, p := range Match(streams[:4], []Existing{{ID: 9, Name: "Spectrum SportsNet Dodgers", TvgID: "SpectrumSportsNet.us"}}, nil) {
+	for _, p := range Match(streams[:4], []Existing{{ID: 9, Name: "Spectrum SportsNet Dodgers", TvgID: "SpectrumSportsNet.us"}}, nil, nil) {
 		dodgers := slices.Contains(p.StreamIDs, 2)
 		if dodgers != (p.ChannelID == 9) {
 			t.Errorf("proposal %v attached to channel %d", p.StreamIDs, p.ChannelID)
 		}
+	}
+}
+
+// TestMatchMerges: a merge joins the groups holding its two keys, whether
+// a key is a tvg-id or a lone stream's, and a key no stream carries
+// changes nothing.
+func TestMatchMerges(t *testing.T) {
+	streams := []Stream{
+		{ID: 1, ProviderID: 1, Name: "KTLA Los Angeles", TvgID: "ca.KTLA"},
+		{ID: 2, ProviderID: 2, Name: "KTLA LA", TvgID: "ca.KTLA"},
+		{ID: 3, ProviderID: 3, Name: "KTLA 5", TvgID: "ktla.us"},
+		{ID: 4, ProviderID: 4, Name: "CW 5 Los Angeles"},
+		{ID: 5, ProviderID: 1, Name: "KCAL"},
+	}
+	if n := len(Match(streams, nil, nil, nil)); n != 4 {
+		t.Fatalf("without merges: %d proposals, want 4", n)
+	}
+	merges := []Merge{
+		{A: "tvg:ktla.us", B: "tvg:ca.ktla"},
+		{A: "tvg:ca.ktla", B: streamKey(4)},
+		{A: "tvg:gone.us", B: streamKey(5)},
+	}
+	got := byKey(Match(streams, nil, nil, merges))
+	if len(got) != 2 {
+		t.Fatalf("with merges: %d proposals %v, want 2", len(got), got)
+	}
+	p, ok := got["tvg:ca.ktla"]
+	if !ok || !slices.Equal(p.StreamIDs, []int64{1, 2, 3, 4}) || p.Providers != 4 {
+		t.Errorf("merged KTLA = %+v", p)
+	}
+	if _, ok := got["name:kcal"]; !ok {
+		t.Errorf("KCAL changed by a merge with a missing key: %v", got)
 	}
 }

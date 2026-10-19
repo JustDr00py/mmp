@@ -55,6 +55,10 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 	if err != nil {
 		return nil, fmt.Errorf("match: %w", err)
 	}
+	merges, err := LoadMerges(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("match: %w", err)
+	}
 
 	streams := make([]Stream, 0, len(rows))
 	for _, r := range rows {
@@ -82,7 +86,7 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 		}
 		rules = append(rules, Rule{ID: r.ID, Pattern: re, ChannelName: r.ChannelName})
 	}
-	return Match(streams, existing, rules), nil
+	return Match(streams, existing, rules, merges), nil
 }
 
 // ApplyOptions selects which proposals Apply acts on.

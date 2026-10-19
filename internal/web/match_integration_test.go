@@ -184,3 +184,59 @@ func TestMatchApplyOptions(t *testing.T) {
 		t.Errorf("left after apply all: %v", keysOn(body))
 	}
 }
+
+// TestMatchMerge: ticked suggestions merge into one that stays merged, the
+// merge is listed under Advanced, and undoing it splits them again.
+func TestMatchMerge(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	for i, pn := range []string{"A", "B", "C"} {
+		prov, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: pn, Type: "m3u", Url: "http://" + pn + "/", MaxConnections: 1,
+			RefreshIntervalSecs: 3600, Priority: int32(i + 1), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, tvg := "KTLA Los Angeles", "ca.KTLA"
+		if pn == "C" {
+			name, tvg = "KTLA 5", "ktla.us"
+		}
+		if _, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: prov.ID, ExternalID: "k", Name: name,
+			TvgID: tvg, StreamUrl: "http://" + pn + "/k"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, body := b.get("/admin/match?q=ktla&min=1")
+	keys := keysOn(body)
+	la, five := keys["KTLA Los Angeles"], keys["KTLA 5"]
+	if len(keys) != 2 || la == "" || five == "" || !strings.Contains(body, "Merge selected") {
+		t.Fatalf("before merge: %v\n%s", keys, body)
+	}
+
+	// One ticked suggestion is not a merge.
+	resp, _ := b.post("/admin/match/merge", url.Values{"key": {la}, "q": {"ktla"}, "min": {"1"}}, b.base)
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=mergeone") || !strings.Contains(loc, "q=ktla") {
+		t.Errorf("one key: %s", loc)
+	}
+
+	resp, _ = b.post("/admin/match/merge", url.Values{"key": {la, five}, "q": {"ktla"}, "min": {"1"}}, b.base)
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "msg=merged") {
+		t.Fatalf("merge = %d %s", resp.StatusCode, loc)
+	}
+	_, body = b.get(loc)
+	if k := keysOn(body); len(k) != 1 || !strings.Contains(body, "3 providers") || !strings.Contains(body, "Suggestions merged.") {
+		t.Errorf("after merge: %v\n%s", k, body)
+	}
+	if !strings.Contains(body, "Merged suggestions") || !strings.Contains(body, `name="b" value="`+five+`"`) {
+		t.Errorf("merge not listed:\n%s", body)
+	}
+
+	resp, _ = b.post("/admin/match/merges/delete", url.Values{"a": {la}, "b": {five}}, b.base)
+	_, body = b.get(resp.Header.Get("Location"))
+	if k := keysOn(body); !strings.Contains(body, "Merge undone.") || strings.Contains(body, "Merged suggestions") {
+		t.Errorf("after undo: %v", k)
+	}
+	if _, body = b.get("/admin/match?q=ktla&min=1"); len(keysOn(body)) != 2 {
+		t.Errorf("undo did not split the suggestions: %v", keysOn(body))
+	}
+}

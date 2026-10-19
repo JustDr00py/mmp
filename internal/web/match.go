@@ -24,6 +24,8 @@ func (ui *UI) mountMatch(r chi.Router) {
 	r.Post("/match/apply", ui.matchApply)
 	r.Post("/match/rules", ui.matchRuleCreate)
 	r.Post("/match/rules/{id}/delete", ui.matchRuleDelete)
+	r.Post("/match/merge", ui.matchMerge)
+	r.Post("/match/merges/delete", ui.matchMergeDelete)
 }
 
 type proposalStream struct {
@@ -136,6 +138,7 @@ type matchData struct {
 	ApplyBouquets map[int64]bool // sticky
 
 	Rules     []db.MatchRule
+	Merges    []channel.Merge
 	RuleError string
 	RuleForm  db.CreateMatchRuleParams
 	Flash     string
@@ -287,10 +290,19 @@ func (ui *UI) matchData(r *http.Request, f matchFilter) (matchData, error) {
 	if d.Rules, err = ui.Store.ListMatchRules(ctx); err != nil {
 		return d, err
 	}
+	if d.Merges, err = channel.LoadMerges(ctx, ui.Store); err != nil {
+		return d, err
+	}
 	return d, nil
 }
 
-var matchFlashes = map[string]string{"rule": "Rule added. Its suggestions are in the list.", "ruledel": "Rule deleted."}
+var matchFlashes = map[string]string{
+	"rule": "Rule added. Its suggestions are in the list.", "ruledel": "Rule deleted.",
+	"merged":    "Suggestions merged. They stay together after provider refreshes; undo it under Advanced.",
+	"mergeone":  "Tick two or more suggestions to merge them.",
+	"mergegone": "Those suggestions changed since the page loaded. Check the list and try again.",
+	"mergedel":  "Merge undone.",
+}
 
 func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -495,4 +507,85 @@ func digitPrefix(s string) string {
 		i++
 	}
 	return s[:i]
+}
+
+// matchMerge joins the ticked suggestions into one, for channels automatic
+// matching keeps apart. The first ticked suggestion takes in the others;
+// the links are saved, so the suggestions stay merged (see channel.Merge).
+func (ui *UI) matchMerge(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	pf := r.PostForm
+	back := parseMatchFilter(pf).Values()
+	if o := atoi(pf.Get("offset")); o > 0 {
+		back.Set("offset", strconv.Itoa(o))
+	}
+	var keys []string
+	for _, k := range pf["key"] {
+		if k != "" && !slices.Contains(keys, k) {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) < 2 {
+		back.Set("msg", "mergeone")
+		ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+		return
+	}
+	props, err := ui.Match.Propose(r.Context())
+	if err != nil {
+		ui.fail(w, "match proposals", err)
+		return
+	}
+	names := map[string]string{}
+	for _, p := range props {
+		names[p.Key] = p.Name
+	}
+	for _, k := range keys {
+		if _, ok := names[k]; !ok {
+			back.Set("msg", "mergegone")
+			ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+			return
+		}
+	}
+	merges, err := channel.LoadMerges(r.Context(), ui.Store)
+	if err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	into := keys[0]
+	for _, k := range keys[1:] {
+		if !slices.ContainsFunc(merges, func(m channel.Merge) bool { return m.Joins(into, k) }) {
+			merges = append(merges, channel.Merge{A: into, B: k, AName: names[into], BName: names[k]})
+		}
+	}
+	if err := channel.SaveMerges(r.Context(), ui.Store, merges); err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	ui.Log.Info("web: match suggestions merged", "into", into, "merged", len(keys)-1)
+	back.Set("msg", "merged")
+	ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+}
+
+// matchMergeDelete undoes one merge.
+func (ui *UI) matchMergeDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	a, b := r.PostForm.Get("a"), r.PostForm.Get("b")
+	merges, err := channel.LoadMerges(r.Context(), ui.Store)
+	if err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	merges = slices.DeleteFunc(merges, func(m channel.Merge) bool { return m.Joins(a, b) })
+	if err := channel.SaveMerges(r.Context(), ui.Store, merges); err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	ui.redirect(w, r, Prefix+"/match?msg=mergedel")
 }
