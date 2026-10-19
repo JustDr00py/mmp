@@ -197,6 +197,12 @@ func (s *Session) takePreferred(cands []Candidate) ([]Candidate, int64) {
 	id := s.preferred
 	s.preferred = 0
 	s.mu.Unlock()
+	return moveFirst(cands, id)
+}
+
+// moveFirst returns cands with stream id first, and id (0 if id is 0 or not
+// a candidate).
+func moveFirst(cands []Candidate, id int64) ([]Candidate, int64) {
 	if id == 0 {
 		return cands, 0
 	}
@@ -206,6 +212,15 @@ func (s *Session) takePreferred(cands []Candidate) ([]Candidate, int64) {
 	}
 	out := append([]Candidate{cands[i]}, cands[:i]...)
 	return append(out, cands[i+1:]...), id
+}
+
+// reconnectable reports whether an upstream that ended for reason is worth
+// reopening before failing over: the provider closed or lost a connection
+// that had been playing well, which providers do now and then. A stall or
+// a bad picture is the stream's own problem, and reopening it would only
+// delay the failover.
+func reconnectable(reason string) bool {
+	return reason == "eof" || strings.HasPrefix(reason, "read: ")
 }
 
 func (s *Session) setState(state string, c *Candidate) {
@@ -243,6 +258,7 @@ func (s *Session) Run(ctx context.Context) error {
 	var failedWhy string       // why lastFailed failed, in words
 	var lastProblem string     // the latest failure of any kind, for the exhausted event
 	spliced := false           // true once any upstream has fed the ring
+	var reconnect int64        // stream to reopen first, cooldown or not (once)
 
 	for {
 		if ctx.Err() != nil {
@@ -256,10 +272,12 @@ func (s *Session) Run(ctx context.Context) error {
 			s.log.Warn("session: load candidates", "err", err)
 		}
 
+		cands, retry := moveFirst(cands, reconnect)
+		reconnect = 0
 		cands, preferred := s.takePreferred(cands)
 		played := false
 		for _, c := range cands {
-			if c.StreamID != preferred && s.cfg.Cooldowns.Active(c.StreamID, time.Now()) {
+			if c.StreamID != preferred && c.StreamID != retry && s.cfg.Cooldowns.Active(c.StreamID, time.Now()) {
 				continue
 			}
 			slot, ok := s.cfg.Capacity.TryAcquire(c.ProviderID, c.MaxConnections)
@@ -274,6 +292,16 @@ func (s *Session) Run(ctx context.Context) error {
 					return nil
 				}
 				s.cfg.Metrics.openFailure()
+				if busy, ok := ProviderBusy(err); ok {
+					// The account is out of connections; the stream is fine.
+					s.cfg.Capacity.MarkBusy(c.ProviderID, time.Now().Add(busy))
+					s.log.Warn("session: provider busy", "stream_id", c.StreamID, "provider_id", c.ProviderID,
+						"retry_in", busy, "err", err)
+					s.emit(Event{Type: EventOpenFailed, ProviderID: c.ProviderID, FromStreamID: c.StreamID,
+						Message: "the provider has no free connection: " + err.Error()})
+					lastProblem = err.Error()
+					continue
+				}
 				d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 				// Opener errors carry redacted URLs only.
 				s.log.Warn("session: open failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
@@ -300,6 +328,17 @@ func (s *Session) Run(ctx context.Context) error {
 				break
 			}
 			s.cfg.Metrics.upstreamFailure(res.reason)
+			if res.stable && reconnectable(res.reason) {
+				// Reopen it before trying another source. If that fails,
+				// the failover event names this drop.
+				s.log.Info("session: upstream dropped, reconnecting", "stream_id", c.StreamID,
+					"provider_id", c.ProviderID, "reason", res.reason)
+				reconnect = c.StreamID
+				lastFailed, failedWhy = c.StreamID, s.describeFailure(res.reason)
+				lastProblem = failedWhy
+				played = true
+				break
+			}
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 			s.log.Warn("session: upstream failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 				"reason", res.reason, "cooldown", d)
@@ -336,6 +375,7 @@ func (s *Session) Run(ctx context.Context) error {
 
 type streamResult struct {
 	delivered bool   // at least one packet reached the ring
+	stable    bool   // it played well for StableAfter
 	reason    string // why the upstream ended
 }
 
@@ -383,7 +423,6 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 	var out []byte
 	var res streamResult
 	var firstAt time.Time
-	stableCleared := false
 	var sample []byte // the start of this upstream, for MediaInfo
 	sampled := false
 	for {
@@ -419,14 +458,16 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 					case manual:
 						s.emit(Event{Type: EventSwitch, ProviderID: c.ProviderID, FromStreamID: failedID,
 							ToStreamID: c.StreamID, Message: "switched by an admin"})
+					case failedID == c.StreamID:
+						s.log.Info("session: reconnected", "stream_id", c.StreamID)
 					case failedID != 0:
 						s.cfg.Metrics.failover()
 						s.emit(Event{Type: EventFailover, ProviderID: c.ProviderID, FromStreamID: failedID,
 							ToStreamID: c.StreamID, Message: cmp.Or(failedWhy, "switched upstream")})
 					}
-				} else if !stableCleared && now.Sub(firstAt) >= s.cfg.StableAfter {
+				} else if !res.stable && now.Sub(firstAt) >= s.cfg.StableAfter {
 					s.cfg.Cooldowns.Reset(c.StreamID)
-					stableCleared = true
+					res.stable = true
 				}
 			}
 		}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,8 @@ func tagOf(p []byte) byte {
 
 // fakeProvider serves a live TS tagged with tag. mode: "ok" streams until
 // the client leaves, "stall" sends n packets then goes silent, "eof" sends n
-// packets then ends, "503" refuses.
+// packets then ends, "eof-then-503" does that once and then refuses, "503"
+// refuses, "429" refuses for lack of connections.
 type fakeProvider struct {
 	*httptest.Server
 	hits atomic.Int32
@@ -66,11 +68,16 @@ func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
 	t.Helper()
 	fp := &fakeProvider{}
 	fp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fp.hits.Add(1)
+		hit := fp.hits.Add(1)
 		fp.open.Add(1)
 		defer fp.open.Add(-1)
-		if mode == "503" {
+		if mode == "503" || (mode == "eof-then-503" && hit > 1) {
 			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
+		if mode == "429" {
+			w.Header().Set("Retry-After", "2")
+			http.Error(w, "max connections", http.StatusTooManyRequests)
 			return
 		}
 		w.Header().Set("Content-Type", "video/mp2t")
@@ -88,7 +95,7 @@ func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
 				cc[2]++
 			}
 			for _, p := range group {
-				if (mode == "stall" || mode == "eof") && sent >= n {
+				if (mode == "stall" || mode == "eof" || mode == "eof-then-503") && sent >= n {
 					w.(http.Flusher).Flush()
 					if mode == "stall" {
 						<-r.Context().Done()
@@ -588,4 +595,115 @@ func TestShortDur(t *testing.T) {
 			t.Errorf("shortDur(%v) = %q, want %q", d, got, want)
 		}
 	}
+}
+
+// TestSessionReconnectsAfterDrop: a stream that played well and was then
+// closed by the provider is reopened before any other source is tried,
+// without a cooldown or a failover.
+func TestSessionReconnectsAfterDrop(t *testing.T) {
+	a := newFakeProvider(t, 'A', "eof", 3000) // about 0.6s per connection
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, func(cfg *SessionConfig) { cfg.StableAfter = 100 * time.Millisecond })
+	pkts, err := h.watch(t, 10*time.Second, func([][]byte) bool { return a.hits.Load() >= 3 })
+	if err != nil {
+		t.Fatalf("viewer stream broke: %v", err)
+	}
+	if n := countTag(pkts, 'B'); n != 0 || b.hits.Load() != 0 {
+		t.Errorf("failed over to B (%d packets, %d requests) instead of reconnecting", n, b.hits.Load())
+	}
+	if st := h.sess.Status(); st.Failovers != 0 || st.StreamID != 1 {
+		t.Errorf("status = %+v, want stream 1 with no failovers", st)
+	}
+	if ev := h.eventsOf(EventFailover); len(ev) != 0 {
+		t.Errorf("a reconnect logged failovers: %+v", ev)
+	}
+}
+
+// TestSessionReconnectFailsOver: when the reopen fails, the session fails
+// over as usual, naming the original drop.
+func TestSessionReconnectFailsOver(t *testing.T) {
+	a := newFakeProvider(t, 'A', "eof-then-503", 3000)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, func(cfg *SessionConfig) { cfg.StableAfter = 100 * time.Millisecond })
+	if _, err := h.watch(t, 10*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+		t.Fatalf("no B after the failed reconnect: %v", err)
+	}
+	if n := a.hits.Load(); n != 2 {
+		t.Errorf("A requests = %d, want 2 (play, one reconnect)", n)
+	}
+	ev := h.eventsOf(EventFailover)
+	if len(ev) != 1 || ev[0].FromStreamID != 1 || ev[0].ToStreamID != 2 || ev[0].Message != "the provider ended the stream" {
+		t.Errorf("failover events = %+v", ev)
+	}
+}
+
+// TestSessionProviderOutOfConnections: a 429 skips the provider for its
+// Retry-After without cooling the stream down.
+func TestSessionProviderOutOfConnections(t *testing.T) {
+	a := newFakeProvider(t, 'A', "429", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 5, URL: a.URL + "/1.ts"},
+		{StreamID: 3, ProviderID: 1, MaxConnections: 5, URL: a.URL + "/3.ts"},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, nil)
+	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+		t.Fatalf("no B after the 429: %v", err)
+	}
+	if h.cool.Active(1, time.Now()) {
+		t.Error("a 429 put stream 1 in cooldown")
+	}
+	if n := a.hits.Load(); n != 1 {
+		t.Errorf("provider 1 requests = %d, want 1 (its other stream skipped while busy)", n)
+	}
+	if _, ok := h.cap.TryAcquire(1, 5); ok {
+		t.Error("provider 1 not marked busy")
+	}
+	if ev := h.eventsOf(EventOpenFailed); len(ev) != 1 || !strings.Contains(ev[0].Message, "no free connection") {
+		t.Errorf("open_failed events = %+v", ev)
+	}
+}
+
+func TestProviderBusy(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want time.Duration
+		ok   bool
+	}{
+		{&StatusError{Code: 429}, busyDefault, true},
+		{fmt.Errorf("open x: %w", &StatusError{Code: 429, RetryAfter: 3 * time.Second}), 3 * time.Second, true},
+		{&StatusError{Code: 429, RetryAfter: time.Hour}, busyMax, true},
+		{&StatusError{Code: 503}, 0, false},
+		{errors.New("eof"), 0, false},
+		{nil, 0, false},
+	} {
+		if d, ok := ProviderBusy(tc.err); d != tc.want || ok != tc.ok {
+			t.Errorf("ProviderBusy(%v) = %v %v, want %v %v", tc.err, d, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestCapacityBusy(t *testing.T) {
+	c := NewCapacity()
+	c.MarkBusy(1, time.Now().Add(150*time.Millisecond))
+	if _, ok := c.TryAcquire(1, 0); ok {
+		t.Fatal("busy provider gave a slot")
+	}
+	if s, ok := c.TryAcquire(2, 0); !ok {
+		t.Fatal("other provider refused")
+	} else {
+		s.Release()
+	}
+	time.Sleep(200 * time.Millisecond)
+	s, ok := c.TryAcquire(1, 0)
+	if !ok {
+		t.Fatal("still busy after its time")
+	}
+	s.Release()
 }

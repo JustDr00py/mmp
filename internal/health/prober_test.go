@@ -35,7 +35,7 @@ func tsPackets(n int, pat bool) []byte {
 
 // origin is a fake provider whose behaviour can be switched mid-test.
 type origin struct {
-	mode atomic.Value // "ts" | "503" | "html" | "nopat"
+	mode atomic.Value // "ts" | "503" | "429" | "html" | "nopat"
 	srv  *httptest.Server
 }
 
@@ -46,6 +46,8 @@ func newOrigin(t *testing.T, mode string) *origin {
 		switch o.mode.Load().(string) {
 		case "503":
 			w.WriteHeader(http.StatusServiceUnavailable)
+		case "429":
+			w.WriteHeader(http.StatusTooManyRequests)
 		case "html":
 			io.WriteString(w, strings.Repeat("<html>not a stream</html>", 2000))
 		case "nopat":
@@ -241,6 +243,30 @@ func TestProbeRejectsNonTS(t *testing.T) {
 		if len(res) != 1 || res[0].OK || !strings.Contains(res[0].Err, want) {
 			t.Errorf("%s: %+v, want %q", mode, res, want)
 		}
+	}
+}
+
+// TestProbeProviderOutOfConnections: a 429 is the account, not the stream,
+// so the stream keeps its score and gets no cooldown, and the provider is
+// left alone for a while.
+func TestProbeProviderOutOfConnections(t *testing.T) {
+	o := newOrigin(t, "429")
+	clk := &clock{t: time.Now()}
+	store := &fakeStore{rows: map[int64]*db.ListProbeTargetsRow{1: target(1, o.srv.URL+"/1.ts")}}
+	p := newProber(store, clk)
+
+	res, err := p.RunOnce(context.Background())
+	if err != nil || len(res) != 1 || !res[0].Skipped {
+		t.Fatalf("results = %+v %v, want the probe skipped", res, err)
+	}
+	if p.Cooldowns.Active(1, clk.now()) {
+		t.Error("a 429 put the stream in cooldown")
+	}
+	if rec := store.last(1); rec.ID != 0 {
+		t.Errorf("a 429 was recorded: %+v", rec)
+	}
+	if _, ok := p.Capacity.TryAcquire(1, 5); ok {
+		t.Error("provider not marked busy after a 429")
 	}
 }
 

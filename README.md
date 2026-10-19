@@ -336,6 +336,11 @@ admin:                        # only used to create the first admin
 
 ### Proxy and failover
 
+A stream that played well for 30 seconds and is then dropped by the provider is reopened once before
+MMP fails over, since providers close connections now and then. A provider that answers *429 Too Many
+Requests* (no free connection on the account) is skipped for its `Retry-After` (10s if it sends none,
+30s at most) without counting against the stream.
+
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `proxy.stall_timeout` | `MMP_PROXY_STALL_TIMEOUT` | `12s` | no stream data for this long → fail over. Many providers deliver in bursts with several-second gaps; too short a value makes working streams fail over again and again |

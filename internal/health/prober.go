@@ -172,6 +172,12 @@ func (p *Prober) probe(ctx context.Context, t db.ListProbeTargetsRow) Result {
 		res.Skipped = true // shutting down: an interrupted probe proves nothing
 		return res
 	}
+	if busy, ok := proxy.ProviderBusy(err); ok {
+		// No free connection at the provider says nothing about the stream.
+		p.Capacity.MarkBusy(t.ProviderID, time.Now().Add(busy))
+		res.Skipped = true
+		return res
+	}
 	if err == nil {
 		err = sniffTS(sample)
 	}

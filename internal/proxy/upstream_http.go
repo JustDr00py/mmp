@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +24,43 @@ var ErrConnectTimeout = errors.New("upstream connect timeout")
 // StatusError is a non-2xx upstream response.
 type StatusError struct {
 	Code int
+	// RetryAfter is the response's Retry-After in seconds (0 if absent).
+	RetryAfter time.Duration
 }
 
 func (e *StatusError) Error() string {
 	return fmt.Sprintf("upstream status %d %s", e.Code, http.StatusText(e.Code))
+}
+
+// statusError describes a non-2xx response.
+func statusError(resp *http.Response) *StatusError {
+	e := &StatusError{Code: resp.StatusCode}
+	if n, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && n > 0 {
+		e.RetryAfter = time.Duration(n) * time.Second
+	}
+	return e
+}
+
+// Provider busy: a 429 means the account has no free connection (often a
+// viewer on another device), not that the stream is broken. The stream
+// gets no cooldown; the provider is skipped for its Retry-After, kept
+// between these bounds.
+const (
+	busyDefault = 10 * time.Second
+	busyMax     = 30 * time.Second
+)
+
+// ProviderBusy reports whether err is the provider refusing for lack of
+// connections, and how long to leave it alone.
+func ProviderBusy(err error) (time.Duration, bool) {
+	se, ok := errors.AsType[*StatusError](err)
+	if !ok || se.Code != http.StatusTooManyRequests {
+		return 0, false
+	}
+	if se.RetryAfter <= 0 {
+		return busyDefault, true
+	}
+	return min(se.RetryAfter, busyMax), true
 }
 
 // PlaylistError means the upstream answered with an HLS playlist rather
@@ -116,7 +150,7 @@ func (o *HTTPOpener) Open(ctx context.Context, c Candidate) (io.ReadCloser, erro
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck // best-effort drain for conn reuse
 		resp.Body.Close()
 		cancel(nil)
-		return nil, fmt.Errorf("open %s: %w", safe, &StatusError{Code: resp.StatusCode})
+		return nil, fmt.Errorf("open %s: %w", safe, statusError(resp))
 	}
 	if isHLSContentType(resp.Header.Get("Content-Type")) {
 		final := resp.Request.URL.String()
