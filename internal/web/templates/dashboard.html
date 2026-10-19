@@ -80,8 +80,8 @@
   {{if .Streams}}
   <form class="lc-stream" method="post" action="/admin/live/channels/{{.ID}}/switch">
     <label>Active stream
-      <select name="stream">{{$cur := .StreamID}}{{range .Streams}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-    <button type="submit" class="icon-btn ok" aria-label="Play the selected stream" title="Play the selected stream"><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+      <select name="stream" data-autosubmit title="Choose a stream to switch to it now">{{$cur := .StreamID}}{{range .Streams}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <noscript><button type="submit" class="icon-btn ok" aria-label="Play the selected stream" title="Play the selected stream"><svg aria-hidden="true"><use href="#i-play"/></svg></button></noscript>
   </form>
   {{else if .Stream}}<p class="muted small">Playing {{.Stream}}</p>{{end}}
   {{with .Media}}{{if .Known}}

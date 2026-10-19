@@ -81,7 +81,7 @@ func TestLiveStream(t *testing.T) {
 	// figures from the session.
 	for _, want := range []string{`<option value="7" selected>Stream 7 [Acme]</option>`, `<option value="8">Stream 8 [Acme]</option>`,
 		"FFmpeg · Remux", "Now playing: <span class=\"muted\">Storage Wars", "1280×720", "29.97 FPS", "H264", "AAC", "STEREO",
-		"2.48 Mbps", "13.66 Mbps", "17.71 MB", `action="/admin/live/channels/1/stop"`, `action="/admin/live/channels/1/switch"`} {
+		"2.48 Mbps", "13.66 Mbps", "17.71 MB", `action="/admin/live/channels/1/stop"`, `action="/admin/live/channels/1/switch"`, `<select name="stream" data-autosubmit`} {
 		if !strings.Contains(data, want) {
 			t.Errorf("live card lacks %q", want)
 		}
