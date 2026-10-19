@@ -135,3 +135,13 @@ func TestPlayerAPIDecodesAsPanel(t *testing.T) {
 		t.Error("bad login accepted")
 	}
 }
+
+// TestPlayerAPIAccountInfo: action=get_account_info, which IPTVnator logs
+// in with, answers like the plain login.
+func TestPlayerAPIAccountInfo(t *testing.T) {
+	h := newXtreamHandlers(t)
+	code, _, body := get(t, h, "/player_api.php?username=alice&password=alice-pw1&action=get_account_info")
+	if code != 200 || !strings.Contains(body, `"auth":1`) || !strings.Contains(body, `"server_info"`) {
+		t.Errorf("get_account_info = %d %s", code, body)
+	}
+}
