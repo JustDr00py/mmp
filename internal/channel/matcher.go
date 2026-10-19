@@ -15,10 +15,16 @@ type Stream struct {
 	ProviderID       int64
 	ProviderPriority int32 // lower is preferred; orders the failover list
 	Name             string
-	TvgID            string
-	LogoURL          string
-	Group            string // the provider's group title ("US| SPORTS")
+	// MatchName is Name without the source labels the admin ignores
+	// ("AT&T: MTV" -> "MTV"); "" means Name. Matching and suggested
+	// channel names use it; rules see the raw Name.
+	MatchName string
+	TvgID     string
+	LogoURL   string
+	Group     string // the provider's group title ("US| SPORTS")
 }
+
+func (s Stream) matchName() string { return cmp.Or(s.MatchName, s.Name) }
 
 // Existing is an already-created channel streams can be attached to.
 type Existing struct {
@@ -123,7 +129,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 	}
 	tvgKeys := make([]string, n)
 	for i, s := range streams {
-		tvgKeys[i] = tvgKeyOf(s.TvgID, s.Name)
+		tvgKeys[i] = tvgKeyOf(s.TvgID, s.matchName())
 	}
 	owner := map[string]int{} // match key -> first stream index carrying it
 	link := func(i int, key string) {
@@ -141,7 +147,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule) []Proposal {
 		}
 	}
 	for i, s := range streams {
-		if k := NormalizeName(s.Name); k != "" {
+		if k := NormalizeName(s.matchName()); k != "" {
 			link(i, "name:"+k)
 		}
 	}
@@ -220,7 +226,7 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 				p.TvgID = strings.TrimSpace(s.TvgID)
 			}
 		}
-		if k := NormalizeName(s.Name); k != "" {
+		if k := NormalizeName(s.matchName()); k != "" {
 			nameKeys = append(nameKeys, "name:"+k)
 		}
 		if p.LogoURL == "" {
@@ -288,15 +294,20 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	case rule != nil:
 		p.Name = rule.ChannelName
 	default:
-		p.Name = DisplayName(streams[idx[0]].Name)
+		p.Name = DisplayName(streams[idx[0]].matchName())
 	}
 	return p
 }
 
 // DisplayName tidies a provider stream name for use as a channel name,
-// keeping its casing: "US: ABC East FHD" -> "ABC East".
+// keeping its casing: "US: ABC East FHD" -> "ABC East", "MTV ᴿᴬᵂ" -> "MTV".
 func DisplayName(name string) string {
-	s := strings.TrimSpace(name)
+	s := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if isSuperscript(r) { // "MTV ᴿᴬᵂ" -> "MTV"
+			return ' '
+		}
+		return r
+	}, name))
 
 	// Leading country prefix glued to a separator: "US: ", "USA | ", "UK-".
 	if i := strings.IndexAny(s, ":|-/"); i > 0 {
@@ -340,11 +351,11 @@ func sharedTvgKeys(streams []Stream) map[string]bool {
 	firstName := map[provTvg]string{}
 	shared := map[string]bool{}
 	for _, s := range streams {
-		t := feedTvgKey(s.TvgID, s.Name)
+		t := feedTvgKey(s.TvgID, s.matchName())
 		if t == "" || shared[t] {
 			continue
 		}
-		k, name := provTvg{s.ProviderID, t}, feedlessName(s.Name)
+		k, name := provTvg{s.ProviderID, t}, feedlessName(s.matchName())
 		if prev, ok := firstName[k]; !ok {
 			firstName[k] = name
 		} else if prev != name {

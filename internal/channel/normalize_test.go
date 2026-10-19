@@ -36,6 +36,12 @@ func TestNormalizeName(t *testing.T) {
 		{"HD", "hd"},
 		// Case and whitespace.
 		{"  aBc   EaSt  ", "abc east"},
+		// Superscript tags.
+		{"MTV ᴿᴬᵂ", "mtv"},
+		{"MTVᴿᴬᵂ", "mtv"},
+		{"ESPN ᴴᴰ", "espn"},
+		{"Fox ᵁᴴᴰ ⁶⁰ᶠᵖˢ", "fox"},
+		{"Nick ᴸᴵⱽᴱ", "nick"},
 	}
 	for _, tt := range tests {
 		if got := NormalizeName(tt.in); got != tt.want {

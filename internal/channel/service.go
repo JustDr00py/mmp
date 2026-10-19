@@ -51,6 +51,10 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 	if err != nil {
 		return nil, fmt.Errorf("match: list rules: %w", err)
 	}
+	prefixes, err := LoadIgnorePrefixes(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("match: %w", err)
+	}
 
 	streams := make([]Stream, 0, len(rows))
 	for _, r := range rows {
@@ -59,7 +63,7 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 		}
 		streams = append(streams, Stream{
 			ID: r.ID, ProviderID: r.ProviderID, ProviderPriority: r.ProviderPriority,
-			Name: r.Name, TvgID: r.TvgID, LogoURL: r.LogoUrl, Group: r.GroupTitle,
+			Name: r.Name, MatchName: StripPrefixes(r.Name, prefixes), TvgID: r.TvgID, LogoURL: r.LogoUrl, Group: r.GroupTitle,
 		})
 	}
 	existing := make([]Existing, len(chans))

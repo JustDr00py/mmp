@@ -21,12 +21,14 @@ import (
 func (ui *UI) mountSettings(r chi.Router) {
 	r.Get("/settings", ui.settingsPage)
 	r.Post("/settings/match", ui.settingsMatchSave)
+	r.Post("/settings/prefixes", ui.settingsPrefixesSave)
 	r.Post("/settings/events", ui.settingsEventsSave)
 	r.Post("/settings/nameguide", ui.settingsNameGuideSave)
 }
 
 type settingsData struct {
 	Match         channel.MatchSettings
+	Prefixes      string // ignored name prefixes, one per line
 	Events        events.Retention
 	NameGuide     nameguide.Settings
 	Zones         []string // suggestions for the name guide's zone
@@ -57,6 +59,11 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 	if d.Events, err = events.LoadRetention(r.Context(), ui.Store); err != nil {
 		return d, err
 	}
+	prefixes, err := channel.LoadIgnorePrefixes(r.Context(), ui.Store)
+	if err != nil {
+		return d, err
+	}
+	d.Prefixes = strings.Join(prefixes, "\n")
 	if d.NameGuide, err = nameguide.Load(r.Context(), ui.Store); err != nil {
 		return d, err
 	}
@@ -86,6 +93,8 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("msg") {
 	case "match":
 		d.Flash = "Matching settings saved. They apply from the next provider refresh."
+	case "prefixes":
+		d.Flash = "Name prefixes saved. Match uses them now; automatic matching from the next provider refresh."
 	case "events":
 		d.Flash = "History setting saved. Older events and activity are deleted within the hour."
 	case "nameguide":
@@ -130,6 +139,30 @@ func (ui *UI) settingsMatchSave(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: match settings saved", "auto", m.Auto, "new_channels", m.NewChannels)
 	ui.redirect(w, r, Prefix+"/settings?msg=match")
+}
+
+func (ui *UI) settingsPrefixesSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	prefixes := channel.ParseIgnorePrefixes(r.PostForm.Get("prefixes"))
+	if err := channel.ValidateIgnorePrefixes(prefixes); err != nil {
+		d, derr := ui.settingsData(r, nil)
+		if derr != nil {
+			ui.fail(w, "settings", derr)
+			return
+		}
+		d.Prefixes, d.Error = r.PostForm.Get("prefixes"), "Name prefixes: "+err.Error()+"."
+		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
+		return
+	}
+	if err := channel.SaveIgnorePrefixes(r.Context(), ui.Store, prefixes); err != nil {
+		ui.fail(w, "save name prefixes", err)
+		return
+	}
+	ui.Log.Info("web: ignored name prefixes saved", "count", len(prefixes))
+	ui.redirect(w, r, Prefix+"/settings?msg=prefixes")
 }
 
 func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {

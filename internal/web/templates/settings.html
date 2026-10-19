@@ -41,6 +41,19 @@
   </form>
 </section>
 
+<section class="settings-section" id="prefixes">
+  <h2>Name prefixes to ignore</h2>
+  <form class="card form" method="post" action="/admin/settings/prefixes">
+    <label>Source labels some providers put before every stream name
+      <textarea name="prefixes" rows="4" placeholder="AT&amp;T&#10;SLING&#10;DIRECTV" spellcheck="false">{{$d.Prefixes}}</textarea>
+      <span class="hint">One per line. Matching leaves a label out when <span class="mono">:</span> <span class="mono">|</span>
+        <span class="mono">-</span> or <span class="mono">/</span> follows it, so <span class="mono">AT&amp;T: MTV</span> matches
+        <span class="mono">MTV</span> while <span class="mono">AT&amp;T SportsNet</span> stays as it is. Superscript tags such as
+        <span class="mono">ᴿᴬᵂ</span> or <span class="mono">ᴴᴰ</span> are always left out.</span></label>
+    <div class="row"><button type="submit">Save</button><span class="hint">Used by <a href="/admin/match">Match</a> at once, and by automatic matching from the next provider refresh.</span></div>
+  </form>
+</section>
+
 <section class="settings-section">
   <h2>Guide from stream names</h2>
   <form class="card form" method="post" action="/admin/settings/nameguide">

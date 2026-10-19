@@ -65,7 +65,8 @@
   <summary><h2>Advanced: matching rules</h2> <span class="muted">{{len $d.Rules}} rule{{if ne (len $d.Rules) 1}}s{{end}}</span></summary>
   <p class="muted">For a channel the automatic matching misses because providers name it too differently. A rule puts every stream whose
     name matches a regular expression under one channel name. Example: pattern <code>lakers</code>, channel name <code>Lakers TV</code>.
-    Matching ignores case.</p>
+    Matching ignores case. For a label a provider puts before every name (<code>AT&amp;T: MTV</code>), list it under
+    <a href="/admin/settings#prefixes">name prefixes to ignore</a> instead.</p>
   {{if $d.Rules}}
   <div class="table-wrap"><table>
     <thead><tr><th>Pattern</th><th>Channel name</th><th class="num">Priority</th><th></th></tr></thead>
