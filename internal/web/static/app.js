@@ -159,8 +159,10 @@
     let pending = null;
     const busy = () => el.contains(document.activeElement) && document.activeElement.matches('select');
     const apply = (html) => { el.innerHTML = html; bars(el); };
-    el.addEventListener('focusout', () => setTimeout(() => {
-      if (pending !== null && !busy()) { apply(pending); pending = null; }
+    // Focus moving to another control in the block (a button being
+    // clicked) keeps holding: re-rendering now would swallow the click.
+    el.addEventListener('focusout', (e) => setTimeout(() => {
+      if (pending !== null && !busy() && !el.contains(e.relatedTarget)) { apply(pending); pending = null; }
     }, 0));
     es.addEventListener('live', (e) => {
       if (busy()) pending = e.data; else apply(e.data);
