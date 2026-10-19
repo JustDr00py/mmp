@@ -35,6 +35,18 @@
 {{template "content" .}}
 </main>
 {{if .User}}<footer class="foot">MMP {{.Version}}</footer>{{end}}
+{{if and .User preview}}
+<div class="pip" id="pip" data-lib="{{asset "mpegts.min.js"}}" role="dialog" aria-labelledby="pip-title" hidden>
+  <div class="pip-bar" data-pip-drag>
+    <span class="pip-title" id="pip-title">Preview</span>
+    <button type="button" class="iconbtn" data-pip-close aria-label="Close preview" title="Close (Esc)"><svg class="i"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="pip-screen">
+    <video controls playsinline></video>
+    <p class="pip-msg" role="status" hidden></p>
+  </div>
+</div>
+{{end}}
 </body>
 </html>
 {{end}}

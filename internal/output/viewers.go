@@ -15,7 +15,7 @@ type Viewer struct {
 	UserID    int64     `json:"user_id"`
 	Username  string    `json:"username"`
 	Addr      string    `json:"addr"`   // client IP
-	Output    string    `json:"output"` // "ts" or "hls"
+	Output    string    `json:"output"` // "ts", "hls" or "preview" (admin preview player)
 	Since     time.Time `json:"since"`
 }
 

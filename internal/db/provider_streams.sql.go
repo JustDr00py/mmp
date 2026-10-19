@@ -51,6 +51,45 @@ func (q *Queries) CountProviderStreams(ctx context.Context, providerID int64) (i
 	return count, err
 }
 
+const getPreviewStream = `-- name: GetPreviewStream :one
+SELECT ps.id, ps.name, ps.stream_url, ps.disabled,
+       pr.id AS provider_id, pr.name AS provider_name, pr.max_connections, pr.user_agent,
+       pr.enabled AS provider_enabled
+FROM provider_streams ps
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE ps.id = $1
+`
+
+type GetPreviewStreamRow struct {
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	StreamUrl       string `json:"stream_url"`
+	Disabled        bool   `json:"disabled"`
+	ProviderID      int64  `json:"provider_id"`
+	ProviderName    string `json:"provider_name"`
+	MaxConnections  int32  `json:"max_connections"`
+	UserAgent       string `json:"user_agent"`
+	ProviderEnabled bool   `json:"provider_enabled"`
+}
+
+// What the admin preview player needs to open one provider stream directly.
+func (q *Queries) GetPreviewStream(ctx context.Context, id int64) (GetPreviewStreamRow, error) {
+	row := q.db.QueryRow(ctx, getPreviewStream, id)
+	var i GetPreviewStreamRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.StreamUrl,
+		&i.Disabled,
+		&i.ProviderID,
+		&i.ProviderName,
+		&i.MaxConnections,
+		&i.UserAgent,
+		&i.ProviderEnabled,
+	)
+	return i, err
+}
+
 const listDueProviders = `-- name: ListDueProviders :many
 SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers
 WHERE enabled

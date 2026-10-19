@@ -470,3 +470,27 @@ button.move { min-height: 0; padding: 0 .3rem; font-size: .8rem; line-height: 1.
   color: var(--muted); box-shadow: none; }
 button.move:hover { border-color: var(--line); color: var(--fg); background: var(--card-2); }
 tr.dragging { opacity: .45; }
+
+/* ---------- Preview player (pop-up) ---------- */
+.preview-btn { width: 28px; height: 28px; margin-left: .3rem; vertical-align: middle; color: var(--accent); }
+.preview-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.preview-btn svg.i { width: 14px; height: 14px; }
+.proposal .streams .preview-btn { width: 24px; height: 24px; margin-left: .15rem; }
+.pip { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 50; width: min(480px, calc(100vw - 2rem));
+  min-width: 260px; min-height: 180px; display: flex; flex-direction: column; resize: both; overflow: hidden;
+  background: #000; border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.pip[hidden] { display: none; }
+.pip-bar { display: flex; align-items: center; gap: .5rem; padding: .2rem .3rem .2rem .75rem; background: var(--side-bg); color: #e6e8f0;
+  cursor: move; user-select: none; touch-action: none; }
+.pip-title { flex: 1; min-width: 0; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pip-bar .iconbtn { width: 30px; height: 30px; }
+.pip-screen { position: relative; flex: 1; min-height: 0; display: flex; }
+.pip video { width: 100%; height: 100%; aspect-ratio: 16 / 9; background: #000; object-fit: contain; }
+.pip-msg { position: absolute; inset: auto .75rem .75rem; margin: 0; padding: .45rem .65rem; border-radius: var(--radius-sm);
+  background: rgba(10,12,18,.82); color: #e6e8f0; font-size: .82rem; pointer-events: none; }
+@media (max-width: 640px) {
+  .pip { right: .75rem; left: .75rem; bottom: .75rem; width: auto; resize: none; }
+}
+.what-name { display: flex; align-items: center; min-width: 0; }
+.what-name strong { overflow: hidden; text-overflow: ellipsis; }
+.what-name .preview-btn { flex: none; width: 24px; height: 24px; }
