@@ -102,7 +102,13 @@ func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 // the request itself (and its log line) keeps the path as sent.
 func CollapseSlashes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if p := r.URL.Path; strings.Contains(p, "//") {
+		// The path as chi routes it: raw when the client escaped something,
+		// so an encoded slash (a password ending in "%2F") is not a run.
+		p := r.URL.RawPath
+		if p == "" {
+			p = r.URL.Path
+		}
+		if strings.Contains(p, "//") {
 			var b strings.Builder
 			for i := 0; i < len(p); i++ {
 				if p[i] == '/' && i > 0 && p[i-1] == '/' {

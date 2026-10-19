@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/JustDr00py/mmp/internal/config"
 )
 
@@ -203,13 +205,17 @@ func TestGracefulShutdownDrainsInFlight(t *testing.T) {
 func TestCollapseSlashes(t *testing.T) {
 	s := New(testCfg(), slog.New(slog.DiscardHandler), nil)
 	s.Mux().Get("/get.php", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "playlist") })
-	s.Mux().Get("/live/{u}/{p}/{id}", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "live") })
+	s.Mux().Get("/live/{u}/{p}/{id}", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "live "+chi.URLParam(r, "p"))
+	})
 	for path, want := range map[string]string{
 		"/get.php?username=a":  "playlist",
 		"//get.php?username=a": "playlist",
 		"///get.php":           "playlist",
-		"//live/a/b/1.ts":      "live",
-		"/live//a/b/1.ts":      "live",
+		"//live/a/b/1.ts":      "live b",
+		"/live//a/b/1.ts":      "live b",
+		"/live/a/b%2F/1.ts":    "live b%2F", // a password ending in "/"
+		"/live/a/b%2F%2F/1.ts": "live b%2F%2F",
 		"/nothing//here":       "404 page not found\n",
 	} {
 		rec := httptest.NewRecorder()
