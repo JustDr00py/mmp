@@ -4,9 +4,9 @@
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
     max_connections, user_agent, refresh_interval_secs, priority, enabled,
-    refresh_max_disable_pct, backbone
+    refresh_max_disable_pct, backbone, group_filter
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 ) RETURNING *;
 
 -- name: GetProvider :one

@@ -1,8 +1,11 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/JustDr00py/mmp/internal/db"
 )
@@ -32,11 +35,18 @@ func (ui *UI) providerGroupsPage(w http.ResponseWriter, r *http.Request) {
 			d.Selected++
 		}
 	}
-	if r.URL.Query().Get("msg") == "saved" {
+	if q := r.URL.Query(); q.Get("msg") == "saved" {
 		d.Flash = "Groups saved."
+		if q.Has("created") {
+			d.Flash += fmt.Sprintf(" Automatic matching created %d channels and added %d streams to channels.",
+				atoi(q.Get("created")), atoi(q.Get("attached")))
+		}
 	}
 	ui.render(w, r, http.StatusOK, "provider_groups", p.Name+": groups", d)
 }
+
+// autoMatchTimeout bounds the auto-match run after saving a provider's groups.
+const autoMatchTimeout = 2 * time.Minute
 
 // providerGroupsSave stores the selection: mode=all offers every group
 // (the selection is kept for later), mode=selected only the ticked ones.
@@ -67,5 +77,16 @@ func (ui *UI) providerGroupsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: provider groups saved", "provider_id", p.ID, "filter", filter, "groups", len(r.PostForm["group"]))
-	ui.redirect(w, r, Prefix+"/providers/"+strconv.FormatInt(p.ID, 10)+"/groups?msg=saved")
+	back := url.Values{"msg": {"saved"}}
+	// Match the chosen groups now, as a refresh would, rather than at the
+	// provider's next refresh.
+	ctx, cancel := contextFor(r, autoMatchTimeout)
+	defer cancel()
+	if res, ran, err := ui.Match.AutoMatch(ctx, p.ID); err != nil {
+		ui.Log.Error("web: auto-match after saving groups", "provider_id", p.ID, "err", err)
+	} else if ran {
+		back.Set("created", strconv.Itoa(res.Created))
+		back.Set("attached", strconv.Itoa(res.Attached))
+	}
+	ui.redirect(w, r, Prefix+"/providers/"+strconv.FormatInt(p.ID, 10)+"/groups?"+back.Encode())
 }

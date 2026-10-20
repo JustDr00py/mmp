@@ -93,7 +93,7 @@
   <td class="num" data-label="Priority">{{.Priority}}</td>
   <td class="num" data-label="Slots">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
   <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
-    {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if .GroupFilter}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}all {{.Groups}} groups{{end}}</a></div>{{end}}</td>
+    {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if not .GroupFilter}}all {{.Groups}} groups{{else if .GroupsSelected}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}<span class="pill warn">choose groups</span>{{end}}</a></div>{{end}}</td>
   <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
     {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}</div>{{end}}</td>
   <td data-label="Status">
