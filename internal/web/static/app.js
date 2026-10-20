@@ -184,9 +184,14 @@
       });
     }
     // select[data-reveal] shows the [data-reveal-for] fields of its form
-    // that belong to the chosen option, and hides the rest.
+    // that belong to the chosen option, and hides the rest. A select inside
+    // [data-reveal-scope] only drives the fields of that scope, and the
+    // form's select leaves them alone.
     if (t.matches('select[data-reveal]')) {
-      t.form.querySelectorAll('[data-reveal-for]').forEach((el) => { el.hidden = el.dataset.revealFor !== t.value; });
+      const scope = t.closest('[data-reveal-scope]') || t.form;
+      scope.querySelectorAll('[data-reveal-for]').forEach((el) => {
+        if ((el.parentElement.closest('[data-reveal-scope]') || t.form) === scope) el.hidden = el.dataset.revealFor !== t.value;
+      });
     }
     if (t.matches('[data-autosubmit]')) t.form.requestSubmit();
     // Editing a row of [data-row] (other than its key box) selects the row.

@@ -162,8 +162,12 @@ func (ui *UI) providersBulk(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch act {
 	case "backbone":
-		var label string
-		if label, err = ui.backboneLabel(ctx, pf.Get("backbone_to")); err != nil {
+		label, perr := pickedBackbone(pf, "backbone_to")
+		if perr != nil {
+			http.Error(w, perr.Error(), http.StatusBadRequest)
+			return
+		}
+		if label, err = ui.backboneLabel(ctx, label); err != nil {
 			if errors.Is(err, source.ErrBackboneTooLong) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

@@ -169,6 +169,40 @@ func TestProviderBackbones(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
+	// The picker: an edit selects the provider's backbone, and "Add new
+	// backbone…" takes the label typed beside it.
+	delta := "/admin/providers/" + strconv.FormatInt(ids["Delta TV"], 10) + "/edit"
+	if _, body := b.get("/admin/providers/" + strconv.FormatInt(ids["Alpha TV"], 10) + "/edit"); !strings.Contains(body, `<option value="Trex" selected>`) {
+		t.Errorf("edit form does not select the backbone")
+	}
+	form = url.Values{"name": {"Delta TV"}, "type": {"m3u"}, "url": {"http://d/"}, "max_connections": {"1"},
+		"refresh_minutes": {"60"}, "priority": {"7"}, "enabled": {"on"}, "backbone": {"+new"}, "backbone_new": {""}}
+	if resp, body := b.post(delta, form, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "Enter a name for the new backbone") || !strings.Contains(body, `<option value="+new" selected>`) {
+		t.Errorf("blank new backbone = %d", resp.StatusCode)
+	}
+	form.Set("backbone_new", strings.Repeat("z", 61))
+	if resp, body := b.post(delta, form, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, `<option value="+new" selected>`) || !strings.Contains(body, `value="`+strings.Repeat("z", 61)+`"`) {
+		t.Errorf("long new backbone = %d, typed label not kept", resp.StatusCode)
+	}
+	form.Set("backbone_new", "  Zeta  Net ")
+	if resp, body := b.post(delta, form, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("new backbone = %d\n%s", resp.StatusCode, body)
+	}
+	if bb := get(ids["Delta TV"]).Backbone; bb != "Zeta Net" {
+		t.Errorf("new backbone = %q, want Zeta Net", bb)
+	}
+	// A new label that only differs in case joins the existing one.
+	resp, _ = bulk(url.Values{"action": {"backbone"}, "backbone_to": {"+new"}, "backbone_to_new": {"zeta net"},
+		"provider": {strconv.FormatInt(ids["Epsilon TV"], 10)}})
+	if resp.StatusCode != http.StatusSeeOther || get(ids["Epsilon TV"]).Backbone != "Zeta Net" {
+		t.Errorf("bulk new backbone = %d, %q", resp.StatusCode, get(ids["Epsilon TV"]).Backbone)
+	}
+	if resp, _ := bulk(url.Values{"action": {"backbone"}, "backbone_to": {"+new"}, "provider": {"1"}}); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bulk blank new backbone = %d, want 400", resp.StatusCode)
+	}
 }
 
 func TestBackbonePickerAndMatch(t *testing.T) {
