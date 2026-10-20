@@ -61,7 +61,7 @@ ORDER BY c.number NULLS LAST, c.name;
 -- The proxy's failover list: live streams of enabled providers, preferred first.
 -- The channel's stream profile (if any) rides along on every row.
 SELECT ps.id AS stream_id, ps.stream_url, ps.health_score,
-       pr.id AS provider_id, pr.max_connections, pr.user_agent,
+       pr.id AS provider_id, pr.max_connections, pr.user_agent, pr.backbone,
        COALESCE(sp.mode, 'passthrough')::text AS profile_mode,
        COALESCE(sp.ffmpeg_args, '')::text AS profile_ffmpeg_args,
        COALESCE(sp.user_agent, '')::text AS profile_user_agent

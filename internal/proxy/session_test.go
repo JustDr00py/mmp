@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -706,4 +707,52 @@ func TestCapacityBusy(t *testing.T) {
 		t.Fatal("still busy after its time")
 	}
 	s.Release()
+}
+
+// TestSessionFailoverSkipsBackbone: after a stream fails while playing, the
+// other resellers of its backbone go behind the streams on other backbones.
+func TestSessionFailoverSkipsBackbone(t *testing.T) {
+	a := newFakeProvider(t, 'A', "stall", 400)
+	a2 := newFakeProvider(t, 'C', "ok", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, Backbone: "Strong", MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 3, ProviderID: 3, Backbone: "Strong", MaxConnections: 1, URL: a2.URL + "/3.ts"},
+		{StreamID: 2, ProviderID: 2, Backbone: "Trex", MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, nil)
+	if _, err := h.watch(t, 10*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+		t.Fatalf("no B after A stalled: %v", err)
+	}
+	if n := a2.hits.Load(); n != 0 {
+		t.Errorf("tried the failed backbone's other stream (%d requests) before another backbone", n)
+	}
+	ev := h.eventsOf(EventFailover)
+	if len(ev) != 1 || ev[0].ToStreamID != 2 || !strings.Contains(ev[0].Message, "skipped the other streams on backbone Strong") {
+		t.Errorf("failover events = %+v", ev)
+	}
+}
+
+func TestAvoidBackbones(t *testing.T) {
+	now := time.Now()
+	cands := []Candidate{{StreamID: 1, Backbone: "X"}, {StreamID: 2}, {StreamID: 3, Backbone: "X"}, {StreamID: 4, Backbone: "Y"}}
+	ids := func(cs []Candidate) (out []int64) {
+		for _, c := range cs {
+			out = append(out, c.StreamID)
+		}
+		return out
+	}
+	avoid := map[string]time.Time{"X": now.Add(time.Minute), "Z": now.Add(-time.Second)}
+	out, jumped := avoidBackbones(slices.Clone(cands), avoid, now)
+	if got := ids(out); !slices.Equal(got, []int64{2, 4, 1, 3}) {
+		t.Errorf("order = %v", got)
+	}
+	if len(jumped) != 2 || jumped[2] != "X" || jumped[4] != "X" {
+		t.Errorf("jumped = %v", jumped)
+	}
+	if _, ok := avoid["Z"]; ok {
+		t.Error("expired backbone kept")
+	}
+	if out, jumped := avoidBackbones(cands, map[string]time.Time{"X": now}, now); !slices.Equal(ids(out), []int64{1, 2, 3, 4}) || jumped != nil {
+		t.Errorf("expired avoid reordered: %v %v", ids(out), jumped)
+	}
 }

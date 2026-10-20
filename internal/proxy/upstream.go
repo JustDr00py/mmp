@@ -10,6 +10,7 @@ import (
 type Candidate struct {
 	StreamID       int64
 	ProviderID     int64
+	Backbone       string // the provider's upstream network; "" = unknown
 	MaxConnections int    // provider slot limit; 0 = unlimited
 	URL            string // may embed credentials: always redact before logging
 	UserAgent      string
