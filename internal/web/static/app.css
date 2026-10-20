@@ -481,6 +481,7 @@ tr.dragging { opacity: .45; }
   min-width: 260px; min-height: 180px; display: flex; flex-direction: column; resize: both; overflow: hidden;
   background: #000; border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
 .pip[hidden] { display: none; }
+[data-reveal-for][hidden] { display: none; }
 .pip-bar { display: flex; align-items: center; gap: .5rem; padding: .2rem .3rem .2rem .75rem; background: var(--side-bg); color: #e6e8f0;
   cursor: move; user-select: none; touch-action: none; }
 .pip-title { flex: 1; min-width: 0; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

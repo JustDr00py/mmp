@@ -165,7 +165,8 @@ type providerForm struct {
 	ID                                int64
 	Name, Type, URL, Username, EPGURL string
 	UserAgent, Backbone               string
-	Backbones                         []db.ListBackbonesRow // suggestions
+	Backbones                         []db.ListBackbonesRow // the picker's choices
+	NewBackbone                       bool                  // Backbone is not one of them
 	MaxConnections, RefreshMinutes    string
 	Priority                          string
 	MaxDisablePct                     string // blank = server default
@@ -220,10 +221,13 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 	trim := func(k string) string { return strings.TrimSpace(f.Get(k)) }
 	form := providerForm{
 		Name: trim("name"), Type: trim("type"), URL: trim("url"), Username: trim("username"),
-		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), Backbone: trim("backbone"), MaxConnections: trim("max_connections"),
+		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
 		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
 	}
+	var berr error
+	form.Backbone, berr = pickedBackbone(f, "backbone")
+	form.NewBackbone = berr != nil
 	num := func(s, field string, def int) (int32, error) {
 		if s == "" {
 			return int32(def), nil
@@ -236,6 +240,9 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 	}
 	p := parsedProvider{name: form.Name, typ: form.Type, url: form.URL, username: form.Username,
 		password: f.Get("password"), epgURL: form.EPGURL, userAgent: form.UserAgent, backbone: form.Backbone, enabled: form.Enabled}
+	if berr != nil {
+		return form, p, berr
+	}
 	var err error
 	if p.maxConns, err = num(form.MaxConnections, "Max connections", 1); err != nil {
 		return form, p, err
@@ -281,15 +288,36 @@ func (ui *UI) providerNew(w http.ResponseWriter, r *http.Request) {
 	ui.render(w, r, http.StatusOK, "provider_form", "Add provider", f)
 }
 
-// withBackbones loads the backbone suggestions into f, answering 500
-// itself on failure.
+// withBackbones loads the backbone picker's choices into f, answering 500
+// itself on failure. A label that is not among them (one being added)
+// shows in the "Add new backbone" field.
 func (ui *UI) withBackbones(w http.ResponseWriter, r *http.Request, f *providerForm) bool {
 	var err error
 	if f.Backbones, err = ui.Store.ListBackbones(r.Context()); err != nil {
 		ui.fail(w, "list backbones", err)
 		return false
 	}
+	if f.Backbone != "" && !slices.ContainsFunc(f.Backbones, func(b db.ListBackbonesRow) bool { return b.Backbone == f.Backbone }) {
+		f.NewBackbone = true
+	}
 	return true
+}
+
+// newBackbone is the backbone pickers' "Add new backbone…" choice; the
+// label is then typed into the field named after the picker plus "_new".
+const newBackbone = "+new"
+
+// pickedBackbone is the backbone the picker called name chose: its value,
+// or the typed label when "Add new backbone…" was chosen.
+func pickedBackbone(f url.Values, name string) (string, error) {
+	v := strings.TrimSpace(f.Get(name))
+	if v != newBackbone {
+		return v, nil
+	}
+	if v = strings.TrimSpace(f.Get(name + "_new")); v == "" {
+		return "", formError("Enter a name for the new backbone.")
+	}
+	return v, nil
 }
 
 // backboneLabel normalizes a backbone label against the ones in use.

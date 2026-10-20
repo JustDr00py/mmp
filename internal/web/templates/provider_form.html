@@ -14,9 +14,16 @@
       </select>
     </label>
   </div>
-  <label>Backbone<input name="backbone" value="{{$f.Backbone}}" list="backbone-names" maxlength="60" placeholder="optional, e.g. the network this reseller uses">
-    <span class="hint">Providers reselling the same upstream network share a backbone. Use it to filter and manage providers in bulk.</span></label>
-  <datalist id="backbone-names">{{range $f.Backbones}}<option value="{{.Backbone}}">{{end}}</datalist>
+  <div class="grid2">
+    <label>Backbone
+      <select name="backbone" data-reveal>
+        <option value="">None</option>
+        {{range $f.Backbones}}<option value="{{.Backbone}}"{{if and (not $f.NewBackbone) (eq .Backbone $f.Backbone)}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
+        <option value="+new"{{if $f.NewBackbone}} selected{{end}}>Add new backbone…</option>
+      </select>
+      <span class="hint">Providers reselling the same upstream network share a backbone. Use it to filter and manage providers in bulk.</span></label>
+    <label data-reveal-for="+new"{{if not $f.NewBackbone}} hidden{{end}}>New backbone<input name="backbone_new" value="{{if $f.NewBackbone}}{{$f.Backbone}}{{end}}" maxlength="60" placeholder="e.g. the network this reseller uses"></label>
+  </div>
   <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
     <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
   <div class="grid2">
