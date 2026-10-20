@@ -100,7 +100,7 @@
     <div title="Viewers"><dt><svg aria-hidden="true"><use href="#i-users"/></svg><span class="sr-only">Viewers</span></dt><dd>{{.Viewers}}</dd></div>
   </dl>
   {{if .Watchers}}
-  <div class="table-wrap lc-viewers"><table>
+  <div class="table-wrap lc-viewers" data-keep-scroll="lc-viewers-{{.ID}}"><table>
     <thead><tr><th>IP address</th><th>User</th><th class="wide-only">Connected</th><th>Duration</th><th><span class="sr-only">Actions</span></th></tr></thead>
     <tbody>{{range .Watchers}}
     <tr><td class="mono">{{.Addr}}</td><td>{{.User}} <span class="sub">{{.Output}}</span></td><td class="wide-only">{{.Since}}</td><td>{{.Duration}}</td>

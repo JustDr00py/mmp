@@ -156,13 +156,33 @@
     const es = new EventSource(el.dataset.sse);
     // While a control in the block has focus (an open stream picker), hold
     // updates so the re-render does not reset it; apply the latest on blur.
+    // A pressed pointer holds too: swapping the button out between press and
+    // release loses the click.
     let pending = null;
-    const busy = () => el.contains(document.activeElement) && document.activeElement.matches('select');
-    const apply = (html) => { el.innerHTML = html; bars(el); };
+    let pressed = false;
+    const busy = () => pressed || (el.contains(document.activeElement) && document.activeElement.matches('select'));
+    // [data-keep-scroll="key"] boxes keep their scroll position across
+    // re-renders, so a table scrolled sideways stays where it was.
+    const apply = (html) => {
+      const scroll = {};
+      el.querySelectorAll('[data-keep-scroll]').forEach((s) => { scroll[s.dataset.keepScroll] = [s.scrollLeft, s.scrollTop]; });
+      el.innerHTML = html;
+      el.querySelectorAll('[data-keep-scroll]').forEach((s) => {
+        const p = scroll[s.dataset.keepScroll];
+        if (p) [s.scrollLeft, s.scrollTop] = p;
+      });
+      bars(el);
+    };
+    const flush = () => { if (pending !== null && !busy()) { apply(pending); pending = null; } };
+    el.addEventListener('pointerdown', () => { pressed = true; });
+    // Released after the click event has run, so the click lands first.
+    const release = () => { if (pressed) { pressed = false; setTimeout(flush, 0); } };
+    document.addEventListener('pointerup', release);
+    document.addEventListener('pointercancel', release);
     // Focus moving to another control in the block (a button being
     // clicked) keeps holding: re-rendering now would swallow the click.
     el.addEventListener('focusout', (e) => setTimeout(() => {
-      if (pending !== null && !busy() && !el.contains(e.relatedTarget)) { apply(pending); pending = null; }
+      if (!el.contains(e.relatedTarget)) flush();
     }, 0));
     es.addEventListener('live', (e) => {
       if (busy()) pending = e.data; else apply(e.data);
