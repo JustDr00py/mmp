@@ -181,26 +181,28 @@ func groupID(ctx context.Context, q *db.Queries, name string) (int64, error) {
 // refresh itself already succeeded.
 func (s *Service) AutoMatchHook() func(context.Context, db.Provider) {
 	return func(ctx context.Context, p db.Provider) {
-		m, err := s.MatchSettings(ctx)
-		if err != nil {
+		if _, _, err := s.AutoMatch(ctx, p.ID); err != nil {
 			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-			return
 		}
-		if !m.Auto {
-			return
-		}
-		opts, err := s.autoMatchOptions(ctx, m)
-		if err != nil {
-			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-			return
-		}
-		res, err := s.Apply(ctx, opts)
-		if err != nil {
-			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
-			return
-		}
-		s.log.Info("auto-match", "provider_id", p.ID, "created", res.Created, "attached", res.Attached)
 	}
+}
+
+// AutoMatch runs automatic matching now, as after a refresh of provider
+// providerID (for the log), if the stored settings turn it on (ran).
+func (s *Service) AutoMatch(ctx context.Context, providerID int64) (res ApplyResult, ran bool, err error) {
+	m, err := s.MatchSettings(ctx)
+	if err != nil || !m.Auto {
+		return res, false, err
+	}
+	opts, err := s.autoMatchOptions(ctx, m)
+	if err != nil {
+		return res, false, err
+	}
+	if res, err = s.Apply(ctx, opts); err != nil {
+		return res, false, err
+	}
+	s.log.Info("auto-match", "provider_id", providerID, "created", res.Created, "attached", res.Attached)
+	return res, true, nil
 }
 
 // autoMatchOptions turns settings into an Apply. A chosen group or bouquet

@@ -14,9 +14,9 @@ const createProvider = `-- name: CreateProvider :one
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
     max_connections, user_agent, refresh_interval_secs, priority, enabled,
-    refresh_max_disable_pct, backbone
+    refresh_max_disable_pct, backbone, group_filter
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 ) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone
 `
 
@@ -34,6 +34,7 @@ type CreateProviderParams struct {
 	Enabled              bool   `json:"enabled"`
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	Backbone             string `json:"backbone"`
+	GroupFilter          bool   `json:"group_filter"`
 }
 
 // Providers: basic CRUD used by the admin API and the refresher.
@@ -52,6 +53,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.Enabled,
 		arg.RefreshMaxDisablePct,
 		arg.Backbone,
+		arg.GroupFilter,
 	)
 	var i Provider
 	err := row.Scan(

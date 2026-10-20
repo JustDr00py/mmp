@@ -53,7 +53,7 @@ type providerRow struct {
 
 // flashes are the fixed messages ?msg= may select: never reflected text.
 var flashes = map[string]string{
-	"created": "Provider added. Refresh it to import its streams, then use Groups to choose which of its groups you want.",
+	"created": "Provider added. Refresh it to import its streams, then choose its groups: none of its streams are matched until you do.",
 	"saved":   "Provider saved.",
 	"deleted": "Provider deleted.",
 }
@@ -368,6 +368,9 @@ func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
 		Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password, EpgUrl: p.epgURL,
 		MaxConnections: p.maxConns, UserAgent: p.userAgent, RefreshIntervalSecs: p.refreshSecs,
 		Priority: p.priority, Enabled: p.enabled, RefreshMaxDisablePct: p.maxDisablePct, Backbone: p.backbone,
+		// None of its groups until they are chosen, so the first refresh
+		// (and its auto-match) imports streams without matching them.
+		GroupFilter: true,
 	})
 	if err != nil {
 		ui.fail(w, "create provider", err)

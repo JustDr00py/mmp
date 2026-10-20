@@ -141,6 +141,9 @@ First, trim what each provider offers: big panels carry hundreds of regional gro
 **Groups** on a provider, type in the filter (e.g. `US`), tick the groups you want and save with
 *Only the groups ticked below*. Match and the stream search then only offer streams from those groups;
 groups the provider adds later stay hidden until you tick them. Channels already using a stream keep it.
+A provider added on the Providers page starts with **no** groups chosen (its row says *choose groups*), so
+its first refresh imports streams without matching any; saving its groups runs automatic matching (when
+on) with them right away. Pick *All groups* to use everything.
 (API: `GET`/`PUT /api/v1/providers/{id}/groups`.)
 
 Two ways to build channels:

@@ -180,6 +180,7 @@ type Matcher interface {
 	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
 	MatchSettings(ctx context.Context) (channel.MatchSettings, error)
 	SaveMatchSettings(ctx context.Context, m channel.MatchSettings) error
+	AutoMatch(ctx context.Context, providerID int64) (channel.ApplyResult, bool, error)
 }
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).

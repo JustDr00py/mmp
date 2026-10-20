@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
 )
 
@@ -101,5 +104,54 @@ func TestProviderGroups(t *testing.T) {
 	}
 	if resp, _ := b.get("/admin/providers/999999/groups"); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown provider = %d", resp.StatusCode)
+	}
+}
+
+// TestNewProviderWaitsForGroups: a provider added in the UI uses none of its
+// groups until they are chosen, so its first refresh matches nothing;
+// saving the groups runs automatic matching with them.
+func TestNewProviderWaitsForGroups(t *testing.T) {
+	var svc *channel.Service
+	b, q := pgUI(t, func(d *Deps, _ *pgxpool.Pool) { svc = d.Match.(*channel.Service) })
+	ctx := context.Background()
+	if err := svc.SeedMatchSettings(ctx, channel.AutoMatch{Enabled: true, MinProviders: 1, NewChannels: true}); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"name": {"Fresh"}, "type": {"m3u"}, "url": {"http://fresh/"}, "max_connections": {"1"},
+		"refresh_minutes": {"60"}, "priority": {"0"}, "enabled": {"on"}}
+	if resp, body := b.post("/admin/providers/new", form, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create = %d\n%s", resp.StatusCode, body)
+	}
+	ps, _ := q.ListProviders(ctx)
+	if len(ps) != 1 || !ps[0].GroupFilter {
+		t.Fatalf("new provider = %+v, want group_filter on", ps)
+	}
+	prov := ps[0]
+	for _, s := range []struct{ name, group string }{{"US Fox News", "US News"}, {"AR Jazeera", "Arabic"}} {
+		if _, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: prov.ID, ExternalID: s.name, Name: s.name,
+			GroupTitle: s.group, StreamUrl: "http://fresh/" + s.name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// What a refresh's auto-match does: nothing from this provider yet.
+	if res, ran, err := svc.AutoMatch(ctx, prov.ID); err != nil || !ran || res.Created != 0 || res.Attached != 0 {
+		t.Fatalf("auto-match before choosing groups = %+v %v %v", res, ran, err)
+	}
+	if _, body := b.get("/admin/providers"); !strings.Contains(body, "choose groups") {
+		t.Error("providers row does not ask to choose groups")
+	}
+
+	page := "/admin/providers/" + strconv.FormatInt(prov.ID, 10) + "/groups"
+	resp, _ := b.post(page, url.Values{"mode": {"selected"}, "group": {"US News"}}, b.base)
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "created=1") {
+		t.Fatalf("save = %d %s", resp.StatusCode, loc)
+	}
+	if _, body := b.get(loc); !strings.Contains(body, "Automatic matching created 1 channels") {
+		t.Errorf("no auto-match flash:\n%s", body)
+	}
+	chs, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10})
+	if len(chs) != 1 || !strings.Contains(chs[0].Name, "Fox") {
+		t.Errorf("channels = %+v, want only Fox News", chs)
 	}
 }
