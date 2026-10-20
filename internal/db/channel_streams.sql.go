@@ -264,7 +264,7 @@ func (q *Queries) ListBouquets(ctx context.Context) ([]Bouquet, error) {
 
 const listChannelCandidates = `-- name: ListChannelCandidates :many
 SELECT ps.id AS stream_id, ps.stream_url, ps.health_score,
-       pr.id AS provider_id, pr.max_connections, pr.user_agent,
+       pr.id AS provider_id, pr.max_connections, pr.user_agent, pr.backbone,
        COALESCE(sp.mode, 'passthrough')::text AS profile_mode,
        COALESCE(sp.ffmpeg_args, '')::text AS profile_ffmpeg_args,
        COALESCE(sp.user_agent, '')::text AS profile_user_agent
@@ -286,6 +286,7 @@ type ListChannelCandidatesRow struct {
 	ProviderID        int64   `json:"provider_id"`
 	MaxConnections    int32   `json:"max_connections"`
 	UserAgent         string  `json:"user_agent"`
+	Backbone          string  `json:"backbone"`
 	ProfileMode       string  `json:"profile_mode"`
 	ProfileFfmpegArgs string  `json:"profile_ffmpeg_args"`
 	ProfileUserAgent  string  `json:"profile_user_agent"`
@@ -309,6 +310,7 @@ func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([
 			&i.ProviderID,
 			&i.MaxConnections,
 			&i.UserAgent,
+			&i.Backbone,
 			&i.ProfileMode,
 			&i.ProfileFfmpegArgs,
 			&i.ProfileUserAgent,

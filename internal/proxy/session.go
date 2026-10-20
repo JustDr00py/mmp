@@ -214,6 +214,43 @@ func moveFirst(cands []Candidate, id int64) ([]Candidate, int64) {
 	return append(out, cands[i+1:]...), id
 }
 
+// backboneAvoid is how long a backbone stays at the back of the failover
+// list after one of its streams failed while playing: the provider's
+// resellers on the same network most likely carry the same broken feed.
+const backboneAvoid = 5 * time.Minute
+
+// avoidBackbones moves the candidates on a backbone in avoid (until a time
+// after now) behind the rest, keeping each part's order, and drops expired
+// entries from avoid. jumped maps each candidate that moved ahead of an
+// avoided one to the first backbone it passed.
+func avoidBackbones(cands []Candidate, avoid map[string]time.Time, now time.Time) (out []Candidate, jumped map[int64]string) {
+	for b, until := range avoid {
+		if !now.Before(until) {
+			delete(avoid, b)
+		}
+	}
+	if len(avoid) == 0 {
+		return cands, nil
+	}
+	var back []Candidate
+	passed := ""
+	for _, c := range cands {
+		if _, bad := avoid[c.Backbone]; bad && c.Backbone != "" {
+			back = append(back, c)
+			passed = cmp.Or(passed, c.Backbone)
+			continue
+		}
+		if passed != "" {
+			if jumped == nil {
+				jumped = map[int64]string{}
+			}
+			jumped[c.StreamID] = passed
+		}
+		out = append(out, c)
+	}
+	return append(out, back...), jumped
+}
+
 // reconnectable reports whether an upstream that ended for reason is worth
 // reopening before failing over: the provider closed or lost a connection
 // that had been playing well, which providers do now and then. A stall or
@@ -253,12 +290,13 @@ func (s *Session) Run(ctx context.Context) error {
 	defer s.cfg.Ring.Close()
 	defer s.setState("closed", nil)
 
-	failingSince := time.Now() // nothing is playing yet
-	var lastFailed int64       // stream that failed most recently, for the failover event
-	var failedWhy string       // why lastFailed failed, in words
-	var lastProblem string     // the latest failure of any kind, for the exhausted event
-	spliced := false           // true once any upstream has fed the ring
-	var reconnect int64        // stream to reopen first, cooldown or not (once)
+	failingSince := time.Now()      // nothing is playing yet
+	var lastFailed int64            // stream that failed most recently, for the failover event
+	var failedWhy string            // why lastFailed failed, in words
+	var lastProblem string          // the latest failure of any kind, for the exhausted event
+	spliced := false                // true once any upstream has fed the ring
+	var reconnect int64             // stream to reopen first, cooldown or not (once)
+	avoid := map[string]time.Time{} // backbones whose streams failed while playing
 
 	for {
 		if ctx.Err() != nil {
@@ -272,6 +310,7 @@ func (s *Session) Run(ctx context.Context) error {
 			s.log.Warn("session: load candidates", "err", err)
 		}
 
+		cands, jumped := avoidBackbones(cands, avoid, time.Now())
 		cands, retry := moveFirst(cands, reconnect)
 		reconnect = 0
 		cands, preferred := s.takePreferred(cands)
@@ -311,7 +350,11 @@ func (s *Session) Run(ctx context.Context) error {
 				continue
 			}
 
-			res := s.stream(ctx, c, rc, spliced, lastFailed, failedWhy, c.StreamID == preferred)
+			why := failedWhy
+			if b, ok := jumped[c.StreamID]; ok && why != "" {
+				why += "; skipped the other streams on backbone " + b
+			}
+			res := s.stream(ctx, c, rc, spliced, lastFailed, why, c.StreamID == preferred)
 			rc.Close()
 			slot.Release()
 			if res.delivered {
@@ -328,6 +371,11 @@ func (s *Session) Run(ctx context.Context) error {
 				break
 			}
 			s.cfg.Metrics.upstreamFailure(res.reason)
+			if c.Backbone != "" {
+				// Its siblings on the backbone go last for a while (after
+				// the reconnect below, which still comes first).
+				avoid[c.Backbone] = time.Now().Add(backboneAvoid)
+			}
 			if res.stable && reconnectable(res.reason) {
 				// Reopen it before trying another source. If that fails,
 				// the failover event names this drop.

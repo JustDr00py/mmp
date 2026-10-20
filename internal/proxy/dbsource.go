@@ -31,6 +31,7 @@ func DBSource(q CandidateQuerier) ChannelSource {
 			out[i] = Candidate{
 				StreamID:       r.StreamID,
 				ProviderID:     r.ProviderID,
+				Backbone:       r.Backbone,
 				MaxConnections: int(r.MaxConnections),
 				URL:            r.StreamUrl,
 				UserAgent:      ua,

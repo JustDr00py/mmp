@@ -353,7 +353,10 @@ admin:                        # only used to create the first admin
 A stream that played well for 30 seconds and is then dropped by the provider is reopened once before
 MMP fails over, since providers close connections now and then. A provider that answers *429 Too Many
 Requests* (no free connection on the account) is skipped for its `Retry-After` (10s if it sends none,
-30s at most) without counting against the stream.
+30s at most) without counting against the stream. When a stream fails while playing, the other streams
+on its provider's **backbone** go to the back of the failover list for 5 minutes, since resellers of the
+same network usually carry the same broken feed; the failover event says when it skipped them. Streams
+without a backbone are never moved.
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
