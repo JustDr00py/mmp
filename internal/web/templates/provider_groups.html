@@ -6,6 +6,9 @@
 <p class="lede">Choose the groups you want from this provider. Only streams in the chosen groups show up in
   <a href="/admin/match">Match</a> and when adding streams to a channel. Groups the provider adds later stay hidden until you
   tick them. Channels that already use a stream keep it.</p>
+<p class="muted small">Save keeps the choice only. Save and match also builds channels from the chosen groups now, with the
+  options on the <a href="/admin/settings">Settings</a> page, even when automatic matching is off. To pick channels one by one, use
+  <a href="/admin/match">Match</a>.</p>
 {{if $d.Groups}}
 <form method="post" action="/admin/providers/{{$d.Provider.ID}}/groups" class="groups-form" data-check-on-change="#mode-selected">
   <fieldset class="mode">
@@ -17,11 +20,12 @@
     <label class="check small"><input type="checkbox" data-check-all="group"> tick all shown</label>
     <span class="muted">{{$d.Selected}} of {{len $d.Groups}} ticked</span>
     <button type="submit">Save</button>
+    <button type="submit" class="secondary" name="action" value="match">Save and match</button>
   </div>
   <ul class="pick-list group-list" id="group-list">{{range $d.Groups}}
     <li><label class="check"><input type="checkbox" name="group" value="{{.GroupTitle}}"{{if .Selected}} checked{{end}}> {{if .GroupTitle}}{{.GroupTitle}}{{else}}<em>(no group)</em>{{end}} <span class="sub">{{.Streams}} streams</span></label></li>
   {{end}}</ul>
-  <p><button type="submit">Save</button></p>
+  <p class="row"><button type="submit">Save</button> <button type="submit" class="secondary" name="action" value="match">Save and match</button></p>
 </form>
 {{else}}<div class="card empty"><p>No streams imported yet.</p>
   <p class="muted">Refresh the provider on the <a href="/admin/providers">providers page</a>, then come back to choose its groups.</p></div>{{end}}

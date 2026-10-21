@@ -132,6 +132,7 @@ type Store interface {
 	AddUserBouquets(ctx context.Context, arg db.AddUserBouquetsParams) error
 	ListBouquets(ctx context.Context) ([]db.Bouquet, error)
 	CreateBouquet(ctx context.Context, arg db.CreateBouquetParams) (db.Bouquet, error)
+	CloneBouquet(ctx context.Context, arg db.CloneBouquetParams) (int64, error)
 	GetBouquet(ctx context.Context, id int64) (db.Bouquet, error)
 	UpdateBouquet(ctx context.Context, arg db.UpdateBouquetParams) (db.Bouquet, error)
 	DeleteBouquet(ctx context.Context, id int64) error
@@ -181,6 +182,7 @@ type Matcher interface {
 	MatchSettings(ctx context.Context) (channel.MatchSettings, error)
 	SaveMatchSettings(ctx context.Context, m channel.MatchSettings) error
 	AutoMatch(ctx context.Context, providerID int64) (channel.ApplyResult, bool, error)
+	MatchNow(ctx context.Context, providerID int64) (channel.ApplyResult, error)
 }
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).

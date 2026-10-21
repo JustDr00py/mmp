@@ -69,6 +69,13 @@
       </div>
       <div class="row"><button type="submit">Save</button></div>
     </form>
+    <h2>Clone</h2>
+    <form class="card form" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/clone">
+      {{with $d.CloneError}}<p class="error" role="alert">{{.}}</p>{{end}}
+      <label>Name of the copy<input name="name" value="{{$d.CloneName}}" maxlength="100" required></label>
+      <span class="hint">The copy gets the same channels and movie and series categories, but no users.</span>
+      <div class="row"><button type="submit" class="secondary">Clone bouquet</button></div>
+    </form>
     <form class="danger" method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/delete"
       data-confirm="Delete {{$d.Bouquet.Name}}? {{$d.Users}} user(s) lose its channels.">
       <button type="submit" class="danger">Delete bouquet</button>
