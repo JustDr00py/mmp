@@ -84,6 +84,35 @@ func (q *Queries) BouquetCounts(ctx context.Context) ([]BouquetCountsRow, error)
 	return items, nil
 }
 
+const cloneBouquet = `-- name: CloneBouquet :one
+WITH b AS (
+    INSERT INTO bouquets (name, sort_order)
+    SELECT $1, src.sort_order FROM bouquets src WHERE src.id = $2
+    RETURNING id
+), chans AS (
+    INSERT INTO bouquet_channels (bouquet_id, channel_id)
+    SELECT b.id, bc.channel_id FROM b, bouquet_channels bc WHERE bc.bouquet_id = $2
+), cats AS (
+    INSERT INTO bouquet_vod_categories (bouquet_id, vod_category_id)
+    SELECT b.id, bv.vod_category_id FROM b, bouquet_vod_categories bv WHERE bv.bouquet_id = $2
+)
+SELECT id FROM b
+`
+
+type CloneBouquetParams struct {
+	Name  string `json:"name"`
+	SrcID int64  `json:"src_id"`
+}
+
+// A new bouquet named name with the channels and movie and series
+// categories of src_id; the users it is granted to are not copied.
+func (q *Queries) CloneBouquet(ctx context.Context, arg CloneBouquetParams) (int64, error) {
+	row := q.db.QueryRow(ctx, cloneBouquet, arg.Name, arg.SrcID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const removeChannelsFromBouquet = `-- name: RemoveChannelsFromBouquet :execrows
 DELETE FROM bouquet_channels
 WHERE bouquet_id = $1 AND channel_id = ANY($2::bigint[])

@@ -108,8 +108,8 @@ func TestProviderGroups(t *testing.T) {
 }
 
 // TestNewProviderWaitsForGroups: a provider added in the UI uses none of its
-// groups until they are chosen, so its first refresh matches nothing;
-// saving the groups runs automatic matching with them.
+// groups until they are chosen, so its first refresh matches nothing; a
+// plain save of the groups matches nothing either, "Save and match" does.
 func TestNewProviderWaitsForGroups(t *testing.T) {
 	var svc *channel.Service
 	b, q := pgUI(t, func(d *Deps, _ *pgxpool.Pool) { svc = d.Match.(*channel.Service) })
@@ -142,13 +142,29 @@ func TestNewProviderWaitsForGroups(t *testing.T) {
 	}
 
 	page := "/admin/providers/" + strconv.FormatInt(prov.ID, 10) + "/groups"
+	if _, body := b.get(page); !strings.Contains(body, `name="action" value="match">Save and match`) {
+		t.Error("groups page lacks Save and match")
+	}
 	resp, _ := b.post(page, url.Values{"mode": {"selected"}, "group": {"US News"}}, b.base)
-	loc := resp.Header.Get("Location")
-	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "created=1") {
+	if loc := resp.Header.Get("Location"); resp.StatusCode != http.StatusSeeOther || loc != page+"?msg=saved" {
 		t.Fatalf("save = %d %s", resp.StatusCode, loc)
 	}
-	if _, body := b.get(loc); !strings.Contains(body, "Automatic matching created 1 channels") {
-		t.Errorf("no auto-match flash:\n%s", body)
+	if chs, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10}); len(chs) != 0 {
+		t.Fatalf("plain save matched: %+v", chs)
+	}
+	// Save and match runs even with automatic matching turned off.
+	m, _ := svc.MatchSettings(ctx)
+	m.Auto = false
+	if err := svc.SaveMatchSettings(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	resp, _ = b.post(page, url.Values{"mode": {"selected"}, "group": {"US News"}, "action": {"match"}}, b.base)
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "created=1") {
+		t.Fatalf("save and match = %d %s", resp.StatusCode, loc)
+	}
+	if _, body := b.get(loc); !strings.Contains(body, "Matching created 1 channels") {
+		t.Errorf("no match flash:\n%s", body)
 	}
 	chs, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10})
 	if len(chs) != 1 || !strings.Contains(chs[0].Name, "Fox") {

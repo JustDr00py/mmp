@@ -194,15 +194,31 @@ func (s *Service) AutoMatch(ctx context.Context, providerID int64) (res ApplyRes
 	if err != nil || !m.Auto {
 		return res, false, err
 	}
+	res, err = s.match(ctx, providerID, m)
+	return res, err == nil, err
+}
+
+// MatchNow runs matching with the stored settings, as AutoMatch does, but
+// whether or not they turn automatic matching on: the admin asked for it.
+func (s *Service) MatchNow(ctx context.Context, providerID int64) (ApplyResult, error) {
+	m, err := s.MatchSettings(ctx)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	return s.match(ctx, providerID, m)
+}
+
+func (s *Service) match(ctx context.Context, providerID int64, m MatchSettings) (ApplyResult, error) {
 	opts, err := s.autoMatchOptions(ctx, m)
 	if err != nil {
-		return res, false, err
+		return ApplyResult{}, err
 	}
-	if res, err = s.Apply(ctx, opts); err != nil {
-		return res, false, err
+	res, err := s.Apply(ctx, opts)
+	if err != nil {
+		return res, err
 	}
 	s.log.Info("auto-match", "provider_id", providerID, "created", res.Created, "attached", res.Attached)
-	return res, true, nil
+	return res, nil
 }
 
 // autoMatchOptions turns settings into an Apply. A chosen group or bouquet

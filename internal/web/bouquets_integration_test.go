@@ -124,3 +124,75 @@ func TestBouquetPages(t *testing.T) {
 		t.Errorf("deleted bouquet = %d", resp.StatusCode)
 	}
 }
+
+// TestBouquetClone: a clone gets the source's channels and movie and series
+// categories but none of its users, and can then be trimmed on its own.
+func TestBouquetClone(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	src, err := q.CreateBouquet(ctx, db.CreateBouquetParams{Name: "US Full", SortOrder: 3})
+	must(err)
+	var chans []int64
+	for _, name := range []string{"CNN", "ESPN", "Fox News"} {
+		c, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: name})
+		must(err)
+		chans = append(chans, c.ID)
+	}
+	_, err = q.AddChannelsToBouquet(ctx, db.AddChannelsToBouquetParams{BouquetID: src.ID, ChannelIds: chans})
+	must(err)
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "Panel", Type: "xtream", Url: "http://panel/", Username: "u",
+		Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	must(err)
+	must(q.UpsertVODCategories(ctx, db.UpsertVODCategoriesParams{ProviderID: p.ID, Kind: "movie", ExternalIds: []string{"1"}, Names: []string{"Action"}}))
+	cats, _ := q.ListVODCategoriesAdmin(ctx, db.ListVODCategoriesAdminParams{Kind: "movie", ProviderID: &p.ID})
+	_, err = q.AddVODCategoriesToBouquet(ctx, db.AddVODCategoriesToBouquetParams{BouquetID: src.ID, CategoryIds: []int64{cats[0].ID}})
+	must(err)
+	u, err := q.CreateUser(ctx, db.CreateUserParams{Username: "alice", PasswordHash: "x", Role: "customer",
+		MaxConnections: 1, Enabled: true, StreamToken: "tok-alice"})
+	must(err)
+	must(q.AddUserBouquets(ctx, db.AddUserBouquetsParams{UserID: u.ID, BouquetIds: []int64{src.ID}}))
+
+	page := "/admin/bouquets/" + strconv.FormatInt(src.ID, 10)
+	if _, body := b.get(page); !strings.Contains(body, `value="US Full (copy)"`) {
+		t.Errorf("clone form lacks the suggested name")
+	}
+	for _, name := range []string{"", "US Full"} {
+		if resp, body := b.post(page+"/clone", url.Values{"name": {name}}, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+			(name == "" && !strings.Contains(body, "Name is required")) || (name != "" && !strings.Contains(body, "exists")) {
+			t.Errorf("clone named %q = %d", name, resp.StatusCode)
+		}
+	}
+	resp, _ := b.post(page+"/clone", url.Values{"name": {"EU Lite"}}, b.base)
+	m := regexp.MustCompile(`^/admin/bouquets/(\d+)\?msg=cloned$`).FindStringSubmatch(resp.Header.Get("Location"))
+	if m == nil {
+		t.Fatalf("clone = %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	id, _ := strconv.ParseInt(m[1], 10, 64)
+	cl, err := q.GetBouquet(ctx, id)
+	if err != nil || cl.Name != "EU Lite" || cl.SortOrder != 3 {
+		t.Errorf("clone = %+v %v", cl, err)
+	}
+	if cs, _ := q.ListBouquetChannels(ctx, id); len(cs) != 3 {
+		t.Errorf("clone channels = %d, want 3", len(cs))
+	}
+	if vc, _ := q.ListBouquetVODCategories(ctx, id); len(vc) != 1 {
+		t.Errorf("clone categories = %d, want 1", len(vc))
+	}
+	if ids, _ := q.ListUserBouquetIDs(ctx, u.ID); !slices.Equal(ids, []int64{src.ID}) {
+		t.Errorf("alice's bouquets = %v, want only the source", ids)
+	}
+	if _, body := b.get(resp.Header.Get("Location")); !strings.Contains(body, "Bouquet cloned") {
+		t.Error("no clone flash")
+	}
+	// Trimming the clone leaves the source alone.
+	_, err = q.RemoveChannelsFromBouquet(ctx, db.RemoveChannelsFromBouquetParams{BouquetID: id, ChannelIds: chans[:1]})
+	must(err)
+	if cs, _ := q.ListBouquetChannels(ctx, src.ID); len(cs) != 3 {
+		t.Errorf("source channels = %d after trimming the clone, want 3", len(cs))
+	}
+}

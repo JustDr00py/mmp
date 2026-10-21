@@ -23,6 +23,7 @@ func (ui *UI) mountBouquets(r chi.Router) {
 		r.Get("/", ui.bouquetPage)
 		r.Post("/", ui.bouquetUpdate)
 		r.Post("/delete", ui.bouquetDelete)
+		r.Post("/clone", ui.bouquetClone)
 		r.Get("/editor", ui.bouquetEditorGet)
 		r.Post("/add", ui.bouquetAdd)
 		r.Post("/add-group", ui.bouquetAddGroup)
@@ -216,6 +217,9 @@ type bouquetPageData struct {
 	Error   string
 	Name    string
 	Sort    string
+	// Clone form: the name offered or entered, and why it was refused.
+	CloneName  string
+	CloneError string
 }
 
 func (ui *UI) renderBouquet(w http.ResponseWriter, r *http.Request, status int, b db.Bouquet, d bouquetPageData) {
@@ -242,12 +246,17 @@ func (ui *UI) renderBouquet(w http.ResponseWriter, r *http.Request, status int, 
 	if d.Name == "" && d.Error == "" {
 		d.Name, d.Sort = b.Name, strconv.Itoa(int(b.SortOrder))
 	}
+	if d.CloneName == "" && d.CloneError == "" {
+		d.CloneName = b.Name + " (copy)"
+	}
 	if d.Flash == "" {
 		switch r.URL.Query().Get("msg") {
 		case "created":
 			d.Flash = "Bouquet created. Add channels, then grant it to users on the Users page."
 		case "saved":
 			d.Flash = "Bouquet saved."
+		case "cloned":
+			d.Flash = "Bouquet cloned with the same channels and movie and series categories. Remove what this one should not have, then grant it to users on the Users page."
 		}
 	}
 	ui.render(w, r, status, "bouquet", b.Name, d)
@@ -293,6 +302,36 @@ func (ui *UI) bouquetDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: bouquet deleted", "bouquet_id", b.ID)
 	ui.redirect(w, r, Prefix+"/bouquets?msg=deleted")
+}
+
+// bouquetClone copies {id}'s channels and movie and series categories into
+// a new bouquet, but not its users, and opens the copy.
+func (ui *UI) bouquetClone(w http.ResponseWriter, r *http.Request) {
+	b, ok := ui.bouquet(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	msg := "Name is required (up to 100 characters)."
+	if name != "" && len(name) <= 100 {
+		id, err := ui.Store.CloneBouquet(r.Context(), db.CloneBouquetParams{Name: name, SrcID: b.ID})
+		if err == nil {
+			ui.Log.Info("web: bouquet cloned", "bouquet_id", id, "from", b.ID)
+			ui.redirect(w, r, Prefix+"/bouquets/"+strconv.FormatInt(id, 10)+"?msg=cloned")
+			return
+		}
+		var ok bool
+		if msg, ok = bouquetSaveErr(err); !ok {
+			ui.fail(w, "clone bouquet", err)
+			return
+		}
+	}
+	ui.renderBouquet(w, r, http.StatusUnprocessableEntity, b, bouquetPageData{CloneName: name, CloneError: msg})
 }
 
 // editorFilter reads the picker's search and group from a request.
