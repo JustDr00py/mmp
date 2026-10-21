@@ -163,14 +163,25 @@
     const busy = () => pressed || (el.contains(document.activeElement) && document.activeElement.matches('select'));
     // [data-keep-scroll="key"] boxes keep their scroll position across
     // re-renders, so a table scrolled sideways stays where it was.
+    // Bars start at the width they had before the re-render, so only a
+    // real change animates instead of every bar regrowing from zero.
     const apply = (html) => {
       const scroll = {};
       el.querySelectorAll('[data-keep-scroll]').forEach((s) => { scroll[s.dataset.keepScroll] = [s.scrollLeft, s.scrollTop]; });
+      const widths = Array.from(el.querySelectorAll('[data-pct]'), (b) => b.style.width);
       el.innerHTML = html;
       el.querySelectorAll('[data-keep-scroll]').forEach((s) => {
         const p = scroll[s.dataset.keepScroll];
         if (p) [s.scrollLeft, s.scrollTop] = p;
       });
+      const fresh = el.querySelectorAll('[data-pct]');
+      fresh.forEach((b, i) => {
+        if (!widths[i]) return;
+        b.style.transition = 'none';
+        b.style.width = widths[i];
+      });
+      if (fresh.length) void el.offsetWidth; // commit the old widths before animating
+      fresh.forEach((b) => { b.style.transition = ''; });
       bars(el);
     };
     const flush = () => { if (pending !== null && !busy()) { apply(pending); pending = null; } };
