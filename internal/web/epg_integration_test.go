@@ -41,6 +41,10 @@ func TestEPGPage(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// What a refresh records for the guide it loaded.
+	if err := q.MarkEpgSourceRefreshed(ctx, db.MarkEpgSourceRefreshedParams{ID: src.ID, Programs: 3, Channels: 2}); err != nil {
+		t.Fatal(err)
+	}
 	for i, c := range []struct{ name, tvg string }{{"BBC One", "bbc1.uk"}, {"Old Channel", "old.uk"}, {"No Tvg", ""}} {
 		n := int32(101 + i)
 		if _, err := q.CreateChannel(ctx, db.CreateChannelParams{Number: &n, Name: c.name, TvgID: c.tvg}); err != nil {

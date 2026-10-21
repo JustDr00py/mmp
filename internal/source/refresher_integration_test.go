@@ -287,6 +287,9 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if n2 != 2 {
 		t.Errorf("programs after replace = %d, want 2", n2)
 	}
+	if src.ProgramCount != 2 || src.ChannelCount != 2 {
+		t.Errorf("stored counts = %d programs, %d channels; want 2, 2", src.ProgramCount, src.ChannelCount)
+	}
 	if src.LastRefreshedAt == nil {
 		t.Error("epg source last_refreshed_at not set")
 	}

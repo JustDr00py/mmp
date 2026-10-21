@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -350,6 +351,7 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 		start   int64
 	}
 	seen := map[progKey]struct{}{}
+	channels := map[string]struct{}{} // lower-cased, as guide lookups match
 	skipped := 0
 	// Third-party guides are usually .xml.gz: detect gzip by its magic bytes.
 	var guide io.Reader = bufio.NewReaderSize(resp.Body, 64<<10)
@@ -368,6 +370,7 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 			return nil
 		}
 		seen[k] = struct{}{}
+		channels[strings.ToLower(pr.Channel)] = struct{}{}
 		batch = append(batch, db.InsertEpgProgramsParams{
 			EpgSourceID:  sourceID,
 			ChannelTvgID: pr.Channel,
@@ -392,7 +395,9 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	if skipped > 0 {
 		r.log.Info("epg: skipped duplicate or empty programs", "provider_id", label, "skipped", skipped)
 	}
-	if err := q.MarkEpgSourceRefreshed(ctx, sourceID); err != nil {
+	if err := q.MarkEpgSourceRefreshed(ctx, db.MarkEpgSourceRefreshedParams{
+		ID: sourceID, Programs: int64(total), Channels: int64(len(channels)),
+	}); err != nil {
 		return 0, fmt.Errorf("refresh epg %s: mark: %w", label, err)
 	}
 	if err := tx.Commit(ctx); err != nil {

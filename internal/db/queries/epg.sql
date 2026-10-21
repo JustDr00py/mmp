@@ -10,7 +10,10 @@ ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
 RETURNING *;
 
 -- name: MarkEpgSourceRefreshed :exec
-UPDATE epg_sources SET last_refreshed_at = now() WHERE id = $1;
+-- A guide just loaded, with how many programs and channels it holds.
+UPDATE epg_sources
+SET last_refreshed_at = now(), program_count = sqlc.arg('programs'), channel_count = sqlc.arg('channels')
+WHERE id = sqlc.arg('id');
 
 -- name: ClearEpgSourcePrograms :execrows
 DELETE FROM epg_programs WHERE epg_source_id = $1;
@@ -52,8 +55,7 @@ ORDER BY b.tvg_key, p.start_time;
 -- Admin overview of guide sources.
 SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at, s.priority,
        pr.id AS provider_id, COALESCE(pr.name, '')::text AS provider_name,
-       (SELECT count(*) FROM epg_programs p WHERE p.epg_source_id = s.id) AS programs,
-       (SELECT count(DISTINCT lower(p.channel_tvg_id)) FROM epg_programs p WHERE p.epg_source_id = s.id) AS channels
+       s.program_count AS programs, s.channel_count AS channels
 FROM epg_sources s
 LEFT JOIN providers pr ON pr.id = s.provider_id
 ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name;
