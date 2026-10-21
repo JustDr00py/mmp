@@ -110,6 +110,8 @@ type EpgSource struct {
 	LastRefreshedAt *time.Time `json:"last_refreshed_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	Priority        *int32     `json:"priority"`
+	ProgramCount    int64      `json:"program_count"`
+	ChannelCount    int64      `json:"channel_count"`
 }
 
 type Event struct {

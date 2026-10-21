@@ -122,7 +122,7 @@ func (q *Queries) CountEpgPrograms(ctx context.Context, epgSourceID int64) (int6
 }
 
 const createExtraEpgSource = `-- name: CreateExtraEpgSource :one
-INSERT INTO epg_sources (name, url, priority, enabled) VALUES ($1, $2, $3, $4) RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
+INSERT INTO epg_sources (name, url, priority, enabled) VALUES ($1, $2, $3, $4) RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count
 `
 
 type CreateExtraEpgSourceParams struct {
@@ -149,6 +149,8 @@ func (q *Queries) CreateExtraEpgSource(ctx context.Context, arg CreateExtraEpgSo
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
 		&i.Priority,
+		&i.ProgramCount,
+		&i.ChannelCount,
 	)
 	return i, err
 }
@@ -167,7 +169,7 @@ func (q *Queries) DeleteExtraEpgSource(ctx context.Context, id int64) (int64, er
 
 const getEpgSource = `-- name: GetEpgSource :one
 
-SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources WHERE id = $1
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count FROM epg_sources WHERE id = $1
 `
 
 // Extra guide sources: XMLTV URLs not tied to a provider (e.g. a
@@ -184,12 +186,14 @@ func (q *Queries) GetEpgSource(ctx context.Context, id int64) (EpgSource, error)
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
 		&i.Priority,
+		&i.ProgramCount,
+		&i.ChannelCount,
 	)
 	return i, err
 }
 
 const getEpgSourceByProvider = `-- name: GetEpgSourceByProvider :one
-SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources WHERE provider_id = $1
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count FROM epg_sources WHERE provider_id = $1
 `
 
 func (q *Queries) GetEpgSourceByProvider(ctx context.Context, providerID *int64) (EpgSource, error) {
@@ -204,6 +208,8 @@ func (q *Queries) GetEpgSourceByProvider(ctx context.Context, providerID *int64)
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
 		&i.Priority,
+		&i.ProgramCount,
+		&i.ChannelCount,
 	)
 	return i, err
 }
@@ -221,8 +227,7 @@ type InsertEpgProgramsParams struct {
 const listEpgSourceStats = `-- name: ListEpgSourceStats :many
 SELECT s.id, s.name, s.url, s.enabled, s.last_refreshed_at, s.priority,
        pr.id AS provider_id, COALESCE(pr.name, '')::text AS provider_name,
-       (SELECT count(*) FROM epg_programs p WHERE p.epg_source_id = s.id) AS programs,
-       (SELECT count(DISTINCT lower(p.channel_tvg_id)) FROM epg_programs p WHERE p.epg_source_id = s.id) AS channels
+       s.program_count AS programs, s.channel_count AS channels
 FROM epg_sources s
 LEFT JOIN providers pr ON pr.id = s.provider_id
 ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name
@@ -274,7 +279,7 @@ func (q *Queries) ListEpgSourceStats(ctx context.Context) ([]ListEpgSourceStatsR
 }
 
 const listExtraEpgSourcesDue = `-- name: ListExtraEpgSourcesDue :many
-SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority FROM epg_sources
+SELECT id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count FROM epg_sources
 WHERE provider_id IS NULL AND enabled
   AND (last_refreshed_at IS NULL OR last_refreshed_at <= now() - make_interval(secs => $1::double precision))
 ORDER BY priority NULLS LAST, id
@@ -298,6 +303,8 @@ func (q *Queries) ListExtraEpgSourcesDue(ctx context.Context, dollar_1 float64) 
 			&i.LastRefreshedAt,
 			&i.CreatedAt,
 			&i.Priority,
+			&i.ProgramCount,
+			&i.ChannelCount,
 		); err != nil {
 			return nil, err
 		}
@@ -377,11 +384,20 @@ func (q *Queries) ListGuidePrograms(ctx context.Context, arg ListGuideProgramsPa
 }
 
 const markEpgSourceRefreshed = `-- name: MarkEpgSourceRefreshed :exec
-UPDATE epg_sources SET last_refreshed_at = now() WHERE id = $1
+UPDATE epg_sources
+SET last_refreshed_at = now(), program_count = $1, channel_count = $2
+WHERE id = $3
 `
 
-func (q *Queries) MarkEpgSourceRefreshed(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, markEpgSourceRefreshed, id)
+type MarkEpgSourceRefreshedParams struct {
+	Programs int64 `json:"programs"`
+	Channels int64 `json:"channels"`
+	ID       int64 `json:"id"`
+}
+
+// A guide just loaded, with how many programs and channels it holds.
+func (q *Queries) MarkEpgSourceRefreshed(ctx context.Context, arg MarkEpgSourceRefreshedParams) error {
+	_, err := q.db.Exec(ctx, markEpgSourceRefreshed, arg.Programs, arg.Channels, arg.ID)
 	return err
 }
 
@@ -406,7 +422,7 @@ func (q *Queries) SetProviderGuidePriority(ctx context.Context, arg SetProviderG
 const updateExtraEpgSource = `-- name: UpdateExtraEpgSource :one
 UPDATE epg_sources SET name = $2, url = $3, priority = $4, enabled = $5
 WHERE id = $1 AND provider_id IS NULL
-RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
+RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count
 `
 
 type UpdateExtraEpgSourceParams struct {
@@ -435,6 +451,8 @@ func (q *Queries) UpdateExtraEpgSource(ctx context.Context, arg UpdateExtraEpgSo
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
 		&i.Priority,
+		&i.ProgramCount,
+		&i.ChannelCount,
 	)
 	return i, err
 }
@@ -446,7 +464,7 @@ VALUES ($1, $2, $3)
 ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
     name = EXCLUDED.name,
     url  = EXCLUDED.url
-RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority
+RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, priority, program_count, channel_count
 `
 
 type UpsertEpgSourceParams struct {
@@ -469,6 +487,8 @@ func (q *Queries) UpsertEpgSource(ctx context.Context, arg UpsertEpgSourceParams
 		&i.LastRefreshedAt,
 		&i.CreatedAt,
 		&i.Priority,
+		&i.ProgramCount,
+		&i.ChannelCount,
 	)
 	return i, err
 }
