@@ -182,6 +182,56 @@ func TestManagerReattachAfterTeardownStartsFresh(t *testing.T) {
 	eventually(t, 3*time.Second, func() bool { return m.cfg.Capacity.InUse(1) == 0 }, "slot leaked")
 }
 
+// TestManagerFlippingReclaimsIdleSlot: on a full provider, tuning to a new
+// channel takes the slot of one just left (in its idle grace) instead of
+// waiting for the grace to run out; a watched channel keeps its slot.
+func TestManagerFlippingReclaimsIdleSlot(t *testing.T) {
+	a := newFakeProvider(t, 'A', "ok", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	c := newFakeProvider(t, 'C', "ok", 0)
+	m := newTestManager(t, map[int64][]Candidate{
+		1: {{StreamID: 10, ProviderID: 1, MaxConnections: 1, URL: a.URL}},
+		2: {{StreamID: 20, ProviderID: 1, MaxConnections: 1, URL: b.URL}},
+		3: {{StreamID: 30, ProviderID: 1, MaxConnections: 1, URL: c.URL}},
+	}, func(c *ManagerConfig) { c.IdleGrace = time.Minute })
+
+	va, err := m.Attach(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := readTag(t, va, 'A', 10, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	va.Close() // flip away: channel 1 idles, still holding the only slot
+
+	vb, err := m.Attach(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vb.Close()
+	if err := readTag(t, vb, 'B', 10, 3*time.Second); err != nil {
+		t.Fatalf("new channel not given the idle channel's slot: %v", err)
+	}
+	if n := m.cfg.Capacity.InUse(1); n != 1 {
+		t.Errorf("slots held = %d, want 1", n)
+	}
+	eventually(t, 3*time.Second, func() bool { return len(m.Channels()) == 1 }, "idle channel not torn down")
+
+	// Channel 2 is watched: channel 3 must not take its slot.
+	vc, err := m.Attach(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vc.Close()
+	time.Sleep(300 * time.Millisecond)
+	if h := c.hits.Load(); h != 0 {
+		t.Errorf("channel 3 opened its upstream %d times while the slot was watched", h)
+	}
+	if err := readTag(t, vb, 'B', 10, 3*time.Second); err != nil {
+		t.Fatalf("watched channel interrupted: %v", err)
+	}
+}
+
 func TestManagerChannelsIndependent(t *testing.T) {
 	a := newFakeProvider(t, 'A', "ok", 0)
 	b := newFakeProvider(t, 'B', "ok", 0)

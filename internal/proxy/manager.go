@@ -59,6 +59,7 @@ type channelRun struct {
 	cancel  context.CancelFunc
 	viewers int
 	idle    *time.Timer
+	idleAt  time.Time     // when the last viewer left, while idle is set
 	closing bool          // teardown started; new viewers wait for done
 	done    chan struct{} // closed once Run has returned and slots are released
 }
@@ -128,6 +129,7 @@ func (m *Manager) start(channelID int64) *channelRun {
 		OnEvent:        m.cfg.OnEvent,
 		Metrics:        m.cfg.Metrics,
 		Probe:          m.cfg.Probe,
+		Reclaim:        m.reclaimIdle,
 	})
 	m.channels[channelID] = run
 	m.wg.Add(1)
@@ -162,6 +164,7 @@ func (m *Manager) detach(run *channelRun) {
 		m.teardown(run)
 		return
 	}
+	run.idleAt = time.Now()
 	run.idle = time.AfterFunc(m.cfg.IdleGrace, func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -170,6 +173,59 @@ func (m *Manager) detach(run *channelRun) {
 			m.teardown(run)
 		}
 	})
+}
+
+// reclaimWait bounds how long a reclaim waits for an idle session's slot.
+const reclaimWait = 5 * time.Second
+
+// reclaimIdle frees a slot at providerID held by a session nobody watches
+// (one waiting out its idle grace), so that a channel someone tunes to is
+// not refused for slots kept warm for channels they flipped past. It tears
+// down the longest-idle such session and waits until its slot is released,
+// reporting whether one was.
+func (m *Manager) reclaimIdle(ctx context.Context, providerID int64) bool {
+	m.mu.Lock()
+	var idle []*channelRun
+	for _, run := range m.channels {
+		if run.viewers == 0 && run.idle != nil && !run.closing {
+			idle = append(idle, run)
+		}
+	}
+	m.mu.Unlock()
+	// Session.Status takes its own lock, so filter outside m.mu.
+	idle = slices.DeleteFunc(idle, func(run *channelRun) bool {
+		st := run.sess.Status()
+		return st.ProviderID != providerID || (st.State != "streaming" && st.State != "connecting")
+	})
+	slices.SortFunc(idle, func(a, b *channelRun) int { return a.idleAt.Compare(b.idleAt) })
+
+	m.mu.Lock()
+	var victim *channelRun
+	for _, run := range idle {
+		if run.viewers == 0 && run.idle != nil && !run.closing { // still idle
+			victim = run
+			break
+		}
+	}
+	if victim == nil {
+		m.mu.Unlock()
+		return false
+	}
+	victim.idle.Stop()
+	victim.idle = nil
+	m.teardown(victim)
+	m.mu.Unlock()
+	m.log.Info("proxy: reclaimed an idle session's slot", "channel_id", victim.id, "provider_id", providerID)
+
+	t := time.NewTimer(reclaimWait)
+	defer t.Stop()
+	select {
+	case <-victim.done:
+		return true
+	case <-ctx.Done():
+	case <-t.C:
+	}
+	return false
 }
 
 // teardown cancels run's session; it stays listed (closing) until its

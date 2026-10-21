@@ -61,6 +61,9 @@ type SessionConfig struct {
 	OnEvent        func(Event) // optional; called from the session goroutine
 	Metrics        *Metrics    // optional
 	Probe          MediaProbe  // optional: fills in resolution, frame rate, audio layout
+	// Reclaim, optional, frees a slot at a full provider held by an idle
+	// session and reports whether it did.
+	Reclaim func(ctx context.Context, providerID int64) bool
 }
 
 // SessionStatus is a snapshot for the dashboard.
@@ -320,6 +323,9 @@ func (s *Session) Run(ctx context.Context) error {
 				continue
 			}
 			slot, ok := s.cfg.Capacity.TryAcquire(c.ProviderID, c.MaxConnections)
+			if !ok && s.cfg.Reclaim != nil && s.cfg.Reclaim(ctx, c.ProviderID) {
+				slot, ok = s.cfg.Capacity.TryAcquire(c.ProviderID, c.MaxConnections)
+			}
 			if !ok {
 				continue // provider full: not the stream's fault, no cooldown
 			}
