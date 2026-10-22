@@ -343,7 +343,12 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	case rule != nil:
 		p.Name = rule.ChannelName
 	default:
-		p.Name = DisplayName(streams[idx[0]].matchName())
+		// An event slot is named by its label: the event will change.
+		name := streams[idx[0]].matchName()
+		if label, _, ok := SplitSlot(name); ok {
+			name = label
+		}
+		p.Name = DisplayName(name)
 	}
 	return p
 }

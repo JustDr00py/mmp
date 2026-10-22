@@ -48,6 +48,8 @@ func TestParse(t *testing.T) {
 			Event{Title: "2026 REYES CUP – DAY 1 (TEAM REST OF THE WORLD @ TEAM ASIA)", Start: utc("2026-10-15 11:00")}, nil},
 		{"UFC 300 Oct 19 8:00 PM ET", // a number ending the title is not the date
 			Event{Title: "UFC 300", Start: utc("2026-10-20 00:00")}, nil},
+		{"College: SMU vs Arizona State @ Oct 18 5:00 PM :ESPN+  14", // the label last
+			Event{Title: "College: SMU vs Arizona State", Start: utc("2026-10-18 17:00")}, nil},
 		{"US - ESPN PLUS 01 : NO EVENT STREAMING", Event{Title: "NO EVENT STREAMING"}, nil},   // a slot between events
 		{"US - ESPN PLUS 01 : OCT 22 – 3:30 AM ET", Event{Title: "OCT 22 – 3:30 AM ET"}, nil}, // a time is no event
 	} {
