@@ -114,6 +114,13 @@ main.page > p.muted:first-of-type { max-width: 80ch; }
 /* ---------- Surfaces ---------- */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.1rem 1.25rem; box-shadow: var(--shadow); }
 .card > :last-child { margin-bottom: 0; }
+dialog.modal { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); padding: 1.25rem 1.4rem; width: min(30rem, calc(100vw - 2rem)); }
+dialog.modal::backdrop { background: rgba(10, 13, 20, .45); }
+dialog.modal h2 { margin-top: 0; font-size: 1.1rem; }
+dialog.modal label.check { align-items: flex-start; margin: .6rem 0; }
+dialog.modal label.check input { margin-top: .2rem; }
+dialog.modal .row { margin-top: 1.1rem; justify-content: flex-end; }
 .empty { text-align: center; padding: 2.25rem 1.25rem; }
 .empty p:first-child { font-weight: 600; font-size: 1rem; }
 .empty .button { margin-top: .5rem; }

@@ -120,6 +120,13 @@
     document.querySelector(sel)?.click();
   });
 
+  // <button data-dialog="#id"> opens that <dialog> as a modal.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-dialog]');
+    if (!btn) return;
+    document.querySelector(btn.dataset.dialog)?.showModal();
+  });
+
   // <form data-confirm="question"> (or its clicked button) asks before submitting.
   document.addEventListener('submit', (e) => {
     const msg = e.submitter?.dataset?.confirm || e.target.dataset?.confirm;

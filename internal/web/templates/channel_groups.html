@@ -35,10 +35,27 @@
     <td class="num" data-label="Channels"><a href="/admin/channels?group={{.ID}}">{{.Channels}}</a></td>
     <td><div class="row actions">
       <button form="group-{{.ID}}" type="submit" class="small">Save</button>
-      <form method="post" action="/admin/groups/{{.ID}}/delete"
-        data-confirm="Delete {{.Name}}? Its {{.Channels}} channel(s) stay, without a group.">
+      {{if .Channels}}
+      <button type="button" class="small danger" data-dialog="#delete-group-{{.ID}}">Delete</button>
+      <dialog class="modal" id="delete-group-{{.ID}}" aria-labelledby="delete-group-{{.ID}}-title">
+        <form method="post" action="/admin/groups/{{.ID}}/delete">
+          <h2 id="delete-group-{{.ID}}-title">Delete “{{.Name}}”?</h2>
+          <p>It has {{.Channels}} channel{{if ne .Channels 1}}s{{end}}. What should happen to {{if eq .Channels 1}}it{{else}}them{{end}}?</p>
+          <label class="check"><input type="radio" name="channels" value="keep" checked>
+            <span>Keep {{if eq .Channels 1}}it{{else}}them{{end}} without a group <span class="muted">(shown as Uncategorized)</span></span></label>
+          <label class="check"><input type="radio" name="channels" value="delete">
+            <span>Delete {{if eq .Channels 1}}it{{else}}them{{end}} too <span class="muted">(failover lists and bouquet places go; the streams stay at their providers)</span></span></label>
+          <div class="row">
+            <button type="submit" class="danger">Delete group</button>
+            <button type="submit" class="secondary" formmethod="dialog" formnovalidate>Cancel</button>
+          </div>
+        </form>
+      </dialog>
+      {{else}}
+      <form method="post" action="/admin/groups/{{.ID}}/delete" data-confirm="Delete {{.Name}}? It has no channels.">
         <button type="submit" class="small danger">Delete</button>
       </form>
+      {{end}}
     </div></td>
   </tr>
   {{end}}
