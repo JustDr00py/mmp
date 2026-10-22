@@ -17,10 +17,10 @@
 
 {{if $d.Rows}}
 <form id="group-order" method="post" action="/admin/groups/order"></form>
-<p class="hint">Drag groups (or use the arrows) into the order players should show them.</p>
+<p class="hint">Drag groups (or use the arrows) into the order players should show them. Guide is where its channels' guides come from unless a channel says otherwise: set event and PPV groups to “Stream name” when their XMLTV only has placeholders.</p>
 <div class="table-wrap">
 <table class="stack group-table">
-  <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th class="num">Sort</th><th class="num">Channels</th><th></th></tr></thead>
+  <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th class="num">Sort</th><th>Guide</th><th class="num">Channels</th><th></th></tr></thead>
   <tbody data-sortable data-sortable-submit="#group-order">
   {{range $d.Rows}}
   <tr>
@@ -29,6 +29,9 @@
     <td class="cell-title"><form id="group-{{.ID}}" method="post" action="/admin/groups/{{.ID}}"></form>
       <input form="group-{{.ID}}" name="name" value="{{.Name}}" maxlength="100" required aria-label="Name of {{.Name}}"></td>
     <td class="num" data-label="Sort"><input form="group-{{.ID}}" name="sort_order" type="number" value="{{.SortOrder}}" aria-label="Sort order of {{.Name}}"></td>
+    <td data-label="Guide"><select form="group-{{.ID}}" name="guide_mode" aria-label="Guide of {{.Name}}">
+      {{$m := .GuideMode}}{{range guideModes}}<option value="{{.Value}}"{{if eq .Value $m}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select></td>
     <td class="num" data-label="Channels"><a href="/admin/channels?group={{.ID}}">{{.Channels}}</a></td>
     <td><div class="row actions">
       <button form="group-{{.ID}}" type="submit" class="small">Save</button>

@@ -75,12 +75,14 @@ type Channel struct {
 	Enabled         bool      `json:"enabled"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	GuideMode       string    `json:"guide_mode"`
 }
 
 type ChannelGroup struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	SortOrder int32  `json:"sort_order"`
+	GuideMode string `json:"guide_mode"`
 }
 
 type ChannelStream struct {

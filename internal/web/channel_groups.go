@@ -122,6 +122,18 @@ func (ui *UI) channelGroupCreate(w http.ResponseWriter, r *http.Request) {
 	ui.renderChannelGroupsErr(w, r, err.Error(), name, raw)
 }
 
+// guideModes are the guide settings of groups (channels may also follow
+// their group with an empty one), as the forms list them.
+var guideModes = []struct{ Value, Label string }{
+	{"auto", "Auto"},
+	{"xmltv", "XMLTV only"},
+	{"name", "Stream name"},
+}
+
+func validGuideMode(m string) bool {
+	return slices.ContainsFunc(guideModes, func(g struct{ Value, Label string }) bool { return g.Value == m })
+}
+
 // channelGroup loads {id}, answering 404 itself when it does not exist.
 func (ui *UI) channelGroup(w http.ResponseWriter, r *http.Request) (db.ChannelGroup, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -147,8 +159,21 @@ func (ui *UI) channelGroupUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, sort, _, err := parseNameSortForm(w, r)
+	mode := r.PostForm.Get("guide_mode")
+	if mode == "" {
+		mode = g.GuideMode
+	}
+	if err == nil && !validGuideMode(mode) {
+		err = formError("Unknown guide setting.")
+	}
 	if err == nil {
-		if _, err = ui.Store.UpdateChannelGroup(r.Context(), db.UpdateChannelGroupParams{ID: g.ID, Name: name, SortOrder: sort}); err == nil {
+		err = ui.inTx(r.Context(), func(q Store) error {
+			if _, err := q.UpdateChannelGroup(r.Context(), db.UpdateChannelGroupParams{ID: g.ID, Name: name, SortOrder: sort}); err != nil {
+				return err
+			}
+			return q.SetChannelGroupGuideMode(r.Context(), db.SetChannelGroupGuideModeParams{ID: g.ID, GuideMode: mode})
+		})
+		if err == nil {
 			ui.redirect(w, r, Prefix+"/groups?msg=saved")
 			return
 		}

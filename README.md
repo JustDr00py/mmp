@@ -177,9 +177,10 @@ page for coverage).
 **Guide sources:** Xtream providers bring their own guide, M3U providers can have an EPG URL, and on the
 **Guide** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
 guide with better coverage. They download on the guide schedule (`refresh.epg_interval`). When several
-sources list a channel, the lowest priority number wins. A provider's guide uses the provider's priority
-unless you give it its own on the Guide page, so you can rank guides without changing the failover order.
-The channel coverage table there shows which guide each channel gets.
+sources list a channel, the lowest priority number wins among those whose schedule still runs past now: a
+guide that stopped updating never hides a current one, whatever its priority. A provider's guide uses the
+provider's priority unless you give it its own on the Guide page, so you can rank guides without changing
+the failover order. The channel coverage table there shows which guide each channel gets.
 
 **Guide from stream names:** event feeds (PPV, game passes) rarely have a guide, but their stream names
 often say what is on: `Next | Jets @ Patriots | NFL Game Pass | 2026-10-18 | 17:00`. For channels without a
@@ -189,7 +190,10 @@ day before, the event for three hours from its start, then "Ended: …" for a da
 `GMT`, `CEST`, `ET` or `PT`; times without a zone use the zone set under **Settings → Guide from stream
 names**. Names without a time give an all-day entry, and other channels without a guide get one with their
 name (both can be turned off there). Channels without a tvg-id get one (`mmp.<id>`) in playlists so
-players link them to it. Real guides always win.
+players link them to it. Real guides win, unless you say otherwise: a channel's **Guide** setting (or its
+group's, on the **Groups** page) is **Auto** (the XMLTV guide, else the stream name), **Stream name** (the
+stream-name guide first, for event channels whose XMLTV only has placeholders like "No Event Scheduled";
+it works even with the stream-name guide turned off) or **XMLTV only**.
 
 **East/West and +1 feeds:** providers often give a channel's East and West (or `+1`) feeds the same tvg-id.
 Match keeps them apart (East and unlabelled feeds go together; West/Pacific, Mountain and `+1`…`+9` are

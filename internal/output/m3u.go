@@ -85,7 +85,15 @@ type Channel struct {
 	GroupSort  int32
 	Added      time.Time
 	StreamName string // its first failover stream's name, for stream-name guides
+	GuideMode  string // where its guide comes from: GuideAuto, GuideXMLTV or GuideName
 }
+
+// Guide modes (Channel.GuideMode).
+const (
+	GuideAuto  = "auto"  // the XMLTV guide, else the stream-name guide
+	GuideXMLTV = "xmltv" // the XMLTV guide only
+	GuideName  = "name"  // the stream-name guide, else the XMLTV guide
+)
 
 // GuideID links the channel to its guide in playlists and the XMLTV:
 // its tvg-id, or one made from its id when it has none (its guide then
@@ -107,7 +115,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName})
+			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName, r.GuideMode})
 		}
 		return out, nil
 	}
@@ -116,7 +124,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName})
+		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName, r.GuideMode})
 	}
 	return out, nil
 }

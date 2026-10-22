@@ -84,6 +84,7 @@ type Store interface {
 	GetChannel(ctx context.Context, id int64) (db.Channel, error)
 	CreateChannel(ctx context.Context, arg db.CreateChannelParams) (db.Channel, error)
 	UpdateChannel(ctx context.Context, arg db.UpdateChannelParams) (db.Channel, error)
+	SetChannelGuideMode(ctx context.Context, arg db.SetChannelGuideModeParams) error
 	DeleteChannel(ctx context.Context, id int64) error
 	NextChannelNumber(ctx context.Context) (int32, error)
 	ChannelNumbersByIDs(ctx context.Context, ids []int64) ([]db.ChannelNumbersByIDsRow, error)
@@ -95,6 +96,7 @@ type Store interface {
 	CreateChannelGroup(ctx context.Context, arg db.CreateChannelGroupParams) (db.ChannelGroup, error)
 	EnsureChannelGroup(ctx context.Context, name string) (db.ChannelGroup, error)
 	UpdateChannelGroup(ctx context.Context, arg db.UpdateChannelGroupParams) (db.ChannelGroup, error)
+	SetChannelGroupGuideMode(ctx context.Context, arg db.SetChannelGroupGuideModeParams) error
 	DeleteChannelGroup(ctx context.Context, id int64) error
 	ChannelGroupCounts(ctx context.Context) ([]db.ChannelGroupCountsRow, error)
 	SetChannelsGroup(ctx context.Context, arg db.SetChannelsGroupParams) (int64, error)
@@ -307,6 +309,7 @@ func New(d Deps) (*UI, error) {
 		"size":       humanSize,
 		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
 		"preview":    func() bool { return ui.Preview != nil },
+		"guideModes": func() []struct{ Value, Label string } { return guideModes },
 	}
 	for _, page := range pageNames {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials/*.html", "templates/"+page+".html")

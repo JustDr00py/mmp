@@ -24,6 +24,13 @@
     <label>tvg-id<input name="tvg_id" value="{{.TvgID}}" placeholder="links the guide (XMLTV channel id)"></label>
     <label>Logo URL<input name="logo_url" type="url" value="{{.Logo}}"></label>
   </div>
+  <label>Guide
+    <select name="guide_mode">
+      <option value="">— the group's setting —</option>
+      {{range guideModes}}<option value="{{.Value}}"{{if eq .Value $.GuideMode}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    <span class="hint">Auto: the XMLTV guide, else one made from the stream name · Stream name: the event in the stream name first (for event and PPV channels whose XMLTV only has placeholders) · XMLTV only: never from the stream name</span>
+  </label>
   <label class="check"><input type="checkbox" name="enabled"{{if .Enabled}} checked{{end}}> Enabled</label>
   <div class="row">
     <button type="submit">{{if .ID}}Save{{else}}Create channel{{end}}</button>

@@ -13,6 +13,9 @@ RETURNING *;
 -- name: ListChannelGroups :many
 SELECT * FROM channel_groups ORDER BY sort_order, name;
 
+-- name: SetChannelGroupGuideMode :exec
+UPDATE channel_groups SET guide_mode = $2 WHERE id = $1;
+
 -- name: UpdateChannelGroup :one
 UPDATE channel_groups SET name = $2, sort_order = $3 WHERE id = $1 RETURNING *;
 
@@ -74,6 +77,10 @@ UPDATE channels SET
 WHERE id = $1
 RETURNING *;
 
+-- name: SetChannelGuideMode :exec
+-- '' follows the channel's group.
+UPDATE channels SET guide_mode = $2, updated_at = now() WHERE id = $1;
+
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE id = $1;
 
@@ -85,10 +92,12 @@ SELECT * FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1;
 
 -- name: ListUserChannels :many
 -- Enabled channels in any of the user's bouquets (customer playlists),
--- with the name of their first failover stream (for stream-name guides).
+-- with the name of their first failover stream (for stream-name guides)
+-- and where their guide comes from (the channel's mode, else its group's).
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
        COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM user_bouquets ub
@@ -99,10 +108,11 @@ WHERE ub.user_id = $1 AND c.enabled
 ORDER BY c.number NULLS LAST, c.name, c.id;
 
 -- name: ListEnabledChannels :many
--- Every enabled channel (admin playlists).
+-- Every enabled channel (admin playlists), as ListUserChannels.
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
        COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
 FROM channels c

@@ -147,7 +147,8 @@ func TestProviderQueriesSmoke(t *testing.T) {
 
 // TestListGuidePrograms covers the guide query: case-insensitive tvg-id
 // match, one source per channel (best provider priority with data in the
-// window, provider sources ahead of manual ones), the time window, and
+// window, provider sources ahead of manual ones, but a source whose
+// schedule has ended behind one still running), the time window, and
 // disabled sources.
 func TestListGuidePrograms(t *testing.T) {
 	dsn := testDSN(t)
@@ -202,13 +203,15 @@ func TestListGuidePrograms(t *testing.T) {
 	add(sBest, "movies", "best-movies-far", h(200), h(201)) // after the window
 	add(sWorse, "movies", "worse-movies", h(0), h(2))
 	add(sOff, "kids", "off-kids", h(0), h(1))
+	add(sBest, "scores", "best-scores-stale", h(-6), h(-5)) // stopped updating
+	add(sWorse, "scores", "worse-scores", h(-1), h(3))
 	if _, err := q.InsertEpgPrograms(ctx, rows); err != nil {
 		t.Fatal(err)
 	}
 
 	got, err := q.ListGuidePrograms(ctx, ListGuideProgramsParams{
-		TvgKeys: []string{"news.us", "sports", "movies", "kids", "missing"},
-		Since:   h(-24), Until: h(7 * 24),
+		TvgKeys: []string{"news.us", "sports", "movies", "kids", "scores", "missing"},
+		Since:   h(-24), Until: h(7 * 24), Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +223,7 @@ func TestListGuidePrograms(t *testing.T) {
 	want := []string{
 		"movies:worse-movies",
 		"news.us:best-news-running", "news.us:best-news-1", "news.us:best-news-2",
+		"scores:worse-scores",
 		"sports:worse-sports",
 	}
 	if len(titles) != len(want) {

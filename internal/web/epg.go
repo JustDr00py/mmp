@@ -128,14 +128,23 @@ func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, fo
 	if len(guide) > guideRowsPerPage {
 		guide, d.NextOffset = guide[:guideRowsPerPage], offset+guideRowsPerPage
 	}
-	// Channels without a guide: what the stream-name guide gives them.
+	// What the stream-name guide gives channels without a guide, and
+	// those set to take it first (as the customer outputs pick).
 	if names, err := nameguide.Load(r.Context(), ui.Store); err == nil {
 		now := time.Now()
 		for i := range guide {
-			if g := &guide[i]; g.SourceName == "" {
-				if g.NowTitle = names.NowTitle(g.Name, g.StreamName, now); g.NowTitle != "" {
-					g.SourceName = fromStreamName
-				}
+			g := &guide[i]
+			s := names
+			switch {
+			case g.GuideMode == "xmltv":
+				continue
+			case g.GuideMode == "name":
+				s.Enabled = true
+			case g.SourceName != "":
+				continue
+			}
+			if t := s.NowTitle(g.Name, g.StreamName, now); t != "" {
+				g.NowTitle, g.SourceName = t, fromStreamName
 			}
 		}
 	}

@@ -9,8 +9,8 @@ import (
 	"github.com/JustDr00py/mmp/internal/nameguide"
 )
 
-// NameFallback gives a channel without a guide its stream-name guide for
-// [since, until), or nothing.
+// NameFallback gives a channel its stream-name guide for [since, until),
+// or nothing (see guideRows for when it is used).
 type NameFallback func(c Channel, since, until time.Time) []db.ListGuideProgramsRow
 
 // nameGuideFor reads the stream-name guide settings once and returns the
@@ -21,6 +21,10 @@ func (h *Handlers) nameGuideFor(ctx context.Context, now time.Time) NameFallback
 	}
 	s := h.NameGuide(ctx)
 	return func(c Channel, since, until time.Time) []db.ListGuideProgramsRow {
+		s := s
+		if c.GuideMode == GuideName { // chosen for this channel: on even if off for the rest
+			s.Enabled = true
+		}
 		ev, ok := s.For(c.Name, c.StreamName, now)
 		if !ok {
 			return nil

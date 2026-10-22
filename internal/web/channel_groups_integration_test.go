@@ -348,3 +348,62 @@ func TestChannelGroupsOrder(t *testing.T) {
 		t.Error("flash missing")
 	}
 }
+
+// TestGuideModeSettings: a group's guide setting reaches its channels
+// unless a channel sets its own, and unknown settings are refused.
+func TestGuideModeSettings(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	g, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "PPV"})
+	gid := strconv.FormatInt(g.ID, 10)
+	ch, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "PPV 1", GroupID: &g.ID})
+	cid := strconv.FormatInt(ch.ID, 10)
+	mode := func() string {
+		t.Helper()
+		rows, err := q.ListEnabledChannels(ctx)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("channels = %+v, %v", rows, err)
+		}
+		return rows[0].GuideMode
+	}
+	if m := mode(); m != "auto" {
+		t.Fatalf("default mode = %q", m)
+	}
+
+	if resp, _ := b.post("/admin/groups/"+gid, url.Values{"name": {"PPV"}, "guide_mode": {"name"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("group update = %d", resp.StatusCode)
+	}
+	if m := mode(); m != "name" {
+		t.Fatalf("mode from group = %q", m)
+	}
+	if _, body := b.get("/admin/groups"); !strings.Contains(body, `<option value="name" selected>Stream name</option>`) {
+		t.Errorf("groups page does not show the group's guide setting")
+	}
+	// A form without the field (an older page) keeps the setting.
+	b.post("/admin/groups/"+gid, url.Values{"name": {"PPV"}}, b.base)
+	if g, _ = q.GetChannelGroup(ctx, g.ID); g.GuideMode != "name" {
+		t.Fatalf("group mode after a form without it = %q", g.GuideMode)
+	}
+
+	form := url.Values{"name": {"PPV 1"}, "group_id": {gid}, "enabled": {"on"}, "guide_mode": {"xmltv"}}
+	if resp, _ := b.post("/admin/channels/"+cid, form, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("channel update = %d", resp.StatusCode)
+	}
+	if m := mode(); m != "xmltv" {
+		t.Fatalf("channel's own mode = %q", m)
+	}
+	form.Set("guide_mode", "")
+	b.post("/admin/channels/"+cid, form, b.base)
+	if m := mode(); m != "name" {
+		t.Fatalf("mode after following the group again = %q", m)
+	}
+
+	form.Set("guide_mode", "bogus")
+	if resp, body := b.post("/admin/channels/"+cid, form, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "Unknown guide setting.") {
+		t.Fatalf("bogus channel mode = %d", resp.StatusCode)
+	}
+	if resp, _ := b.post("/admin/groups/"+gid, url.Values{"name": {"PPV"}, "guide_mode": {"bogus"}}, b.base); resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("bogus group mode = %d", resp.StatusCode)
+	}
+}
