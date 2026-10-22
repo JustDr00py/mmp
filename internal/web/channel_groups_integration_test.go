@@ -62,6 +62,79 @@ func TestChannelGroupsPage(t *testing.T) {
 	}
 }
 
+// TestChannelGroupDeleteWithChannels: the group's delete dialog can take
+// its channels with it; other groups' channels stay.
+func TestChannelGroupDeleteWithChannels(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	ppv, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "PPV"})
+	news, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "News"})
+	e1, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "ESPN+ 01", GroupID: &ppv.ID})
+	e2, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "ESPN+ 02", GroupID: &ppv.ID})
+	cnn, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "CNN", GroupID: &news.ID})
+	pid := strconv.FormatInt(ppv.ID, 10)
+
+	_, body := b.get("/admin/groups")
+	for _, want := range []string{`data-dialog="#delete-group-` + pid + `"`, `It has 2 channels.`, `name="channels" value="delete"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("groups page lacks %q", want)
+		}
+	}
+
+	resp, _ := b.post("/admin/groups/"+pid+"/delete", url.Values{"channels": {"delete"}}, b.base)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/groups?msg=deleted-channels&n=2" {
+		t.Fatalf("delete with channels = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	for _, id := range []int64{e1.ID, e2.ID} {
+		if _, err := q.GetChannel(ctx, id); err == nil {
+			t.Errorf("channel %d survived its group", id)
+		}
+	}
+	if _, err := q.GetChannelGroup(ctx, ppv.ID); err == nil {
+		t.Error("group survived")
+	}
+	if c, err := q.GetChannel(ctx, cnn.ID); err != nil || c.GroupID == nil || *c.GroupID != news.ID {
+		t.Errorf("other group's channel = %+v %v", c, err)
+	}
+	if _, body := b.get("/admin/groups?msg=deleted-channels&n=2"); !strings.Contains(body, "Group deleted with its 2 channels.") {
+		t.Error("flash missing")
+	}
+}
+
+// TestChannelsDelete deletes the selected channels from the Channels page.
+func TestChannelsDelete(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	ids := seedGroupedChannels(t, q, map[string]string{"CNN": "US News", "BBC": "UK", "Loose": ""})
+
+	f := url.Values{"q": {"o"}, "offset": {"50"}, "to": {""}}
+	f.Add("channel", strconv.FormatInt(ids["CNN"], 10))
+	f.Add("channel", strconv.FormatInt(ids["Loose"], 10))
+	resp, _ := b.post("/admin/channels/delete", f, b.base)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/channels?msg=deleted-n&n=2&q=o" {
+		t.Fatalf("delete = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	for _, n := range []string{"CNN", "Loose"} {
+		if _, err := q.GetChannel(ctx, ids[n]); err == nil {
+			t.Errorf("%s not deleted", n)
+		}
+	}
+	if _, err := q.GetChannel(ctx, ids["BBC"]); err != nil {
+		t.Errorf("unselected BBC deleted: %v", err)
+	}
+	if _, body := b.get("/admin/channels?msg=deleted-n&n=2"); !strings.Contains(body, "Deleted 2 channels.") {
+		t.Error("flash missing")
+	}
+	if resp, _ := b.post("/admin/channels/delete", url.Values{}, b.base); resp.StatusCode != http.StatusSeeOther ||
+		resp.Header.Get("Location") != "/admin/channels?" {
+		t.Errorf("nothing selected = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	_, body := b.get("/admin/channels")
+	if !strings.Contains(body, `formaction="/admin/channels/delete"`) {
+		t.Error("channels page lacks Delete selected")
+	}
+}
+
 // seedGroupedChannels creates one channel per stream group title ("" = a
 // stream without a group), each playing its stream; returns channel ids by
 // name.

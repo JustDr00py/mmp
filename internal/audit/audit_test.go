@@ -26,6 +26,7 @@ func TestDescribe(t *testing.T) {
 		{"POST", "/admin/channels/order", "reordered", "channel", ""},
 		{"POST", "/admin/groups/order", "reordered", "channel group", ""},
 		{"POST", "/admin/providers/bulk", "changed several", "provider", ""},
+		{"POST", "/admin/channels/delete", "deleted several", "channel", ""},
 		{"POST", "/admin/epg/sources/2/edit", "updated", "guide source", "2"},
 		{"POST", "/admin/match/rules/4/delete", "deleted", "match rule", "4"},
 		{"POST", "/admin/match/apply", "applied matches", "", ""},

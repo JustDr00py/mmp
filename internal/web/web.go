@@ -86,6 +86,8 @@ type Store interface {
 	UpdateChannel(ctx context.Context, arg db.UpdateChannelParams) (db.Channel, error)
 	SetChannelGuideMode(ctx context.Context, arg db.SetChannelGuideModeParams) error
 	DeleteChannel(ctx context.Context, id int64) error
+	DeleteChannels(ctx context.Context, channelIds []int64) (int64, error)
+	DeleteGroupChannels(ctx context.Context, groupID *int64) (int64, error)
 	NextChannelNumber(ctx context.Context) (int32, error)
 	ChannelNumbersByIDs(ctx context.Context, ids []int64) ([]db.ChannelNumbersByIDsRow, error)
 	ClearChannelNumbers(ctx context.Context, ids []int64) error

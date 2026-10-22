@@ -208,10 +208,11 @@ tvg-id, Match only joins streams with that tvg-id if their names match too.
 
 **Channel groups** are the categories players show (Xtream categories, M3U `group-title`); a channel without
 one appears under *Uncategorized*. Bouquets decide *which* channels a customer gets, groups only arrange
-them. On **Groups**, create, rename, reorder (sort order = order in the player) and delete groups, or press
-**Use provider groups** to put every channel without a group into one named after its provider group. On
-**Channels**, tick channels and **Move selected to…** a group, no group, or their provider group; the
-**No group** filter finds the uncategorized ones.
+them. On **Groups**, create, rename, reorder (sort order = order in the player) and delete groups (deleting
+one asks whether its channels stay, without a group, or go with it), or press **Use provider groups** to put
+every channel without a group into one named after its provider group. On **Channels**, tick channels and
+**Move selected to…** a group, no group, or their provider group, or **Delete selected**; the **No group**
+filter finds the uncategorized ones.
 
 ![Groups: the categories players show, with their sort order and channel counts](docs/screenshots/groups.png)
 

@@ -232,6 +232,31 @@ func (q *Queries) DeleteChannelGroup(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteChannels = `-- name: DeleteChannels :execrows
+DELETE FROM channels WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) DeleteChannels(ctx context.Context, channelIds []int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteChannels, channelIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteGroupChannels = `-- name: DeleteGroupChannels :execrows
+DELETE FROM channels WHERE group_id = $1
+`
+
+// Deletes the channels in a group, before the group itself goes.
+func (q *Queries) DeleteGroupChannels(ctx context.Context, groupID *int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteGroupChannels, groupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const ensureChannelGroup = `-- name: EnsureChannelGroup :one
 INSERT INTO channel_groups (name, sort_order)
 VALUES ($1, (SELECT COALESCE(max(sort_order), 0) + 1 FROM channel_groups))

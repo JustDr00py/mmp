@@ -84,6 +84,13 @@ UPDATE channels SET guide_mode = $2, updated_at = now() WHERE id = $1;
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE id = $1;
 
+-- name: DeleteChannels :execrows
+DELETE FROM channels WHERE id = ANY(sqlc.arg('channel_ids')::bigint[]);
+
+-- name: DeleteGroupChannels :execrows
+-- Deletes the channels in a group, before the group itself goes.
+DELETE FROM channels WHERE group_id = $1;
+
 -- name: NextChannelNumber :one
 SELECT COALESCE(max(number), 100) + 1 FROM channels;
 

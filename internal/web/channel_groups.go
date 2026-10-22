@@ -76,6 +76,8 @@ func (ui *UI) channelGroupsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Group saved."
 	case "deleted":
 		d.Flash = "Group deleted. Its channels now have no group."
+	case "deleted-channels":
+		d.Flash = "Group deleted with its " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + "."
 	case "ordered":
 		d.Flash = "Group order saved. Players show the groups in this order."
 	case "filled":
@@ -192,11 +194,27 @@ func (ui *UI) channelGroupDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := ui.Store.DeleteChannelGroup(r.Context(), g.ID); err != nil {
+	// channels=delete deletes its channels too; otherwise they lose the group.
+	withChannels := r.PostFormValue("channels") == "delete"
+	var n int64
+	err := ui.inTx(r.Context(), func(q Store) error {
+		if withChannels {
+			var err error
+			if n, err = q.DeleteGroupChannels(r.Context(), &g.ID); err != nil {
+				return err
+			}
+		}
+		return q.DeleteChannelGroup(r.Context(), g.ID)
+	})
+	if err != nil {
 		ui.fail(w, "delete channel group", err)
 		return
 	}
-	ui.Log.Info("web: channel group deleted", "group_id", g.ID)
+	ui.Log.Info("web: channel group deleted", "group_id", g.ID, "channels_deleted", n)
+	if withChannels {
+		ui.redirect(w, r, Prefix+"/groups?msg=deleted-channels&n="+strconv.FormatInt(n, 10))
+		return
+	}
 	ui.redirect(w, r, Prefix+"/groups?msg=deleted")
 }
 

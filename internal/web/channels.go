@@ -27,6 +27,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 	r.Get("/channels/new", ui.channelNew)
 	r.Post("/channels/new", ui.channelCreate)
 	r.Post("/channels/group", ui.channelsSetGroup)
+	r.Post("/channels/delete", ui.channelsDelete)
 	r.Post("/channels/order", ui.channelsReorder)
 	r.Route("/channels/{id}", func(r chi.Router) {
 		r.Get("/", ui.channelPage)
@@ -131,8 +132,11 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	playing := ui.playing()
 	d := channelsData{Groups: groups, Bouquets: bouquets, Query: q, GroupID: gid, BouquetID: bid, Offset: offset, PrevOffset: max(offset-channelsPerPage, 0),
 		Flash: channelFlashes[r.URL.Query().Get("msg")]}
-	if q := r.URL.Query(); q.Get("msg") == "grouped" {
+	switch q := r.URL.Query(); q.Get("msg") {
+	case "grouped":
 		d.Flash = "Updated " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " of " + strconv.Itoa(atoi(q.Get("of"))) + " selected."
+	case "deleted-n":
+		d.Flash = "Deleted " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + "."
 	}
 	if len(chans) > channelsPerPage {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
@@ -160,15 +164,9 @@ func (ui *UI) channelsSetGroup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	f := r.PostForm
-	back := url.Values{}
-	for _, k := range []string{"q", "group", "bouquet", "offset"} {
-		if v := f.Get(k); v != "" && v != "0" {
-			back.Set(k, v)
-		}
-	}
+	back := channelsBack(r)
 	ids := channelIDs(r)
-	to := f.Get("to")
+	to := r.PostForm.Get("to")
 	if len(ids) == 0 || to == "" {
 		ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
 		return
@@ -204,6 +202,43 @@ func (ui *UI) channelsSetGroup(w http.ResponseWriter, r *http.Request) {
 	back.Set("msg", "grouped")
 	back.Set("n", strconv.FormatInt(n, 10))
 	back.Set("of", strconv.Itoa(len(ids)))
+	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+}
+
+// channelsBack is the Channels page's filter and page from a bulk form,
+// to return to.
+func channelsBack(r *http.Request) url.Values {
+	back := url.Values{}
+	for _, k := range []string{"q", "group", "bouquet", "offset"} {
+		if v := r.PostForm.Get(k); v != "" && v != "0" {
+			back.Set(k, v)
+		}
+	}
+	return back
+}
+
+// channelsDelete deletes the selected channels (channel=id…).
+func (ui *UI) channelsDelete(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	back := channelsBack(r)
+	back.Del("offset") // the page may be gone
+	ids := channelIDs(r)
+	if len(ids) == 0 {
+		ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+		return
+	}
+	n, err := ui.Store.DeleteChannels(r.Context(), ids)
+	if err != nil {
+		ui.fail(w, "delete channels", err)
+		return
+	}
+	ui.Log.Info("web: channels deleted", "selected", len(ids), "deleted", n)
+	back.Set("msg", "deleted-n")
+	back.Set("n", strconv.FormatInt(n, 10))
 	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
 }
 
