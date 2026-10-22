@@ -31,18 +31,25 @@ SELECT * FROM epg_sources WHERE provider_id = $1;
 
 -- name: ListGuidePrograms :many
 -- Programs overlapping [since, until) for the given lower-cased tvg-ids.
--- Each tvg-id takes its whole schedule from one source: the one with the
--- best priority (the source's own, else its provider's) that has
--- programs in the window, so overlapping guides never interleave.
-WITH best AS (
-    SELECT DISTINCT ON (lower(p.channel_tvg_id))
-           lower(p.channel_tvg_id) AS tvg_key, p.epg_source_id
+-- Each tvg-id takes its whole schedule from one source, so overlapping
+-- guides never interleave: of the sources with programs in the window,
+-- one whose schedule runs past now (else, one that has gone stale), by
+-- best priority (the source's own, else its provider's). A guide that
+-- stopped updating so never hides a current one behind its priority.
+WITH cand AS (
+    SELECT lower(p.channel_tvg_id) AS tvg_key, p.epg_source_id,
+           max(p.stop_time) > sqlc.arg('now')::timestamptz AS current,
+           COALESCE(s.priority, pr.priority, 2147483647) AS prio
     FROM epg_programs p
     JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled
     LEFT JOIN providers pr ON pr.id = s.provider_id
     WHERE lower(p.channel_tvg_id) = ANY(sqlc.arg('tvg_keys')::text[])
       AND p.stop_time > sqlc.arg('since') AND p.start_time < sqlc.arg('until')
-    ORDER BY lower(p.channel_tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
+    GROUP BY 1, 2, 4
+), best AS (
+    SELECT DISTINCT ON (tvg_key) tvg_key, epg_source_id
+    FROM cand
+    ORDER BY tvg_key, current DESC, prio, epg_source_id
 )
 SELECT b.tvg_key::text AS tvg_key, p.id, p.title, p.sub_title, p.description, p.start_time, p.stop_time
 FROM best b
@@ -64,9 +71,11 @@ ORDER BY COALESCE(s.priority, pr.priority) NULLS LAST, s.name;
 -- Per-channel guide coverage, as customers see it: the highest-priority
 -- enabled source with programs for the channel's tvg-id (case-insensitive)
 -- in the next 24h, its program count there and what is on now.
--- missing_only keeps channels without upcoming programs.
+-- missing_only keeps channels without upcoming programs. guide_mode is
+-- the channel's (else its group's) guide setting.
 SELECT * FROM (
     SELECT c.id, c.number, c.name, c.tvg_id, c.enabled,
+           COALESCE(NULLIF(c.guide_mode, ''), cg.guide_mode, 'auto')::text AS guide_mode,
            COALESCE(b.name, '')::text AS source_name,
            COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                       WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name,
@@ -78,6 +87,7 @@ SELECT * FROM (
                AND p.start_time <= now() AND p.stop_time > now()
              ORDER BY p.start_time DESC LIMIT 1), '')::text AS now_title
     FROM channels c
+    LEFT JOIN channel_groups cg ON cg.id = c.group_id
     LEFT JOIN LATERAL (
         SELECT s.id, s.name FROM epg_programs p
         JOIN epg_sources s ON s.id = p.epg_source_id AND s.enabled

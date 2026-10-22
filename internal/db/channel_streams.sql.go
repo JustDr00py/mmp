@@ -196,7 +196,7 @@ func (q *Queries) GetStreamsByIDs(ctx context.Context, ids []int64) ([]GetStream
 }
 
 const listBouquetChannels = `-- name: ListBouquetChannels :many
-SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url, c.group_id, c.stream_profile_id, c.enabled, c.created_at, c.updated_at FROM bouquet_channels bc
+SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url, c.group_id, c.stream_profile_id, c.enabled, c.created_at, c.updated_at, c.guide_mode FROM bouquet_channels bc
 JOIN channels c ON c.id = bc.channel_id
 WHERE bc.bouquet_id = $1
 ORDER BY c.number NULLS LAST, c.name
@@ -222,6 +222,7 @@ func (q *Queries) ListBouquetChannels(ctx context.Context, bouquetID int64) ([]C
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GuideMode,
 		); err != nil {
 			return nil, err
 		}

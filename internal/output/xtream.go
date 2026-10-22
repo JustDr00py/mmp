@@ -304,15 +304,13 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 	if table {
 		since = now.Add(-guideBehind)
 	}
-	rows, err := h.programs(r.Context(), tvgID, since, now.Add(guideAhead))
+	rows, err := h.programs(r.Context(), tvgID, since, now.Add(guideAhead), now)
 	if err != nil {
 		h.Log.Error("output: short epg", "user_id", u.ID, "channel_id", id, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if len(rows) == 0 {
-		rows = h.nameGuideFor(r.Context(), now)(chans[i], since, now.Add(guideAhead))
-	}
+	rows = guideRows(chans[i], rows, h.nameGuideFor(r.Context(), now), since, now.Add(guideAhead))
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]
 	}
@@ -334,9 +332,9 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 	writeXtream(w, map[string]any{"epg_listings": out})
 }
 
-func (h *Handlers) programs(ctx context.Context, tvgID string, since, until time.Time) ([]db.ListGuideProgramsRow, error) {
+func (h *Handlers) programs(ctx context.Context, tvgID string, since, until, now time.Time) ([]db.ListGuideProgramsRow, error) {
 	return h.Store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{
-		TvgKeys: []string{strings.ToLower(tvgID)}, Since: since, Until: until,
+		TvgKeys: []string{strings.ToLower(tvgID)}, Since: since, Until: until, Now: now,
 	})
 }
 

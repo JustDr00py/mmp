@@ -226,6 +226,7 @@ type channelForm struct {
 	ID                        int64
 	Number, Name, TvgID, Logo string
 	GroupID, ProfileID        int64
+	GuideMode                 string // '' follows the group
 	Enabled                   bool
 	Error                     string
 	Groups                    []db.ChannelGroup
@@ -251,6 +252,10 @@ func parseChannelForm(w http.ResponseWriter, r *http.Request) (channelForm, db.U
 	form := channelForm{Number: trim("number"), Name: trim("name"), TvgID: trim("tvg_id"), Logo: trim("logo_url"),
 		Enabled: f.Get("enabled") == "on"}
 	form.GroupID, _ = strconv.ParseInt(f.Get("group_id"), 10, 64)
+	form.GuideMode = f.Get("guide_mode")
+	if form.GuideMode != "" && !validGuideMode(form.GuideMode) {
+		return form, db.UpdateChannelParams{}, formError("Unknown guide setting.")
+	}
 	form.ProfileID, _ = strconv.ParseInt(f.Get("profile_id"), 10, 64)
 	p := db.UpdateChannelParams{Name: form.Name, TvgID: form.TvgID, LogoUrl: form.Logo, Enabled: form.Enabled}
 	if form.Name == "" {
@@ -316,6 +321,9 @@ func (ui *UI) channelCreate(w http.ResponseWriter, r *http.Request) {
 				p.ID = c.ID
 				_, err = ui.Store.UpdateChannel(r.Context(), p)
 			}
+			if err == nil && form.GuideMode != "" {
+				err = ui.Store.SetChannelGuideMode(r.Context(), db.SetChannelGuideModeParams{ID: c.ID, GuideMode: form.GuideMode})
+			}
 			if err == nil {
 				ui.Log.Info("web: channel created", "channel_id", c.ID)
 				ui.redirect(w, r, Prefix+"/channels/"+strconv.FormatInt(c.ID, 10)+"?msg=created")
@@ -357,7 +365,7 @@ func (ui *UI) channel(w http.ResponseWriter, r *http.Request) (db.Channel, bool)
 }
 
 func formFromChannel(c db.Channel) channelForm {
-	f := channelForm{ID: c.ID, Name: c.Name, TvgID: c.TvgID, Logo: c.LogoUrl, Enabled: c.Enabled}
+	f := channelForm{ID: c.ID, Name: c.Name, TvgID: c.TvgID, Logo: c.LogoUrl, GuideMode: c.GuideMode, Enabled: c.Enabled}
 	if c.Number != nil {
 		f.Number = strconv.Itoa(int(*c.Number))
 	}
@@ -427,7 +435,13 @@ func (ui *UI) channelUpdate(w http.ResponseWriter, r *http.Request) {
 	form.ID = c.ID
 	if err == nil {
 		p.ID = c.ID
-		if _, err = ui.Store.UpdateChannel(r.Context(), p); err == nil {
+		err = ui.inTx(r.Context(), func(q Store) error {
+			if _, err := q.UpdateChannel(r.Context(), p); err != nil {
+				return err
+			}
+			return q.SetChannelGuideMode(r.Context(), db.SetChannelGuideModeParams{ID: c.ID, GuideMode: form.GuideMode})
+		})
+		if err == nil {
 			ui.redirect(w, r, Prefix+"/channels/"+strconv.FormatInt(c.ID, 10)+"?msg=saved")
 			return
 		}
