@@ -188,8 +188,11 @@ guide, MMP reads the name of the channel's first stream and builds one: "Up next
 day before, the event for three hours from its start, then "Ended: …" for a day. It understands a status
 (`Next`, `Live`, `End`…), ISO or written dates (`Sun 18 Oct`), 12- and 24-hour times and zones such as
 `GMT`, `CEST`, `ET` or `PT`; times without a zone use the zone set under **Settings → Guide from stream
-names**. Names without a time give an all-day entry, and other channels without a guide get one with their
-name (both can be turned off there). Channels without a tvg-id get one (`mmp.<id>`) in playlists so
+names**. Event slots named like `US - ESPN PLUS 01 : WSL Pro Portugal OCT 22 – 3:30 AM ET / 8:30 AM UK`
+work too: the event after the ` : `, starting at the first time given. Names without a time give an
+all-day entry, and other channels without a guide get one with their name (both can be turned off there).
+A stream's event-slot title wins over the channel's name, so a channel named after an old event shows the
+stream's current one. Channels without a tvg-id get one (`mmp.<id>`) in playlists so
 players link them to it. Real guides win, unless you say otherwise: a channel's **Guide** setting (or its
 group's, on the **Groups** page) is **Auto** (the XMLTV guide, else the stream name), **Stream name** (the
 stream-name guide first, for event channels whose XMLTV only has placeholders like "No Event Scheduled";

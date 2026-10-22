@@ -42,6 +42,14 @@ func TestParse(t *testing.T) {
 		{"US: ESPN HD", Event{Title: "US: ESPN HD"}, nil}, // not an event name
 		{"Match of the Day 2 | BBC One", Event{Title: "Match of the Day 2", Desc: "BBC One", Piped: true}, nil},
 		{"End | ", Event{Title: "End"}, nil}, // a status needs something after it
+		{"US - ESPN PLUS 01 : 2026 WSL CHAMPIONSHIP TOUR – MEO RIP CURL PRO PORTUGAL OCT 22 – 3:30 AM ET / 8:30 AM UK",
+			Event{Title: "2026 WSL CHAMPIONSHIP TOUR – MEO RIP CURL PRO PORTUGAL", Start: utc("2026-10-22 07:30")}, nil},
+		{"ESPN PLUS 01 : 2026 REYES CUP – DAY 1 (TEAM REST OF THE WORLD @ TEAM ASIA) OCT 15 – 7:00 AM ET / 12:00 PM UK",
+			Event{Title: "2026 REYES CUP – DAY 1 (TEAM REST OF THE WORLD @ TEAM ASIA)", Start: utc("2026-10-15 11:00")}, nil},
+		{"UFC 300 Oct 19 8:00 PM ET", // a number ending the title is not the date
+			Event{Title: "UFC 300", Start: utc("2026-10-20 00:00")}, nil},
+		{"US - ESPN PLUS 01 : NO EVENT STREAMING", Event{Title: "NO EVENT STREAMING"}, nil},   // a slot between events
+		{"US - ESPN PLUS 01 : OCT 22 – 3:30 AM ET", Event{Title: "OCT 22 – 3:30 AM ET"}, nil}, // a time is no event
 	} {
 		loc := tt.loc
 		if loc == nil {
@@ -124,6 +132,14 @@ func TestSettingsFor(t *testing.T) {
 	}
 	if ev, ok := s.For("ESPN", "US: ESPN HD", now); !ok || ev.Title != "ESPN" {
 		t.Errorf("plain channel = %+v %v, want an all-day entry with the channel's name", ev, ok)
+	}
+	slot := "US - ESPN PLUS 01 : 2026 WSL PRO PORTUGAL OCT 18 – 3:30 PM ET / 8:30 PM UK"
+	if ev, ok := s.For("ESPN PLUS 01 : 2026 REYES CUP OCT 15 – 7:00 AM ET", slot, now); !ok ||
+		ev.Title != "2026 WSL PRO PORTUGAL" || ev.Start == nil || !ev.Start.Equal(time.Date(2026, 10, 18, 19, 30, 0, 0, time.UTC)) {
+		t.Errorf("event slot = %+v %v, want the stream's current event", ev, ok)
+	}
+	if ev, ok := s.For("ESPN+ 01 : OLD EVENT", "US - ESPN PLUS 01 : NO EVENT STREAMING", now); !ok || ev.Title != "NO EVENT STREAMING" {
+		t.Errorf("idle slot = %+v %v, want the stream's title over the channel's", ev, ok)
 	}
 	s.All = false
 	if _, ok := s.For("ESPN", "US: ESPN HD", now); ok {

@@ -50,11 +50,16 @@ var whenWords = map[string]bool{"am": true, "pm": true, "st": true, "nd": true, 
 
 // Parse reads a stream name. now picks the year of a date given without
 // one, and the day of a time given without a date (the nearest one);
-// times without a zone are in loc.
+// times without a zone are in loc. A name not in the "a | b" style may be
+// an event slot's: "US - ESPN PLUS 01 : WSL PRO PORTUGAL OCT 22 – 3:30 AM
+// ET / 8:30 AM UK", the slot's label, then the event and when it starts.
 func Parse(name string, now time.Time, loc *time.Location) Event {
 	var ev Event
 	parts := splitParts(name)
 	ev.Piped = len(parts) > 1
+	if !ev.Piped && len(parts) == 1 {
+		return slotEvent(parts[0], now, loc)
+	}
 	if len(parts) > 1 {
 		if s, ok := statuses[strings.ToLower(parts[0])]; ok {
 			ev.Status = s
@@ -82,6 +87,53 @@ func Parse(name string, now time.Time, loc *time.Location) Event {
 		ev.Desc = strings.Join(text[1:], " · ")
 	}
 	return ev
+}
+
+// slotEvent reads a name not in the "a | b" style: the event after a
+// slot label ("label : event"), and the date and time it ends with.
+func slotEvent(name string, now time.Time, loc *time.Location) Event {
+	if _, rest, ok := splitLabel(name); ok {
+		name = rest
+	}
+	for _, w := range fieldStart.FindAllStringIndex(name, -1) {
+		tail := name[w[0]:]
+		if !startsWhen(tail) || !isWhen(tail) {
+			continue
+		}
+		title := strings.TrimRight(name[:w[0]], " -–—:,")
+		if title == "" {
+			break
+		}
+		first, _, _ := strings.Cut(tail, "/") // "3:30 AM ET / 8:30 AM UK": the same time twice
+		if start := whenOf(first, now, loc); start != nil {
+			return Event{Title: title, Start: start}
+		}
+		break
+	}
+	return Event{Title: name}
+}
+
+// splitLabel splits "US - ESPN PLUS 01 : event" at its " : ", which
+// "US: ESPN HD" or a time like "3:30" lack.
+func splitLabel(name string) (label, rest string, ok bool) {
+	label, rest, ok = strings.Cut(name, " : ")
+	label, rest = strings.TrimSpace(label), strings.TrimSpace(rest)
+	return label, rest, ok && label != "" && rest != ""
+}
+
+var fieldStart = regexp.MustCompile(`\S+`)
+
+// startsWhen reports whether s begins with a date, time or weekday, so a
+// number ending a title ("UFC 300 OCT 22") is not taken for the date.
+func startsWhen(s string) bool {
+	for _, re := range []*regexp.Regexp{clock, isoDate, slashDate, dayMonth, monthDay} {
+		if m := re.FindStringIndex(s); m != nil && m[0] == 0 {
+			return true
+		}
+	}
+	w := word.FindString(s)
+	lw := strings.ToLower(w)
+	return w != "" && strings.HasPrefix(s, w) && whenWords[lw] && lw != "am" && lw != "pm"
 }
 
 func splitParts(name string) []string {

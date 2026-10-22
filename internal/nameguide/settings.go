@@ -83,7 +83,8 @@ func Save(ctx context.Context, q Store, s Settings) error {
 
 // For is the event a channel's guide is built from under s: its stream
 // name when that is in the "a | b" style or names an event, else (with
-// All) the channel's own name. ok is false when the channel gets none.
+// All) the event slot title it has ("label : title") or the channel's own
+// name. ok is false when the channel gets none.
 func (s Settings) For(channelName, streamName string, now time.Time) (Event, bool) {
 	if !s.Enabled {
 		return Event{}, false
@@ -97,6 +98,10 @@ func (s Settings) For(channelName, streamName string, now time.Time) (Event, boo
 	if !s.All {
 		return Event{}, false
 	}
-	ev := Parse(channelName, now, loc)
+	name := channelName
+	if _, _, ok := splitLabel(streamName); ok { // an event slot's current title, not a name it had once
+		name = streamName
+	}
+	ev := Parse(name, now, loc)
 	return ev, ev.Title != ""
 }
