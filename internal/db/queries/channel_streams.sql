@@ -9,6 +9,15 @@ ON CONFLICT (channel_id, provider_stream_id) DO UPDATE SET priority = EXCLUDED.p
 DELETE FROM channel_streams
 WHERE channel_id = $1 AND provider_stream_id = $2;
 
+-- name: ListChannelLinks :many
+-- Every channel's streams, with both names, for matching checks.
+SELECT cs.channel_id, c.name AS channel_name, c.tvg_id AS channel_tvg_id,
+       ps.id AS provider_stream_id, ps.name AS stream_name, ps.tvg_id AS stream_tvg_id
+FROM channel_streams cs
+JOIN channels c ON c.id = cs.channel_id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+ORDER BY cs.channel_id, cs.priority;
+
 -- name: ReorderChannelStreams :exec
 UPDATE channel_streams AS cs SET priority = s.ord
 FROM unnest(sqlc.arg('stream_ids')::bigint[]) WITH ORDINALITY AS s(stream_id, ord)

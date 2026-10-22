@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JustDr00py/mmp/internal/channel"
 )
 
 // Event is what a stream name says.
@@ -100,7 +102,7 @@ func slotEvent(name string, now time.Time, loc *time.Location) Event {
 		if !startsWhen(tail) || !isWhen(tail) {
 			continue
 		}
-		title := strings.TrimRight(name[:w[0]], " -–—:,")
+		title := strings.TrimRight(name[:w[0]], " -–—:,@")
 		if title == "" {
 			break
 		}
@@ -113,9 +115,14 @@ func slotEvent(name string, now time.Time, loc *time.Location) Event {
 	return Event{Title: name}
 }
 
-// splitLabel splits "US - ESPN PLUS 01 : event" at its " : ", which
+// splitLabel splits an event slot's name into its label and event: any
+// numbered slot channel.SplitSlot knows ("College: SMU vs Arizona State @
+// Oct 22 5:00 PM :ESPN+  14"), else "label : event" at its " : ", which
 // "US: ESPN HD" or a time like "3:30" lack.
 func splitLabel(name string) (label, rest string, ok bool) {
+	if label, rest, ok = channel.SplitSlot(name); ok && rest != "" {
+		return label, rest, true
+	}
 	label, rest, ok = strings.Cut(name, " : ")
 	label, rest = strings.TrimSpace(label), strings.TrimSpace(rest)
 	return label, rest, ok && label != "" && rest != ""

@@ -691,6 +691,20 @@ func (q *Queries) NextChannelNumber(ctx context.Context) (int32, error) {
 	return column_1, err
 }
 
+const renameChannel = `-- name: RenameChannel :exec
+UPDATE channels SET name = $2, updated_at = now() WHERE id = $1
+`
+
+type RenameChannelParams struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) RenameChannel(ctx context.Context, arg RenameChannelParams) error {
+	_, err := q.db.Exec(ctx, renameChannel, arg.ID, arg.Name)
+	return err
+}
+
 const setChannelGroupGuideMode = `-- name: SetChannelGroupGuideMode :exec
 UPDATE channel_groups SET guide_mode = $2 WHERE id = $1
 `

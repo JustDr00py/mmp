@@ -326,6 +326,52 @@ func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([
 	return items, nil
 }
 
+const listChannelLinks = `-- name: ListChannelLinks :many
+SELECT cs.channel_id, c.name AS channel_name, c.tvg_id AS channel_tvg_id,
+       ps.id AS provider_stream_id, ps.name AS stream_name, ps.tvg_id AS stream_tvg_id
+FROM channel_streams cs
+JOIN channels c ON c.id = cs.channel_id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+ORDER BY cs.channel_id, cs.priority
+`
+
+type ListChannelLinksRow struct {
+	ChannelID        int64  `json:"channel_id"`
+	ChannelName      string `json:"channel_name"`
+	ChannelTvgID     string `json:"channel_tvg_id"`
+	ProviderStreamID int64  `json:"provider_stream_id"`
+	StreamName       string `json:"stream_name"`
+	StreamTvgID      string `json:"stream_tvg_id"`
+}
+
+// Every channel's streams, with both names, for matching checks.
+func (q *Queries) ListChannelLinks(ctx context.Context) ([]ListChannelLinksRow, error) {
+	rows, err := q.db.Query(ctx, listChannelLinks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelLinksRow
+	for rows.Next() {
+		var i ListChannelLinksRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.ChannelName,
+			&i.ChannelTvgID,
+			&i.ProviderStreamID,
+			&i.StreamName,
+			&i.StreamTvgID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChannelStreams = `-- name: ListChannelStreams :many
 SELECT
     cs.channel_id, cs.priority, cs.added_at,

@@ -159,6 +159,10 @@ Two ways to build channels:
   3. Check the suggestions. You can rename a new channel or untick individual streams on its row (editing a row
      selects it). Then press **Apply selected**, or **Apply all N matching** for everything the filter shows,
      across pages.
+  A `+` ending a name counts (ESPN+, AMC+ and Paramount+ are not ESPN, AMC and Paramount). Event slots, which
+  providers rename for every event (`US - ESPN PLUS 01 : WSL Pro Portugal OCT 22 – 3:30 AM ET`,
+  `College: SMU vs Arizona State @ Oct 22 5:00 PM :ESPN+  14`), become channels named after the slot
+  (`ESPN PLUS 01`, `ESPN+ 14`), not the event on when you matched; renamed slots stay on their channel.
   Applied suggestions leave the list. **Advanced: matching rules** handles channels whose names differ too much
   between providers: a regular expression (e.g. `lakers`) puts every matching stream under one channel name.
   When the same channel shows up as two suggestions (one provider uses another tvg-id), tick both and press
@@ -189,7 +193,8 @@ day before, the event for three hours from its start, then "Ended: …" for a da
 (`Next`, `Live`, `End`…), ISO or written dates (`Sun 18 Oct`), 12- and 24-hour times and zones such as
 `GMT`, `CEST`, `ET` or `PT`; times without a zone use the zone set under **Settings → Guide from stream
 names**. Event slots named like `US - ESPN PLUS 01 : WSL Pro Portugal OCT 22 – 3:30 AM ET / 8:30 AM UK`
-work too: the event after the ` : `, starting at the first time given. Names without a time give an
+or `College: SMU vs Arizona State @ Oct 22 5:00 PM :ESPN+  14` work too: the event beside the slot's label,
+starting at the first time given. Names without a time give an
 all-day entry, and other channels without a guide get one with their name (both can be turned off there).
 A stream's event-slot title wins over the channel's name, so a channel named after an old event shows the
 stream's current one. Channels without a tvg-id get one (`mmp.<id>`) in playlists so

@@ -5,6 +5,7 @@ package channel
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -42,8 +43,13 @@ var longCountryPrefixes = []string{"usa", "united states", "united kingdom", "ca
 // NormalizeName reduces a provider stream name to a match key: lowercase,
 // accents folded, punctuation turned to spaces, quality and country
 // decorations dropped, whitespace collapsed. "US: ABC East FHD" and
-// "abc-east hd" both become "abc east".
-func NormalizeName(name string) string {
+// "abc-east hd" both become "abc east". A '+' ending a word is kept:
+// ESPN+, AMC+ and Canal+ are other channels than ESPN, AMC and Canal.
+func NormalizeName(name string) string { return normalizeName(name, true) }
+
+// normalizeName is NormalizeName; without keepPlus every '+' is
+// punctuation, as match keys had it before ESPN+ was told from ESPN.
+func normalizeName(name string, keepPlus bool) string {
 	s := foldAccents(strings.ToLower(name))
 
 	// Long country prefixes only count when glued to a separator:
@@ -60,6 +66,9 @@ func NormalizeName(name string) string {
 	}
 
 	s = strings.Map(func(r rune) rune {
+		if r == '+' && keepPlus {
+			return r
+		}
 		if unicode.IsPunct(r) || unicode.IsSymbol(r) || isSuperscript(r) {
 			return ' '
 		}
@@ -67,9 +76,12 @@ func NormalizeName(name string) string {
 	}, s)
 
 	words := strings.Fields(s)
+	if keepPlus {
+		words = plusWords(words)
+	}
 	noQuality := make([]string, 0, len(words))
 	for _, w := range words {
-		if !qualityTokens[w] {
+		if !qualityTokens[w] && !qualityTokens[strings.TrimSuffix(w, "+")] { // "UHD+", "4K+"
 			noQuality = append(noQuality, w)
 		}
 	}
@@ -90,6 +102,41 @@ func NormalizeName(name string) string {
 	default:
 		return strings.Join(words, " ")
 	}
+}
+
+// plusWords resolves the '+' signs left in words: one ending a word stays
+// ("espn+"), a lone one joins a word before it ending in a letter ("disney
+// + ppv" -> "disney+ ppv", but "bein sports 1 + fhd" keeps its 1), and one
+// before a number is a timeshift or a sum ("+1", "4+1"), dropped as before.
+// "c+af" splits to "c+ af".
+func plusWords(words []string) []string {
+	out := make([]string, 0, len(words))
+	for i, w := range words {
+		if strings.Trim(w, "+") == "" { // a lone "+"
+			if len(out) > 0 && endsLetter(out[len(out)-1]) && (i+1 == len(words) || !startsDigit(words[i+1])) {
+				out[len(out)-1] += "+"
+			}
+			continue
+		}
+		parts := strings.Split(w, "+")
+		for j, p := range parts {
+			if p == "" {
+				continue
+			}
+			if j+1 < len(parts) && !startsDigit(parts[j+1]) {
+				p += "+"
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func startsDigit(s string) bool { return s != "" && s[0] >= '0' && s[0] <= '9' }
+
+func endsLetter(s string) bool {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return unicode.IsLetter(r)
 }
 
 // isSuperscript reports superscript letters and digits. Panels write tags
