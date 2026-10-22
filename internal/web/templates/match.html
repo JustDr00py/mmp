@@ -35,6 +35,7 @@
       <option value="1"{{if eq $d.Filter.MinProv 1}} selected{{end}}>any provider</option>
       {{range $n := list 2 3 4}}<option value="{{$n}}"{{if eq $n $d.Filter.MinProv}} selected{{end}}>{{$n}}+ providers</option>{{end}}
     </select></label>
+  {{with $d.MinCapped}}<span class="muted">{{$d.Filter.Backbone}} has {{.}} provider{{if ne . 1}}s{{end}}, so its suggestions show at {{if eq . 1}}any provider{{else}}{{.}}+{{end}}.</span>{{end}}
   <noscript><button type="submit">Filter</button></noscript>
 </form>
 

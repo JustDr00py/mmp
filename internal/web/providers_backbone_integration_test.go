@@ -243,11 +243,12 @@ func TestBackbonePickerAndMatch(t *testing.T) {
 		t.Errorf("channel page has no backbone filter")
 	}
 
-	// Match: on Trex, Arena Sports has one provider, so it needs "any
-	// provider"; on Strong it has two. Applying narrows to the backbone.
+	// Match: Trex has one provider, so 2+ would show nothing there; its
+	// suggestions show at its provider count, with a note. On Strong
+	// Arena Sports has two. Applying narrows to the backbone.
 	_, body := b.get("/admin/match?min=2&backbone=Trex")
-	if strings.Contains(body, "Arena Sports") {
-		t.Errorf("Trex at 2+ providers shows Arena Sports")
+	if !strings.Contains(body, "Arena Sports") || !strings.Contains(body, "Trex has 1 provider") {
+		t.Errorf("Trex at 2+ providers lacks Arena Sports or the note:\n%s", body)
 	}
 	_, body = b.get("/admin/match?min=2&backbone=Strong")
 	if !strings.Contains(body, "Arena Sports") || !strings.Contains(body, "Strong (2)") {

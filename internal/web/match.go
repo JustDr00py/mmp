@@ -85,7 +85,9 @@ func (f matchFilter) Values() url.Values {
 	return v
 }
 
-// withBackbone resolves f.Backbone to the providers on it.
+// withBackbone resolves f.Backbone to the providers on it. A backbone with
+// fewer providers than f.MinProv would show nothing, so the requirement is
+// capped at its provider count.
 func (ui *UI) withBackbone(ctx context.Context, f *matchFilter) error {
 	if f.Backbone == "" {
 		return nil
@@ -103,6 +105,9 @@ func (ui *UI) withBackbone(ctx context.Context, f *matchFilter) error {
 		if p.Backbone == want {
 			f.provs[p.ID] = true
 		}
+	}
+	if n := len(f.provs); n > 0 && f.MinProv > n {
+		f.MinProv = n
 	}
 	return nil
 }
@@ -129,6 +134,7 @@ type matchData struct {
 	Matching  int // suggestions passing the whole filter
 	AtMin     int // suggestions seen at >= MinProv providers
 	Hidden    int // below the provider filter
+	MinCapped int // the backbone's provider count when below Filter.MinProv, else 0
 	From, To  int
 	Prev      int // offset of the previous page, -1 = none
 	Next      int // offset of the next page, -1 = none
@@ -217,6 +223,9 @@ func (ui *UI) matchData(r *http.Request, f matchFilter) (matchData, error) {
 	d := matchData{Filter: f, Prev: -1, Next: -1}
 	if err := ui.withBackbone(ctx, &f); err != nil {
 		return d, err
+	}
+	if f.MinProv != d.Filter.MinProv {
+		d.MinCapped = f.MinProv
 	}
 	var err error
 	if d.Backbones, err = ui.Store.ListBackbones(ctx); err != nil {
