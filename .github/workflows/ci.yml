@@ -34,17 +34,24 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Tools used by some tests
-        # Ubuntu's mirrors sometimes hang. A stalled download is dropped after
-        # 20 seconds and retried, each attempt has its own time limit, and
-        # attempts after the first use archive.ubuntu.com instead of the
-        # runner's Azure mirror.
+        # Installs here have hung past their time limit on every mirror. The
+        # runner rebuilding its man-page index after an install can take
+        # minutes, so that is turned off; apt waits at most a minute for
+        # another apt's lock; a stalled download is dropped after 20 seconds;
+        # attempts after the first use archive.ubuntu.com. A failed attempt
+        # prints what apt and dpkg were doing.
         timeout-minutes: 12
         run: |
-          apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
+          sudo rm -f /var/lib/man-db/auto-update
+          apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
           for i in 1 2 3; do
-            sudo timeout 90 apt-get $apt_opts update -qq &&
-              sudo timeout 150 apt-get $apt_opts install -y -qq --no-install-recommends ffmpeg libxml2-utils && exit 0
-            echo "apt attempt $i failed; retrying with archive.ubuntu.com" >&2
+            sudo timeout 90 apt-get $apt_opts update -q &&
+              sudo timeout 150 apt-get $apt_opts install -y -q --no-install-recommends ffmpeg libxml2-utils && exit 0
+            echo "::warning::apt attempt $i failed; still running:"
+            ps -eo pid,etime,args | grep -E 'apt|dpkg|man-db|mandb|unattended' | grep -v grep || true
+            sudo tail -n 20 /var/log/apt/term.log 2>/dev/null || true
+            sudo dpkg --configure -a || true
             sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
               /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
             sleep 5
