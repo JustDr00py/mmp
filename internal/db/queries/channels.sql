@@ -77,6 +77,9 @@ UPDATE channels SET
 WHERE id = $1
 RETURNING *;
 
+-- name: RenameChannel :exec
+UPDATE channels SET name = $2, updated_at = now() WHERE id = $1;
+
 -- name: SetChannelGuideMode :exec
 -- '' follows the channel's group.
 UPDATE channels SET guide_mode = $2, updated_at = now() WHERE id = $1;

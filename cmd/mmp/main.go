@@ -185,6 +185,12 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		NewChannels: cfg.Match.AutoNewChannels, Group: cfg.Match.AutoGroup, Bouquets: cfg.Match.AutoBouquets}); err != nil {
 		return err
 	}
+	if res, err := matcher.CleanupSlotNames(ctx); err != nil {
+		return err
+	} else if res.Ran && (res.Unlinked > 0 || len(res.Renamed) > 0) {
+		log.Info("match: cleaned up event slots and '+' names", "streams_unlinked", res.Unlinked,
+			"channels_renamed", len(res.Renamed), "renames", res.Renamed)
+	}
 	refresher.AfterRefresh = matcher.AutoMatchHook()
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
 		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,

@@ -23,7 +23,17 @@ func TestNormalizeName(t *testing.T) {
 		{"USA Network", "usa network"}, // "USA" without separator stays
 		{"United States - ESPN", "espn"},
 		{"TF1 FR", "tf1"},
-		{"Canal+ Sport", "canal sport"}, // '+' is punctuation
+		{"Canal+ Sport", "canal+ sport"}, // a '+' ending a word is part of the name
+		{"TV| ESPN+ 2 ᴿᴬᵂ", "tv espn+ 2"},
+		{"US ★ ESPN+ 2:", "espn+ 2"},
+		{"DISNEY + PPV", "disney+ ppv"},
+		{"US| AMC +", "amc+"},
+		{"TR| BEIN SPORTS 1 + FHD", "bein sports 1"},
+		{"C+AF: CANAL+ CAN HD", "c+ af canal+ can"},
+		{"UK: Channel 4 +1", "channel 4 1"},
+		{"ITV+1 HD", "itv 1"},
+		{"US ★ CNN UHD+", "cnn"},
+		{"4k| NESN UHD/4K+", "nesn"},
 		// Separators fold to spaces.
 		{"Sky-Sports_Main.Event", "sky sports main event"},
 		{"Das|Erste", "das erste"},
