@@ -143,6 +143,7 @@ type Refresher interface {
 type Matcher interface {
 	Propose(ctx context.Context) ([]channel.Proposal, error)
 	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
+	Invalidate()
 }
 
 // Mount registers the API routes on r (mounted at /api/v1).
@@ -153,7 +154,7 @@ func Mount(r chi.Router, env *Env) {
 		if env.Auth != nil {
 			r.Use(env.Auth.RequireAdmin)
 		}
-		r.Use(env.Audit.Middleware("api"))
+		r.Use(env.Audit.Middleware("api"), invalidateMatch(env))
 		mountAuthPrivate(r, env)
 		MountProviders(r, env)
 		MountChannels(r, env)
@@ -162,6 +163,19 @@ func Mount(r chi.Router, env *Env) {
 		MountProfiles(r, env)
 		MountVOD(r, env)
 	})
+}
+
+// invalidateMatch drops the cached match proposals after every change made
+// through the API (see channel.Service.Invalidate).
+func invalidateMatch(env *Env) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && env.Match != nil {
+				env.Match.Invalidate()
+			}
+		})
+	}
 }
 
 // writeJSON writes v as JSON with status.

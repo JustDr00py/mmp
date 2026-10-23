@@ -224,7 +224,7 @@ func TestMatchMerge(t *testing.T) {
 		t.Fatalf("merge = %d %s", resp.StatusCode, loc)
 	}
 	_, body = b.get(loc)
-	if k := keysOn(body); len(k) != 1 || !strings.Contains(body, "3 providers") || !strings.Contains(body, "Suggestions merged.") {
+	if k := keysOn(body); len(k) != 1 || !strings.Contains(body, "3 sources") || !strings.Contains(body, "Suggestions merged.") {
 		t.Errorf("after merge: %v\n%s", k, body)
 	}
 	if !strings.Contains(body, "Merged suggestions") || !strings.Contains(body, `name="b" value="`+five+`"`) {

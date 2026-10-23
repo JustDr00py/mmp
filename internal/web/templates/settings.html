@@ -15,9 +15,9 @@
     <span class="hint">New streams are added as failover streams to the channels they match. Existing channels keep their group and bouquets.</span>
     <label class="check"><input type="checkbox" name="new_channels"{{if $d.Match.NewChannels}} checked{{end}}> Create channels for new streams</label>
     <div class="grid2 top">
-      <label>Minimum providers
+      <label>Minimum sources
         <input type="number" name="min_providers" min="1" max="100" value="{{$d.Match.MinProviders}}" required>
-        <span class="hint">A channel is created only once this many providers offer it. 1 creates one for every new stream.</span></label>
+        <span class="hint">A channel is created only once this many sources offer it. A backbone's providers count as one source. 1 creates one for every new stream.</span></label>
       <label>Put new channels in
         <select name="group">
           <option value="source"{{if eq $d.GroupValue "source"}} selected{{end}}>a group named after the provider group</option>

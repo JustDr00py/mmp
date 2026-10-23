@@ -22,9 +22,21 @@ type Stream struct {
 	TvgID     string
 	LogoURL   string
 	Group     string // the provider's group title ("US| SPORTS")
+	// Backbone is the provider's backbone: providers on one count as one
+	// source. "" = the provider is its own.
+	Backbone string
 }
 
 func (s Stream) matchName() string { return cmp.Or(s.MatchName, s.Name) }
+
+// source identifies where a stream comes from: its backbone, or its
+// provider when it has none.
+func (s Stream) source() string {
+	if s.Backbone != "" {
+		return "b:" + s.Backbone
+	}
+	return "p:" + strconv.FormatInt(s.ProviderID, 10)
+}
 
 // Existing is an already-created channel streams can be attached to.
 type Existing struct {
@@ -42,9 +54,10 @@ type Rule struct {
 
 // Match methods reported in Proposal.MatchedBy.
 const (
-	ByTvgID = "tvg_id"
-	ByName  = "name"
-	ByRule  = "rule"
+	ByTvgID    = "tvg_id"
+	ByCallSign = "call_sign"
+	ByName     = "name"
+	ByRule     = "rule"
 )
 
 // Proposal is one proposed channel: a group of equivalent streams, either
@@ -57,7 +70,9 @@ type Proposal struct {
 	LogoURL   string   `json:"logo_url"`
 	MatchedBy []string `json:"matched_by"` // which methods linked the streams
 	StreamIDs []int64  `json:"stream_ids"` // failover order
-	Providers int      `json:"providers"`  // distinct providers in the group
+	// Providers counts the distinct sources in the group: a backbone's
+	// providers count once (see Stream.Backbone).
+	Providers int `json:"providers"`
 	// Group is the provider group of the first stream; Groups every
 	// distinct provider group in the proposal (for filtering).
 	Group  string   `json:"group"`
@@ -67,26 +82,28 @@ type Proposal struct {
 	StreamNames     []string `json:"-"`
 	StreamGroups    []string `json:"-"`
 	StreamProviders []int64  `json:"-"`
+	StreamSources   []string `json:"-"`
 }
 
 // InGroup narrows p to its streams in provider group g. ok is false when
 // none of its streams are in g.
 func (p Proposal) InGroup(g string) (Proposal, bool) {
-	return p.narrow(func(i int) bool { return p.StreamGroups[i] == g })
+	return p.narrow(func(i int) bool { return p.StreamGroups[i] == g }, false)
 }
 
 // InProviders narrows p to its streams from the providers in set. ok is
-// false when none of its streams are.
+// false when none of its streams are. The set is one backbone's providers,
+// so Providers then counts providers, not sources.
 func (p Proposal) InProviders(set map[int64]bool) (Proposal, bool) {
-	return p.narrow(func(i int) bool { return set[p.StreamProviders[i]] })
+	return p.narrow(func(i int) bool { return set[p.StreamProviders[i]] }, true)
 }
 
-// narrow keeps the streams i of p that keep(i) accepts, with the provider
-// count and groups recomputed for them.
-func (p Proposal) narrow(keep func(i int) bool) (Proposal, bool) {
+// narrow keeps the streams i of p that keep(i) accepts, with the source (or
+// with byProvider, provider) count and groups recomputed for them.
+func (p Proposal) narrow(keep func(i int) bool, byProvider bool) (Proposal, bool) {
 	q := p
-	q.StreamIDs, q.StreamNames, q.StreamGroups, q.StreamProviders, q.Groups = nil, nil, nil, nil, nil
-	provs := map[int64]bool{}
+	q.StreamIDs, q.StreamNames, q.StreamGroups, q.StreamProviders, q.StreamSources, q.Groups = nil, nil, nil, nil, nil, nil
+	provs := map[string]bool{}
 	for i := range p.StreamIDs {
 		if !keep(i) {
 			continue
@@ -95,7 +112,14 @@ func (p Proposal) narrow(keep func(i int) bool) (Proposal, bool) {
 		q.StreamNames = append(q.StreamNames, p.StreamNames[i])
 		q.StreamGroups = append(q.StreamGroups, p.StreamGroups[i])
 		q.StreamProviders = append(q.StreamProviders, p.StreamProviders[i])
-		provs[p.StreamProviders[i]] = true
+		src := "p:" + strconv.FormatInt(p.StreamProviders[i], 10)
+		if i < len(p.StreamSources) {
+			q.StreamSources = append(q.StreamSources, p.StreamSources[i])
+			if !byProvider {
+				src = p.StreamSources[i]
+			}
+		}
+		provs[src] = true
 		if !slices.Contains(q.Groups, p.StreamGroups[i]) {
 			q.Groups = append(q.Groups, p.StreamGroups[i])
 		}
@@ -108,28 +132,57 @@ func (p Proposal) narrow(keep func(i int) bool) (Proposal, bool) {
 }
 
 // Match groups streams that are the same channel across providers. Streams
-// are linked transitively by a shared tvg-id (case-insensitive), then by a
-// shared NormalizeName key, then by the first rule (in slice order) their
-// name matches. A tvg-id that one provider gives to differently named
-// streams (Spectrum SportsNet's Lakers and Dodgers feeds) covers several
-// channels, so under it streams only link when their names match too. Each
+// are linked transitively by a shared tvg-id (case-insensitive), by a
+// local station's call sign (see CallSign), by a shared NormalizeName key,
+// and by the first rule (in slice order) their name matches. A tvg-id that
+// one provider gives to differently named streams (Spectrum SportsNet's
+// Lakers and Dodgers feeds) covers several channels, so under it streams
+// only link when their names match too. Likewise a tvg-id or name streams
+// of different stations carry only links streams of the same call sign. Each
 // group becomes one Proposal, attached to an existing channel when the
-// group shares a tvg-id or name key with it. Merges then join groups the
-// admin said are one channel. Output is deterministic for a given input.
+// group shares a tvg-id, call sign or name key with it. Merges then join
+// groups the admin said are one channel. Output is deterministic for a
+// given input.
 func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) []Proposal {
 	n := len(streams)
 	uf := newUnionFind(n)
+	calls := make([]string, n)
+	for i, s := range streams {
+		calls[i] = CallSign(s.matchName(), s.TvgID)
+	}
 	shared := sharedTvgKeys(streams)
-	tvgKeyOf := func(tvg, name string) string {
+	plainTvg, plainName := make([]string, n), make([]string, n)
+	for i, s := range streams {
+		plainTvg[i] = feedTvgKey(s.TvgID, s.matchName())
+		if k := NormalizeName(s.matchName()); k != "" {
+			plainName[i] = "name:" + k
+		}
+	}
+	mixed := mixedCallKeys(calls, plainTvg, plainName)
+	tvgKeyOf := func(tvg, name, call string) string {
 		t := feedTvgKey(tvg, name)
-		if t != "" && shared[t] {
+		switch {
+		case t == "":
+		case mixed[t] && call != "":
+			t += "|call:" + call
+		case shared[t]:
 			t += "|" + feedlessName(name)
 		}
 		return t
 	}
-	tvgKeys := make([]string, n)
+	nameKeyOf := func(k, call string) string { // k: "name:" + NormalizeName
+		if k != "" && mixed[k] && call != "" {
+			k += "|call:" + call
+		}
+		return k
+	}
+	tvgKeys, callKeys, nameKeys := make([]string, n), make([]string, n), make([]string, n)
 	for i, s := range streams {
-		tvgKeys[i] = tvgKeyOf(s.TvgID, s.matchName())
+		if calls[i] != "" {
+			callKeys[i] = "call:" + calls[i]
+		}
+		tvgKeys[i] = tvgKeyOf(s.TvgID, s.matchName(), calls[i])
+		nameKeys[i] = nameKeyOf(plainName[i], calls[i])
 	}
 	owner := map[string]int{} // match key -> first stream index carrying it
 	link := func(i int, key string) {
@@ -146,9 +199,14 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 			link(i, t)
 		}
 	}
-	for i, s := range streams {
-		if k := NormalizeName(s.matchName()); k != "" {
-			link(i, "name:"+k)
+	for i, c := range callKeys {
+		if c != "" {
+			link(i, c)
+		}
+	}
+	for i, k := range nameKeys {
+		if k != "" {
+			link(i, k)
 		}
 	}
 	for i, s := range streams {
@@ -183,32 +241,42 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 		groups[root] = append(groups[root], i)
 	}
 
-	byTvg, byName := map[string]int64{}, map[string]int64{}
+	byTvg, byCall, byName := map[string]int64{}, map[string]int64{}, map[string]int64{}
 	existingByID := make(map[int64]Existing, len(existing))
 	for _, c := range existing { // first (lowest ID) wins ties
 		existingByID[c.ID] = c
-		if t := tvgKeyOf(c.TvgID, c.Name); t != "" {
+		call := CallSign(c.Name, c.TvgID)
+		if call != "" {
+			if _, ok := byCall["call:"+call]; !ok {
+				byCall["call:"+call] = c.ID
+			}
+		}
+		if t := tvgKeyOf(c.TvgID, c.Name, call); t != "" {
 			if _, ok := byTvg[t]; !ok {
 				byTvg[t] = c.ID
 			}
 		}
+		var plain string
 		if k := NormalizeName(c.Name); k != "" {
-			if _, ok := byName["name:"+k]; !ok {
-				byName["name:"+k] = c.ID
+			plain = "name:" + k
+		}
+		if k := nameKeyOf(plain, call); k != "" {
+			if _, ok := byName[k]; !ok {
+				byName[k] = c.ID
 			}
 		}
 	}
 
 	out := make([]Proposal, 0, len(groups))
 	for _, idx := range groups {
-		out = append(out, buildProposal(streams, tvgKeys, idx, ruleOf, byTvg, byName, existingByID, partners))
+		out = append(out, buildProposal(streams, tvgKeys, callKeys, nameKeys, idx, ruleOf, byTvg, byCall, byName, existingByID, partners))
 	}
 	slices.SortFunc(out, func(a, b Proposal) int { return cmp.Compare(a.Key, b.Key) })
 	return out
 }
 
-func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf []*Rule,
-	byTvg, byName map[string]int64, existing map[int64]Existing, partners map[string][]string) Proposal {
+func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKeys []string, idx []int, ruleOf []*Rule,
+	byTvg, byCall, byName map[string]int64, existing map[int64]Existing, partners map[string][]string) Proposal {
 	// Failover order: preferred providers first, then stream id.
 	slices.SortFunc(idx, func(a, b int) int {
 		return cmp.Or(
@@ -218,30 +286,34 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	})
 
 	var p Proposal
-	var tvgKeys, nameKeys []string
+	var tvgKeys, callKeys, nameKeys []string
 	var rule *Rule
-	providers := map[int64]bool{}
+	sources := map[string]bool{}
 	for _, i := range idx {
 		s := streams[i]
 		p.StreamIDs = append(p.StreamIDs, s.ID)
 		p.StreamNames = append(p.StreamNames, s.Name)
 		p.StreamGroups = append(p.StreamGroups, s.Group)
 		p.StreamProviders = append(p.StreamProviders, s.ProviderID)
+		p.StreamSources = append(p.StreamSources, s.source())
 		if len(p.StreamIDs) == 1 {
 			p.Group = s.Group
 		}
 		if !slices.Contains(p.Groups, s.Group) {
 			p.Groups = append(p.Groups, s.Group)
 		}
-		providers[s.ProviderID] = true
+		sources[s.source()] = true
+		if c := streamCallKeys[i]; c != "" {
+			callKeys = append(callKeys, c)
+		}
 		if t := streamTvgKeys[i]; t != "" {
 			tvgKeys = append(tvgKeys, t)
 			if p.TvgID == "" {
 				p.TvgID = strings.TrimSpace(s.TvgID)
 			}
 		}
-		if k := NormalizeName(s.matchName()); k != "" {
-			nameKeys = append(nameKeys, "name:"+k)
+		if k := streamNameKeys[i]; k != "" {
+			nameKeys = append(nameKeys, k)
 		}
 		if p.LogoURL == "" {
 			p.LogoURL = s.LogoURL
@@ -250,14 +322,18 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 			rule = ruleOf[i]
 		}
 	}
-	p.Providers = len(providers)
+	p.Providers = len(sources)
 	slices.Sort(tvgKeys)
+	slices.Sort(callKeys)
 	slices.Sort(nameKeys)
 
 	// MatchedBy: methods that actually linked two or more streams.
 	p.MatchedBy = []string{}
 	if hasDup(tvgKeys) {
 		p.MatchedBy = append(p.MatchedBy, ByTvgID)
+	}
+	if hasDup(callKeys) {
+		p.MatchedBy = append(p.MatchedBy, ByCallSign)
 	}
 	if hasDup(nameKeys) {
 		p.MatchedBy = append(p.MatchedBy, ByName)
@@ -266,11 +342,13 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 		p.MatchedBy = append(p.MatchedBy, ByRule)
 	}
 
-	// Stable key: smallest tvg key, else the rule target, else smallest
-	// name key, else first stream.
+	// Stable key: smallest tvg key, else smallest call sign, else the rule
+	// target, else smallest name key, else first stream.
 	switch {
 	case len(tvgKeys) > 0:
 		p.Key = tvgKeys[0]
+	case len(callKeys) > 0:
+		p.Key = callKeys[0]
 	case rule != nil:
 		p.Key = "name:" + NormalizeName(rule.ChannelName)
 	case len(nameKeys) > 0:
@@ -280,7 +358,7 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	}
 
 	// Every key the group carries, for merges.
-	keys := slices.Concat(tvgKeys, nameKeys)
+	keys := slices.Concat(tvgKeys, callKeys, nameKeys)
 	if rule != nil {
 		keys = append(keys, "name:"+NormalizeName(rule.ChannelName))
 	}
@@ -289,8 +367,8 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	}
 
 	// Existing channel: a channel the admin merged the group into, then
-	// tvg-id, rule target and name, then a channel matching a key merged
-	// with the group's (its other side was applied).
+	// tvg-id, rule target, call sign and name, then a channel matching a
+	// key merged with the group's (its other side was applied).
 	for _, k := range keys {
 		for _, m := range partners[k] {
 			if id, ok := channelOfKey(m); ok && p.ChannelID == 0 {
@@ -312,6 +390,12 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 	if p.ChannelID == 0 && rule != nil {
 		p.ChannelID = byName["name:"+NormalizeName(rule.ChannelName)]
 	}
+	for _, c := range callKeys {
+		if p.ChannelID != 0 {
+			break
+		}
+		p.ChannelID = byCall[c]
+	}
 	if p.ChannelID == 0 {
 		for _, k := range nameKeys {
 			if id, ok := byName[k]; ok {
@@ -326,6 +410,8 @@ func buildProposal(streams []Stream, streamTvgKeys []string, idx []int, ruleOf [
 				break
 			}
 			if id, ok := byTvg[m]; ok {
+				p.ChannelID = id
+			} else if id, ok := byCall[m]; ok {
 				p.ChannelID = id
 			} else if id, ok := byName[m]; ok {
 				p.ChannelID = id
@@ -432,6 +518,30 @@ func sharedTvgKeys(streams []Stream) map[string]bool {
 		}
 	}
 	return shared
+}
+
+// mixedCallKeys finds the match keys (per stream, in each of keySets)
+// streams of different stations carry. Providers copy tvg-ids between
+// stations ("NBC 3 LAS VEGAS (KSNV)" and "NBC 20 FORT MYERS (WBBH)" both as
+// nbcksnv.us), and a stream whose name gives no call sign takes a copied
+// tvg-id's, so its name can link stations too. Under such a key, streams
+// with a call sign only link to the same station.
+func mixedCallKeys(calls []string, keySets ...[]string) map[string]bool {
+	first := map[string]string{}
+	mixed := map[string]bool{}
+	for _, keys := range keySets {
+		for i, k := range keys {
+			if k == "" || calls[i] == "" || mixed[k] {
+				continue
+			}
+			if prev, ok := first[k]; !ok {
+				first[k] = calls[i]
+			} else if prev != calls[i] {
+				mixed[k] = true
+			}
+		}
+	}
+	return mixed
 }
 
 // feedlessName is NormalizeName without an "east" label: East is the

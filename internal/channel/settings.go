@@ -18,7 +18,7 @@ import (
 // Settings page is in charge.
 type AutoMatch struct {
 	Enabled      bool // run after each provider refresh
-	MinProviders int  // new channels only for groups seen at >= this many providers
+	MinProviders int  // new channels only for groups seen at >= this many sources (backbones)
 	NewChannels  bool // false: only attach streams to channels that exist
 	// Group is where created channels go: "source" for a group named after
 	// the provider group, "none" or "" for no group, anything else a group
@@ -175,12 +175,13 @@ func groupID(ctx context.Context, q *db.Queries, name string) (int64, error) {
 // stored settings turn automatic matching on, after a provider refresh it
 // attaches new streams to matching existing channels and, with
 // NewChannels, creates channels for groups seen at >= MinProviders
-// providers, in the chosen group and bouquets. Existing channels that only
+// sources (backbones), in the chosen group and bouquets. Existing channels that only
 // gain streams keep their group and bouquets. Settings are read on each
 // run, so changes apply without a restart. Failures are logged; the
 // refresh itself already succeeded.
 func (s *Service) AutoMatchHook() func(context.Context, db.Provider) {
 	return func(ctx context.Context, p db.Provider) {
+		s.Invalidate() // the refresh changed the provider's streams
 		if _, _, err := s.AutoMatch(ctx, p.ID); err != nil {
 			s.log.Error("auto-match failed", "provider_id", p.ID, "err", err)
 		}
