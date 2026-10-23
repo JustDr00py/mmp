@@ -30,10 +30,10 @@
       <option value="new"{{if eq $d.Filter.Show "new"}} selected{{end}}>new channels</option>
       <option value="existing"{{if eq $d.Filter.Show "existing"}} selected{{end}}>additions to my channels</option>
     </select></label>
-  <label>Carried by
+  <label title="A source is a backbone: its providers count once. A provider without a backbone is its own source.">Carried by
     <select name="min" data-autosubmit>
-      <option value="1"{{if eq $d.Filter.MinProv 1}} selected{{end}}>any provider</option>
-      {{range $n := list 2 3 4}}<option value="{{$n}}"{{if eq $n $d.Filter.MinProv}} selected{{end}}>{{$n}}+ providers</option>{{end}}
+      <option value="1"{{if eq $d.Filter.MinProv 1}} selected{{end}}>any {{$d.Unit}}</option>
+      {{range $n := list 2 3 4}}<option value="{{$n}}"{{if eq $n $d.Filter.MinProv}} selected{{end}}>{{$n}}+ {{$d.Unit}}s</option>{{end}}
     </select></label>
   {{with $d.MinCapped}}<span class="muted">{{$d.Filter.Backbone}} has {{.}} provider{{if ne . 1}}s{{end}}, so its suggestions show at {{if eq . 1}}any provider{{else}}{{.}}+{{end}}.</span>{{end}}
   <noscript><button type="submit">Filter</button></noscript>
@@ -63,6 +63,19 @@
 </form>
 
 {{if $d.Channels}}<datalist id="match-channels">{{range $d.Channels}}<option value="{{.Name}} (#{{.ID}})">{{end}}</datalist>{{end}}
+
+{{if $d.Mixed}}
+<details class="rules">
+  <summary><h2>Channels mixing stations</h2> <span class="muted">{{len $d.Mixed}} channel{{if ne (len $d.Mixed) 1}}s{{end}}</span></summary>
+  <p class="muted">These channels hold streams of different local stations, usually because a provider gave several stations one tvg-id.
+    Open the channel and remove the streams of the other stations. Matching then offers them to the right channel.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Channel</th><th>Streams</th></tr></thead>
+    <tbody>{{range $d.Mixed}}<tr><td><a href="/admin/channels/{{.ID}}">{{.Name}}</a></td>
+      <td>{{range .Streams}}<div>{{with .CallSign}}<span class="pill">{{.}}</span>{{end}} {{.Name}} <span class="sub">{{.Provider}}</span></div>{{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+</details>
+{{end}}
 
 <details class="rules"{{if $d.RuleError}} open{{end}}>
   <summary><h2>Advanced: matching rules</h2> <span class="muted">{{len $d.Rules}} rule{{if ne (len $d.Rules) 1}}s{{end}}</span></summary>
@@ -118,7 +131,7 @@
       <input name="channel" list="match-channels" placeholder="Existing channel…" aria-label="Existing channel to add the selected suggestions to" autocomplete="off" data-enter="#add-to-channel">
       <button type="submit" formaction="/admin/match/merge" name="to" value="channel" id="add-to-channel" class="secondary" title="Add the ticked suggestions to this channel, now and when new streams like them appear">Add to channel</button></span>{{end}}
     <button type="submit" name="scope" value="all" class="secondary" data-confirm="Apply all {{.Matching}} suggestions matching this filter? This creates or fills that many channels.">Apply all {{.Matching}} matching</button>
-    <span class="muted push">{{.From}}–{{.To}} of {{.Matching}}{{if ne .Matching .AtMin}} (filtered from {{.AtMin}}){{end}}{{if .Hidden}} · {{.Hidden}} more with “any provider”{{end}}</span>
+    <span class="muted push">{{.From}}–{{.To}} of {{.Matching}}{{if ne .Matching .AtMin}} (filtered from {{.AtMin}}){{end}}{{if .Hidden}} · {{.Hidden}} more with “any {{.Unit}}”{{end}}</span>
   </div>
   <ul class="proposals">
   {{range .Proposals}}
@@ -129,7 +142,7 @@
       <div class="what">
         {{if .ChannelID}}<div><span class="pill ok">adds to</span> <a href="/admin/channels/{{.ChannelID}}">{{.Existing}}</a></div>
         {{else}}<div class="name-row"><span class="pill warn">new</span> <input class="name-edit" name="name|{{.Key}}" value="{{.Name}}" aria-label="Channel name for {{.Name}}"></div>{{end}}
-        <div class="sub">{{.Why}}{{with .TvgID}} · <span class="mono">{{.}}</span>{{end}} · {{.Providers}} provider{{if ne .Providers 1}}s{{end}}</div>
+        <div class="sub">{{.Why}}{{with .TvgID}} · <span class="mono">{{.}}</span>{{end}} · {{.Providers}} {{$.Unit}}{{if ne .Providers 1}}s{{end}}</div>
       </div>
       <ol class="streams">{{$k := .Key}}{{range .Streams}}
         <li><label class="check"><input type="checkbox" name="stream|{{$k}}" value="{{.ID}}" checked> {{.Name}} <span class="sub">{{.Provider}}{{with .Group}} · {{.}}{{end}}</span></label>{{if preview}}
@@ -148,9 +161,9 @@
     <p class="muted">Every matching stream from your providers' chosen groups is already on the channel it belongs to.</p></div>
   {{else if or .Filter.Query .Filter.Group .Filter.Show}}
   <div class="card empty"><p>No suggestions match{{with .Filter.Query}} “{{.}}”{{end}}{{with .Filter.Group}} in {{.}}{{end}}.</p>
-    <p class="muted">Try another spelling, “All groups”, or “any provider”. A channel only one provider carries shows with “any provider”.</p></div>
+    <p class="muted">Try another spelling, “All groups”, or “any {{.Unit}}”. A channel only one {{.Unit}} carries shows with “any {{.Unit}}”.</p></div>
   {{else}}
-  <div class="card empty"><p>Nothing left to match{{if .Hidden}} at {{.Filter.MinProv}}+ providers ({{.Hidden}} more with “any provider”){{end}}.</p>
+  <div class="card empty"><p>Nothing left to match{{if .Hidden}} at {{.Filter.MinProv}}+ {{.Unit}}s ({{.Hidden}} more with “any {{.Unit}}”){{end}}.</p>
     <p class="muted">Every stream in your providers' chosen groups is already on a channel.</p></div>
   {{end}}
 </div>

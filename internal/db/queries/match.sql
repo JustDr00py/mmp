@@ -14,7 +14,7 @@ DELETE FROM match_rules WHERE id = $1;
 -- Live streams of enabled providers not yet on any channel's failover list,
 -- in the groups selected for their provider.
 SELECT ps.id, ps.provider_id, ps.name, ps.tvg_id, ps.logo_url, ps.group_title,
-       pr.priority AS provider_priority
+       pr.priority AS provider_priority, pr.backbone
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE pr.enabled
@@ -42,3 +42,14 @@ JOIN bouquet_channels bc ON bc.channel_id = c.id
 WHERE c.group_id = ANY(sqlc.arg('group_ids')::bigint[])
   AND NOT (c.id = ANY(sqlc.arg('exclude')::bigint[]))
 GROUP BY c.group_id, bc.bouquet_id;
+
+-- name: ListChannelStreamNames :many
+-- Every stream on a channel, for finding channels that mix stations.
+SELECT c.id AS channel_id, c.name AS channel_name, c.tvg_id AS channel_tvg_id,
+       ps.id AS stream_id, ps.name AS stream_name, ps.tvg_id AS stream_tvg_id,
+       pr.name AS provider_name
+FROM channels c
+JOIN channel_streams cs ON cs.channel_id = c.id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+ORDER BY c.id, cs.priority;

@@ -268,7 +268,7 @@ func TestMatchPage(t *testing.T) {
 	if !strings.Contains(body, "BBC One") || !strings.Contains(body, "CNN") || strings.Contains(body, ">Only A<") {
 		t.Fatalf("proposals (min 2):\n%s", body)
 	}
-	if !strings.Contains(body, "2 more with “any provider”") {
+	if !strings.Contains(body, "2 more with “any source”") {
 		t.Errorf("hidden count missing")
 	}
 	keys := regexp.MustCompile(`name="key" value="([^"]+)" aria-label="Apply ([^"]+)"`).FindAllStringSubmatch(body, -1)

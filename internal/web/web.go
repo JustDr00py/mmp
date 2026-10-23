@@ -170,6 +170,7 @@ type Store interface {
 	SetSetting(ctx context.Context, arg db.SetSettingParams) error
 	ChannelNamesByIDs(ctx context.Context, ids []int64) ([]db.ChannelNamesByIDsRow, error)
 	ListChannelMatchKeys(ctx context.Context) ([]db.ListChannelMatchKeysRow, error)
+	ListChannelStreamNames(ctx context.Context) ([]db.ListChannelStreamNamesRow, error)
 	ProviderVODSize(ctx context.Context, providerID int64) (db.ProviderVODSizeRow, error)
 	DeleteProviderVOD(ctx context.Context, providerID int64) (db.DeleteProviderVODRow, error)
 	LiveChannelInfo(ctx context.Context, ids []int64) ([]db.LiveChannelInfoRow, error)
@@ -189,6 +190,7 @@ type Matcher interface {
 	SaveMatchSettings(ctx context.Context, m channel.MatchSettings) error
 	AutoMatch(ctx context.Context, providerID int64) (channel.ApplyResult, bool, error)
 	MatchNow(ctx context.Context, providerID int64) (channel.ApplyResult, error)
+	Invalidate()
 }
 
 // Refresher refreshes a provider on demand (satisfied by *source.Refresher).
@@ -377,7 +379,7 @@ func (ui *UI) Mount(r chi.Router) {
 		r.Get("/login", ui.loginPage)
 		r.Post("/login", ui.login)
 		r.Group(func(r chi.Router) {
-			r.Use(ui.requireAdmin, ui.Audit.Middleware("ui"))
+			r.Use(ui.requireAdmin, ui.Audit.Middleware("ui"), ui.invalidateMatch)
 			r.Post("/logout", ui.logout)
 			r.Get("/", ui.dashboard)
 			r.Get("/live", ui.liveStream)
@@ -398,6 +400,18 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountLive(r)
 			ui.mountPreview(r)
 		})
+	})
+}
+
+// invalidateMatch drops the cached match proposals after every change an
+// admin makes: providers, groups, channels, rules and settings all feed
+// matching, and tracking each one would miss some.
+func (ui *UI) invalidateMatch(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && ui.Match != nil {
+			ui.Match.Invalidate()
+		}
 	})
 }
 

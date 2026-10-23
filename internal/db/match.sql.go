@@ -132,6 +132,56 @@ func (q *Queries) ListChannelMatchKeys(ctx context.Context) ([]ListChannelMatchK
 	return items, nil
 }
 
+const listChannelStreamNames = `-- name: ListChannelStreamNames :many
+SELECT c.id AS channel_id, c.name AS channel_name, c.tvg_id AS channel_tvg_id,
+       ps.id AS stream_id, ps.name AS stream_name, ps.tvg_id AS stream_tvg_id,
+       pr.name AS provider_name
+FROM channels c
+JOIN channel_streams cs ON cs.channel_id = c.id
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+ORDER BY c.id, cs.priority
+`
+
+type ListChannelStreamNamesRow struct {
+	ChannelID    int64  `json:"channel_id"`
+	ChannelName  string `json:"channel_name"`
+	ChannelTvgID string `json:"channel_tvg_id"`
+	StreamID     int64  `json:"stream_id"`
+	StreamName   string `json:"stream_name"`
+	StreamTvgID  string `json:"stream_tvg_id"`
+	ProviderName string `json:"provider_name"`
+}
+
+// Every stream on a channel, for finding channels that mix stations.
+func (q *Queries) ListChannelStreamNames(ctx context.Context) ([]ListChannelStreamNamesRow, error) {
+	rows, err := q.db.Query(ctx, listChannelStreamNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelStreamNamesRow
+	for rows.Next() {
+		var i ListChannelStreamNamesRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.ChannelName,
+			&i.ChannelTvgID,
+			&i.StreamID,
+			&i.StreamName,
+			&i.StreamTvgID,
+			&i.ProviderName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMatchRules = `-- name: ListMatchRules :many
 SELECT id, pattern, channel_name, priority, enabled, created_at FROM match_rules ORDER BY priority, id
 `
@@ -165,7 +215,7 @@ func (q *Queries) ListMatchRules(ctx context.Context) ([]MatchRule, error) {
 
 const listUnassignedStreams = `-- name: ListUnassignedStreams :many
 SELECT ps.id, ps.provider_id, ps.name, ps.tvg_id, ps.logo_url, ps.group_title,
-       pr.priority AS provider_priority
+       pr.priority AS provider_priority, pr.backbone
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE pr.enabled
@@ -184,6 +234,7 @@ type ListUnassignedStreamsRow struct {
 	LogoUrl          string `json:"logo_url"`
 	GroupTitle       string `json:"group_title"`
 	ProviderPriority int32  `json:"provider_priority"`
+	Backbone         string `json:"backbone"`
 }
 
 // Live streams of enabled providers not yet on any channel's failover list,
@@ -205,6 +256,7 @@ func (q *Queries) ListUnassignedStreams(ctx context.Context) ([]ListUnassignedSt
 			&i.LogoUrl,
 			&i.GroupTitle,
 			&i.ProviderPriority,
+			&i.Backbone,
 		); err != nil {
 			return nil, err
 		}

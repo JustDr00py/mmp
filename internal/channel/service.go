@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -26,16 +27,45 @@ type Service struct {
 	// applyMu serialises Apply: an auto-match after a scheduled refresh and
 	// an admin apply must not both create the same channel.
 	applyMu sync.Mutex
+
+	// The last Propose, reused for proposeTTL so paging and searching the
+	// Match page do not rematch every stream. Invalidate drops it.
+	cacheMu  sync.Mutex
+	cached   []Proposal
+	cachedAt time.Time
 }
+
+// proposeTTL bounds how stale a cached Propose can be after a change that
+// does not call Invalidate.
+const proposeTTL = time.Minute
 
 // NewService builds a Service.
 func NewService(log *slog.Logger, pool *pgxpool.Pool) *Service {
 	return &Service{log: log, pool: pool}
 }
 
-// Propose groups every unassigned live stream into proposals.
+// Propose groups every unassigned live stream into proposals. The result
+// is cached (see Invalidate) and shared: callers must not modify it.
 func (s *Service) Propose(ctx context.Context) ([]Proposal, error) {
-	return s.propose(ctx, db.New(s.pool))
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.cached != nil && time.Since(s.cachedAt) < proposeTTL {
+		return s.cached, nil
+	}
+	props, err := s.propose(ctx, db.New(s.pool))
+	if err != nil {
+		return nil, err
+	}
+	s.cached, s.cachedAt = props, time.Now()
+	return props, nil
+}
+
+// Invalidate drops the cached proposals. Call it after changing what
+// matching reads: streams, channels, rules, merges or ignored prefixes.
+func (s *Service) Invalidate() {
+	s.cacheMu.Lock()
+	s.cached = nil
+	s.cacheMu.Unlock()
 }
 
 func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error) {
@@ -68,6 +98,7 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 		streams = append(streams, Stream{
 			ID: r.ID, ProviderID: r.ProviderID, ProviderPriority: r.ProviderPriority,
 			Name: r.Name, MatchName: StripPrefixes(r.Name, prefixes), TvgID: r.TvgID, LogoURL: r.LogoUrl, Group: r.GroupTitle,
+			Backbone: r.Backbone,
 		})
 	}
 	existing := make([]Existing, len(chans))
@@ -92,7 +123,7 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 // ApplyOptions selects which proposals Apply acts on.
 type ApplyOptions struct {
 	Keys         []string // only these proposal keys; empty = all
-	MinProviders int      // skip groups seen at fewer distinct providers
+	MinProviders int      // skip groups seen at fewer sources (Proposal.Providers)
 	// AttachAlways exempts proposals for existing channels from
 	// MinProviders, so a new provider's streams join channels that exist.
 	AttachAlways bool
@@ -250,6 +281,7 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 	if err := tx.Commit(ctx); err != nil {
 		return res, fmt.Errorf("match apply: commit: %w", err)
 	}
+	s.Invalidate()
 	s.log.Info("match applied", "created", res.Created, "attached", res.Attached)
 	return res, nil
 }

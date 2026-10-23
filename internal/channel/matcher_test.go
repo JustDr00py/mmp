@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -299,5 +300,69 @@ func TestMatchMergesWithChannels(t *testing.T) {
 		if len(got) != 1 || got[0].ChannelID != tc.want {
 			t.Errorf("%s: %+v, want channel %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestMatchCallSigns: a local station links across providers by its call
+// sign, a tvg-id copied to another station does not join the stations, and
+// a subchannel stays apart from its main channel.
+func TestMatchCallSigns(t *testing.T) {
+	streams := []Stream{
+		{ID: 1, ProviderID: 1, Name: "US - CBS 12 JACKSON MS (WJTV) FHD", TvgID: "cbs12wjtv.us"},
+		{ID: 2, ProviderID: 2, Name: "|US| CBS 12 (WJTV) Jackson ᴴᴰ"},
+		{ID: 3, ProviderID: 3, Name: "US: CBS 12 (WJTV) JACKSON HD"},
+		{ID: 4, ProviderID: 4, Name: "US| CBS 12 JACKSON MS (WJTV)", TvgID: "loc.CBS (WJTV) Jackson, MS"},
+		{ID: 5, ProviderID: 5, Name: "US ★ CBS 12 JACKSON MS HD", TvgID: "CBSWJTV.us"},
+		{ID: 6, ProviderID: 1, Name: "US - CBS 7 JACKSON (WBBJ-DT3) FHD", TvgID: "cbs12wjtv.us"}, // wrong tvg-id
+
+		{ID: 10, ProviderID: 1, Name: "US - NBC 3 LAS VEGAS NV (KSNV) FHD", TvgID: "nbcksnv.us"},
+		{ID: 11, ProviderID: 1, Name: "US - NBC 20 FORT MYERS FL (WBBH) FHD", TvgID: "nbcksnv.us"},
+		{ID: 12, ProviderID: 5, Name: "US ★ NBC 3 LAS VEGAS HD", TvgID: "NBCKSNV.us"},
+
+		{ID: 20, ProviderID: 3, Name: "TV: WHEELING, WV WTOV NBC 9 A3 HD CLEVELAND"},
+		{ID: 21, ProviderID: 3, Name: "TV: WHEELING, WV  WTOV-D2 FOX 10 A3 HD CLEVELAND"},
+		{ID: 22, ProviderID: 4, Name: "US| NBC 9 STEUBENVILLE OH (WTOV)"},
+	}
+	groups := map[string][]int64{}
+	for _, p := range Match(streams, nil, nil, nil) {
+		groups[p.Name] = p.StreamIDs
+		if slices.Contains(p.StreamIDs, 1) && !slices.Contains(p.MatchedBy, ByCallSign) {
+			t.Errorf("WJTV matched by %v, want %s", p.MatchedBy, ByCallSign)
+		}
+	}
+	for _, want := range [][]int64{{1, 2, 3, 4, 5}, {6}, {10, 12}, {11}, {20, 22}, {21}} {
+		if !slices.ContainsFunc(slices.Collect(maps.Values(groups)), func(g []int64) bool { return slices.Equal(g, want) }) {
+			t.Errorf("no proposal with streams %v: %v", want, groups)
+		}
+	}
+
+	// An existing channel takes its station's streams by call sign.
+	got := Match(streams[1:3], []Existing{{ID: 7, Name: "CBS 12 JACKSON MS (WJTV)"}}, nil, nil)
+	if len(got) != 1 || got[0].ChannelID != 7 {
+		t.Errorf("existing WJTV channel: %+v", got)
+	}
+}
+
+// TestMatchCountsSources: providers on one backbone count as one source;
+// narrowed to that backbone they count one by one.
+func TestMatchCountsSources(t *testing.T) {
+	var streams []Stream
+	for id := int64(1); id <= 5; id++ {
+		streams = append(streams, Stream{ID: id, ProviderID: id, Name: "AMC", Backbone: "Golden"})
+	}
+	streams = append(streams, Stream{ID: 6, ProviderID: 6, Name: "AMC"}, Stream{ID: 7, ProviderID: 7, Name: "AMC"})
+	got := Match(streams, nil, nil, nil)
+	if len(got) != 1 || got[0].Providers != 3 {
+		t.Fatalf("AMC = %+v, want 3 sources (Golden and two providers without a backbone)", got)
+	}
+	golden, ok := got[0].InProviders(map[int64]bool{1: true, 2: true, 3: true, 4: true, 5: true})
+	if !ok || golden.Providers != 5 {
+		t.Errorf("narrowed to Golden: %d providers, want 5", golden.Providers)
+	}
+	if only, _ := got[0].InGroup(""); only.Providers != 3 {
+		t.Errorf("narrowed to a group: %d, want 3 sources", only.Providers)
+	}
+	if solo := Match(streams[:5], nil, nil, nil); solo[0].Providers != 1 {
+		t.Errorf("Golden alone: %d sources, want 1", solo[0].Providers)
 	}
 }

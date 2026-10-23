@@ -3,6 +3,7 @@ package web
 import (
 	"cmp"
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -65,6 +66,15 @@ func parseMatchFilter(v url.Values) matchFilter {
 		f.MinProv = max(atoi(m), 1)
 	}
 	return f
+}
+
+// Unit names what the provider filter counts: sources (backbones), or
+// with a backbone chosen, its providers.
+func (d matchData) Unit() string {
+	if d.Filter.Backbone != "" {
+		return "provider"
+	}
+	return "source"
 }
 
 // Values encodes the filter (without the offset) for links and redirects.
@@ -147,6 +157,7 @@ type matchData struct {
 	Rules     []db.MatchRule
 	Merges    []channel.Merge
 	Channels  []db.ListChannelMatchKeysRow // for "Add to channel"
+	Mixed     []channel.MixedChannel       // channels mixing local stations
 	RuleError string
 	RuleForm  db.CreateMatchRuleParams
 	Flash     string
@@ -158,7 +169,8 @@ type appliedSummary struct {
 	Bouquets          []string
 }
 
-var matchedByText = map[string]string{channel.ByTvgID: "same tvg-id", channel.ByName: "same name", channel.ByRule: "your rule"}
+var matchedByText = map[string]string{channel.ByTvgID: "same tvg-id", channel.ByCallSign: "same station",
+	channel.ByName: "same name", channel.ByRule: "your rule"}
 
 // filterProposals applies f (except paging) to props, sorted by name. It
 // also returns the provider-group counts and the provider-filter tallies.
@@ -324,6 +336,9 @@ var matchFlashes = map[string]string{
 func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d, err := ui.matchData(r, parseMatchFilter(q))
+	if errors.Is(err, context.Canceled) { // a search replaced by the next keystroke
+		return
+	}
 	if err != nil {
 		ui.fail(w, "match proposals", err)
 		return
@@ -356,6 +371,12 @@ func (ui *UI) matchPage(w http.ResponseWriter, r *http.Request) {
 		ui.fragment(w, r, "match", "match-results", d)
 		return
 	}
+	rows, err := ui.Store.ListChannelStreamNames(r.Context())
+	if err != nil {
+		ui.fail(w, "match channel streams", err)
+		return
+	}
+	d.Mixed = channel.MixedStations(rows)
 	ui.render(w, r, http.StatusOK, "match", "Match", d)
 }
 
