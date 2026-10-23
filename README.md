@@ -175,15 +175,22 @@ Two ways to build channels:
 - **By hand**: **Channels → New channel**, then search streams across all providers and **Add** them.
 
 On a channel's page, drag streams (or use ↑/↓) to set the failover order. The first available stream
-plays. Set the channel's **tvg-id** to the guide's channel id to get program data (see the **Guide**
+plays. Set the channel's **tvg-id** to the guide's channel id to get program data (see the **EPG**
 page for coverage).
 
+**Guide:** the **Guide** page is a TV guide of your lineup, the schedule each channel's customers get
+(XMLTV or stream-name guide, by the channel's guide setting): four hours at a time, earlier and later
+within the day behind and the week ahead the customer guide serves, filtered by name, tvg-id or group.
+Press ▶ beside a channel to watch it in the preview player, a program for its details. *Only channels
+without a guide* lists those with no XMLTV programs in the window, including ones filled in from their
+stream name (marked *from stream name*).
+
 **Guide sources:** Xtream providers bring their own guide, M3U providers can have an EPG URL, and on the
-**Guide** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
+**EPG** page you can add **extra guide sources**: any XMLTV URL (`.xml` or `.xml.gz`), such as a community
 guide with better coverage. They download on the guide schedule (`refresh.epg_interval`). When several
 sources list a channel, the lowest priority number wins among those whose schedule still runs past now: a
 guide that stopped updating never hides a current one, whatever its priority. A provider's guide uses the
-provider's priority unless you give it its own on the Guide page, so you can rank guides without changing
+provider's priority unless you give it its own on the EPG page, so you can rank guides without changing
 the failover order. The channel coverage table there shows which guide each channel gets.
 
 **Guide from stream names:** event feeds (PPV, game passes) rarely have a guide, but their stream names
@@ -606,7 +613,7 @@ uses one of their connections and one of the provider's.
 | Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the **Events** page (open failures with their error, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
 | A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps. `eof` right after a switch can be the provider kicking a connection over its limit |
-| Channel shows no guide | Guide page → *Only channels without a guide*; set the channel's tvg-id to the guide's channel id; check the source downloaded |
+| Channel shows no guide | Guide or EPG page → *Only channels without a guide*; set the channel's tvg-id to the guide's channel id; check the source downloaded |
 | "refresh refused: would disable …" | the provider returned far fewer streams than before (often temporary). Retry later, or use *Disable anyway* if the change is real |
 | Refresh fails with "connection refused" / timeout for a provider on the same machine | inside the container, `localhost` is the container itself: use the host's LAN IP in the provider URL |
 | Admin login keeps failing | lockout after `auth.max_attempts` failures lasts `auth.lockout` (default 5 minutes) |

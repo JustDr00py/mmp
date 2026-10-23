@@ -1,0 +1,76 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>Guide</h1></div>
+<p class="lede">The schedule each channel's customers get in their guide. Press ▶ beside a channel to watch it, a program for
+  its details. Empty rows have no guide: open the channel to set its <span class="mono">tvg-id</span>, or see the
+  <a href="/admin/epg">EPG</a> page for the sources.</p>
+<form class="search row" method="get" action="/admin/guide" hx-get="/admin/guide" hx-target="#guide-grid" hx-swap="outerHTML" hx-push-url="true"
+  hx-trigger="input changed delay:300ms from:find input[type=search], change, submit">
+  <input type="hidden" name="start" value="{{$d.StartUnix}}">
+  <input type="search" name="q" value="{{$d.Query}}" placeholder="Search channels or tvg-ids" aria-label="Search channels">
+  <select name="group" aria-label="Group">
+    <option value="0">All groups</option>
+    {{range $d.Groups}}<option value="{{.ID}}"{{if eq .ID $d.GroupID}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <label class="check"><input type="checkbox" name="missing" value="1"{{if $d.MissingOnly}} checked{{end}}> Only channels without a guide</label>
+</form>
+{{template "guide-grid" $d}}
+{{end}}
+
+{{define "guide-grid"}}
+<div id="guide-grid">
+<div class="guide-bar">
+  {{if .Earlier}}<a class="button secondary small" href="{{.Link .Earlier 0}}">← Earlier</a>{{else}}<span class="button secondary small" aria-disabled="true">← Earlier</span>{{end}}
+  <a class="button secondary small" href="{{.Link 0 0}}">Now</a>
+  {{if .Later}}<a class="button secondary small" href="{{.Link .Later 0}}">Later →</a>{{else}}<span class="button secondary small" aria-disabled="true">Later →</span>{{end}}
+  <strong>{{.Day}}</strong>
+</div>
+{{if .Rows}}
+<div class="table-wrap guide-wrap">
+<div class="guide" role="table" aria-label="TV guide">
+  <div class="guide-row guide-head" role="row">
+    <div class="guide-ch" role="columnheader">Channel</div>
+    <div class="guide-track" role="columnheader">{{range .Slots}}<span class="guide-tick" data-left="{{printf "%.3f" .Left}}">{{.Label}}</span>{{end}}</div>
+  </div>
+  <div class="guide-body">
+  {{if .NowShown}}<div class="guide-overlay" aria-hidden="true"><span class="guide-now" data-left="{{printf "%.3f" .NowLeft}}"></span></div>{{end}}
+  {{range .Rows}}
+  <div class="guide-row" role="row">
+    <div class="guide-ch" role="rowheader">
+      <span class="guide-num">{{with .Channel.Number}}{{.}}{{end}}</span>
+      {{if .Channel.Logo}}<img class="logo" src="{{.Channel.Logo}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}
+      <span class="guide-name"><a href="/admin/channels/{{.Channel.ID}}">{{.Channel.Name}}</a>
+        <span class="sub mono">{{if .Channel.TvgID}}{{.Channel.TvgID}}{{else}}no tvg-id{{end}}{{if .FromName}} · from stream name{{end}}</span></span>
+      {{if and preview .Playable}}<button type="button" class="iconbtn preview-btn" data-preview="/admin/preview/channel/{{.Channel.ID}}.ts" data-preview-title="{{.Channel.Name}}"
+        aria-label="Preview {{.Channel.Name}}" title="Preview"><svg class="i"><use href="#i-play"/></svg></button>{{end}}
+    </div>
+    <div class="guide-track" role="cell">
+    {{range .Programs}}
+      <button type="button" class="gp{{if .Now}} now{{end}}{{if .CutStart}} cut-start{{end}}{{if .CutStop}} cut-stop{{end}}"
+        data-left="{{printf "%.3f" .Left}}" data-pct="{{printf "%.3f" .Width}}" popovertarget="{{.ID}}" title="{{.Title}}">
+        <span class="gp-title">{{.Title}}</span><span class="gp-time">{{clock .Start}}–{{clock .Stop}}</span></button>
+      <div class="gp-pop card" id="{{.ID}}" popover>
+        <h3>{{.Title}}</h3>
+        {{with .SubTitle}}<p class="muted">{{.}}</p>{{end}}
+        <p class="sub">{{when .Start}}–{{clock .Stop}}{{if .Now}} · <span class="pill ok">on now</span>{{end}}</p>
+        {{with .Description}}<p>{{.}}</p>{{end}}
+        <div class="row"><button type="button" class="small secondary" popovertarget="{{.ID}}" popovertargetaction="hide">Close</button></div>
+      </div>
+    {{else}}
+      <span class="guide-empty">{{if .Channel.TvgID}}No guide for <span class="mono">{{.Channel.TvgID}}</span> in this window{{else}}No tvg-id, and no guide from its stream name{{end}}
+        · <a href="/admin/channels/{{.Channel.ID}}">Open channel</a></span>
+    {{end}}
+    </div>
+  </div>
+  {{end}}
+  </div>
+</div>
+</div>
+<nav class="pager">
+  {{if .Offset}}<a href="{{.Link .StartUnix .PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="{{.Link .StartUnix .NextOffset}}">Next →</a>{{end}}
+</nav>
+{{else if .MissingOnly}}<div class="card empty"><p>Every {{if or .Query .GroupID}}matching {{end}}channel has an XMLTV guide in this window.</p></div>
+{{else}}<div class="card empty"><p>No enabled channels{{if or .Query .GroupID}} match{{end}}.</p></div>{{end}}
+</div>
+{{end}}

@@ -1,6 +1,6 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Guide (EPG)</h1><a class="button secondary" href="#extra">Add a guide source</a></div>
+<div class="head"><h1>EPG</h1><a class="button secondary" href="#extra">Add a guide source</a></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
   A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
