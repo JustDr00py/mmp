@@ -10,7 +10,7 @@ import (
 )
 
 // NameFallback gives a channel its stream-name guide for [since, until),
-// or nothing (see guideRows for when it is used).
+// or nothing (see GuideRows for when it is used).
 type NameFallback func(c Channel, since, until time.Time) []db.ListGuideProgramsRow
 
 // nameGuideFor reads the stream-name guide settings once and returns the
@@ -19,7 +19,11 @@ func (h *Handlers) nameGuideFor(ctx context.Context, now time.Time) NameFallback
 	if h.NameGuide == nil {
 		return func(Channel, time.Time, time.Time) []db.ListGuideProgramsRow { return nil }
 	}
-	s := h.NameGuide(ctx)
+	return NameFallbackFor(h.NameGuide(ctx), now)
+}
+
+// NameFallbackFor is the stream-name guide fallback under settings s.
+func NameFallbackFor(s nameguide.Settings, now time.Time) NameFallback {
 	return func(c Channel, since, until time.Time) []db.ListGuideProgramsRow {
 		s := s
 		if c.GuideMode == GuideName { // chosen for this channel: on even if off for the rest

@@ -56,7 +56,7 @@ type xmltvProgram struct {
 // playlists carry as tvg-id, so players link the two; an id shared by
 // several channels is listed once (with the first one's guide mode).
 // Programs are fetched guideBatch channels at a time and picked per
-// channel by guideRows.
+// channel by GuideRows.
 func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFetcher, fallback NameFallback, since, until time.Time) error {
 	if _, err := io.WriteString(w, xml.Header+`<!DOCTYPE tv SYSTEM "xmltv.dtd">`+"\n"); err != nil {
 		return err
@@ -106,7 +106,7 @@ func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFe
 			byKey[r.TvgKey] = append(byKey[r.TvgKey], r)
 		}
 		for _, k := range batch {
-			for _, r := range guideRows(firstOf[k], byKey[k], fallback, since, until) {
+			for _, r := range GuideRows(firstOf[k], byKey[k], fallback, since, until) {
 				if err := enc.Encode(xmltvProgram{
 					Start:    r.StartTime.UTC().Format(xmltvTime),
 					Stop:     r.StopTime.UTC().Format(xmltvTime),
@@ -134,11 +134,11 @@ func WriteXMLTV(ctx context.Context, w io.Writer, chans []Channel, fetch GuideFe
 	return err
 }
 
-// guideRows is a channel's guide from its XMLTV programs and fallback
+// GuideRows is a channel's guide from its XMLTV programs and fallback
 // (its stream-name guide), by its guide mode: GuideName takes the
 // stream-name guide when it gives one, GuideXMLTV never does, and
 // GuideAuto (or anything else) only when there are no XMLTV programs.
-func guideRows(c Channel, xmltv []db.ListGuideProgramsRow, fallback NameFallback, since, until time.Time) []db.ListGuideProgramsRow {
+func GuideRows(c Channel, xmltv []db.ListGuideProgramsRow, fallback NameFallback, since, until time.Time) []db.ListGuideProgramsRow {
 	switch {
 	case fallback == nil || c.GuideMode == GuideXMLTV:
 		return xmltv

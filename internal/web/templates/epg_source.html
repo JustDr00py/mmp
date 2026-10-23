@@ -1,6 +1,6 @@
 {{define "content"}}
 {{$f := .Data}}
-<p class="crumbs"><a href="/admin/epg">Guide</a> /</p>
+<p class="crumbs"><a href="/admin/epg">EPG</a> /</p>
 <h1>{{.Title}}</h1>
 <form class="card form" method="post" action="/admin/epg/sources/{{$f.ID}}/edit">
   {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}

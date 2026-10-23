@@ -158,6 +158,10 @@
   // block and sends it as a "live" event; the browser reconnects on its own.
   const bars = (root) => root.querySelectorAll('[data-pct]').forEach((el) => { el.style.width = `${el.dataset.pct}%`; });
   bars(document);
+  // [data-left]: blocks placed along a track (the guide grid), in percent.
+  const place = (root) => root.querySelectorAll('[data-left]').forEach((el) => { el.style.left = `${el.dataset.left}%`; });
+  place(document);
+  document.addEventListener('htmx:load', (e) => { place(e.target); bars(e.target); });
   document.querySelectorAll('[data-sse]').forEach((el) => {
     const state = document.querySelector(el.dataset.sseState);
     const es = new EventSource(el.dataset.sse);

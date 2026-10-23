@@ -115,6 +115,8 @@ type Store interface {
 	UpdateExtraEpgSource(ctx context.Context, arg db.UpdateExtraEpgSourceParams) (db.EpgSource, error)
 	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
+	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
+	ListGuidePrograms(ctx context.Context, arg db.ListGuideProgramsParams) ([]db.ListGuideProgramsRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
 	ChannelBouquetCounts(ctx context.Context) ([]db.ChannelBouquetCountsRow, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
@@ -256,8 +258,9 @@ type navItem struct {
 var nav = []navItem{
 	{Prefix + "/", "Dashboard", "home", ""},
 	{Prefix + "/events", "Events", "clock", ""},
+	{Prefix + "/guide", "Guide", "guide", ""},
 	{Prefix + "/providers", "Providers", "server", "Sources"},
-	{Prefix + "/epg", "Guide", "guide", ""},
+	{Prefix + "/epg", "EPG", "epg", ""},
 	{Prefix + "/match", "Match", "match", "Lineup"},
 	{Prefix + "/channels", "Channels", "tv", ""},
 	{Prefix + "/groups", "Groups", "folder", ""},
@@ -271,7 +274,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -310,6 +313,7 @@ func New(d Deps) (*UI, error) {
 		"upper":      strings.ToUpper,
 		"size":       humanSize,
 		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+		"clock":      func(t time.Time) string { return t.Local().Format("15:04") },
 		"preview":    func() bool { return ui.Preview != nil },
 		"guideModes": func() []struct{ Value, Label string } { return guideModes },
 	}
@@ -387,6 +391,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountUsers(r)
 			ui.mountBouquets(r)
 			ui.mountEPG(r)
+			ui.mountGuide(r)
 			ui.mountProfiles(r)
 			ui.mountVOD(r)
 			ui.mountBackups(r)

@@ -310,7 +310,7 @@ func (h *Handlers) serveListings(w http.ResponseWriter, r *http.Request, u db.Us
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	rows = guideRows(chans[i], rows, h.nameGuideFor(r.Context(), now), since, now.Add(guideAhead))
+	rows = GuideRows(chans[i], rows, h.nameGuideFor(r.Context(), now), since, now.Add(guideAhead))
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]
 	}

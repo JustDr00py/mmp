@@ -506,3 +506,49 @@ tr.dragging { opacity: .45; }
 .match-bar .merge-into { display: inline-flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .match-bar .merge-into input { width: 14rem; max-width: 100%; min-height: 32px; padding: .25rem .5rem; }
 .vod-lang { flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: .75rem; }
+
+/* ---------- Guide grid ---------- */
+/* Rows are a sticky channel column and a track; programs and ticks sit in
+   the track at a percentage of the window (data-left / data-pct, set by
+   app.js since the CSP forbids inline styles). */
+.guide-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+.guide-bar strong { margin-left: .5rem; }
+.button[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+.guide-wrap { --guide-ch: 230px; }
+.guide { min-width: 960px; }
+.guide-body { position: relative; }
+.guide-row { display: grid; grid-template-columns: var(--guide-ch) minmax(0, 1fr); border-top: 1px solid var(--line); min-height: 58px; }
+.guide-row:first-child { border-top: 0; }
+.guide-head { min-height: 0; background: var(--card-2); font-size: .78rem; font-weight: 600; color: var(--muted); }
+.guide-ch { position: sticky; left: 0; z-index: 2; display: flex; align-items: center; gap: .1rem; min-width: 0;
+  padding: .4rem .6rem; background: var(--card); border-right: 1px solid var(--line); }
+.guide-head .guide-ch { background: var(--card-2); }
+.guide-ch img.logo { margin-right: .45rem; flex: none; }
+.guide-num { flex: none; min-width: 2.2rem; color: var(--faint); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.guide-name { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
+.guide-name a { font-weight: 600; color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-name a:hover { color: var(--accent); text-decoration: underline; }
+.guide-name .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guide-track { position: relative; min-width: 0; }
+.guide-head .guide-track { height: 30px; }
+.guide-tick { position: absolute; top: 0; bottom: 0; padding: .4rem .45rem; border-left: 1px solid var(--line); white-space: nowrap; }
+.guide-overlay { position: absolute; top: 0; bottom: 0; left: var(--guide-ch); right: 0; pointer-events: none; z-index: 1; }
+.guide-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--error-fg); opacity: .8; }
+button.gp { position: absolute; top: 4px; bottom: 4px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 0; padding: .2rem .5rem; overflow: hidden; text-align: left; white-space: nowrap; font-weight: 500; line-height: 1.25;
+  background: var(--card-2); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+button.gp:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+button.gp.now { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+button.gp.cut-start { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-style: dashed; }
+button.gp.cut-stop { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-style: dashed; }
+.gp-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: .84rem; }
+.gp-time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.guide-empty { position: absolute; inset: 0; display: flex; align-items: center; gap: .3rem; padding: 0 .75rem;
+  color: var(--warn-fg); background: color-mix(in srgb, var(--warn-bg) 55%, transparent); font-size: .82rem; }
+.gp-pop { width: min(30rem, calc(100vw - 2rem)); margin: auto; color: var(--fg); }
+.gp-pop::backdrop { background: rgba(10, 13, 20, .35); }
+.gp-pop h3 { font-size: 1.05rem; margin-bottom: .25rem; }
+@media (max-width: 640px) {
+  .guide-wrap { --guide-ch: 150px; }
+  .guide-ch img.logo, .guide-num { display: none; }
+}

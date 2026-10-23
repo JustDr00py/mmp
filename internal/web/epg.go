@@ -109,7 +109,7 @@ func (ui *UI) epgPage(w http.ResponseWriter, r *http.Request) {
 	ui.epgPageWith(w, r, http.StatusOK, extraForm{Enabled: true}, "")
 }
 
-// epgPageWith renders the Guide page, with the add-source form's state.
+// epgPageWith renders the EPG page, with the add-source form's state.
 func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, form extraForm, formErr string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	missing := r.URL.Query().Get("missing") == "1"
@@ -164,7 +164,7 @@ func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, fo
 	form.Error, form.ProviderPriorities = formErr, ui.providerPriorities(r)
 	d.ExtraForm = form
 	d.Flash = epgFlashes[r.URL.Query().Get("msg")]
-	ui.render(w, r, status, "epg", "Guide (EPG)", d)
+	ui.render(w, r, status, "epg", "EPG", d)
 }
 
 // epgRefresh downloads a provider's guide now and returns its updated row.
