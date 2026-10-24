@@ -221,7 +221,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
 		InfoTTL: cfg.VOD.InfoTTL.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration}
 	if hc := cfg.HLS; hc.Enabled {
-		outputs.HLS = output.NewHLS(ctx, output.HLSConfig{Segment: hc.Segment.Duration, Window: hc.Window, Idle: hc.Idle.Duration},
+		outputs.HLS = output.NewHLS(ctx, output.HLSConfig{Segment: hc.Segment.Duration, Window: hc.Window, Backlog: hc.Backlog.Duration, Idle: hc.Idle.Duration},
 			streams, access, log)
 	}
 	outputs.Mount(srv.Mux())

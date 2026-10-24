@@ -30,13 +30,23 @@ type OutSegment struct {
 // with the current PAT and PMT so it decodes on its own, and is timed by
 // PTS. Upstream switches (discontinuity_indicator) start a new segment
 // flagged EXT-X-DISCONTINUITY. A sliding window is kept in memory.
+//
+// With a backlog, finished segments join the playlist no faster than real
+// time: providers dump 20-40s of buffer on connect, and listing that at
+// once slides the window past players, which then restart at the new edge.
+// Held segments beyond backlog are dropped oldest first.
 type HLSSegmenter struct {
-	target time.Duration
-	window int // segments listed in the playlist
-	keep   int // segments kept for fetching (>= window)
+	target  time.Duration
+	window  int           // segments listed in the playlist
+	keep    int           // segments kept for fetching (>= window)
+	backlog time.Duration // most held back by pacing; 0: no pacing
+	lead    time.Duration // how far releases may run ahead of real time
+	clock   func() time.Time
 
 	mu       sync.Mutex
-	segs     []*OutSegment
+	segs     []*OutSegment // released: listed and fetchable
+	held     []*OutSegment // finished, waiting for their release time
+	nextRel  time.Time     // when the next held segment is due
 	nextSeq  int64
 	discSeq  int64
 	ended    bool
@@ -70,9 +80,13 @@ type segBuild struct {
 }
 
 // NewHLSSegmenter cuts segments of about target, lists window of them and
-// keeps a few more for clients still fetching older ones.
-func NewHLSSegmenter(target time.Duration, window int) *HLSSegmenter {
+// keeps a few more for clients still fetching older ones. A backlog > 0
+// paces segments into the playlist, holding back at most that much.
+func NewHLSSegmenter(target time.Duration, window int, backlog time.Duration) *HLSSegmenter {
+	// Half a window ahead keeps the segment after a player's last one
+	// listed while a burst is let through.
 	return &HLSSegmenter{target: target, window: window, keep: window + 4,
+		backlog: backlog, lead: target * time.Duration(window/2), clock: time.Now,
 		pmtPID: -1, videoPID: -1, ptsPID: -1, changed: make(chan struct{}),
 		sinceDisc: map[int]bool{}, pidPTS: map[int]int64{}}
 }
@@ -96,6 +110,7 @@ func (s *HLSSegmenter) Write(p []byte, now time.Time) {
 		buf = buf[TSPacketSize:]
 	}
 	s.pending = append(s.pending[:0], buf...)
+	s.release(now)
 }
 
 func (s *HLSSegmenter) packet(pkt []byte, now time.Time) {
@@ -240,16 +255,66 @@ func (s *HLSSegmenter) cut(now time.Time, nextPTS int64) {
 	if d <= 0 {
 		d = time.Millisecond
 	}
-	if b.disc {
-		s.discSeq++
+	s.held = append(s.held, &OutSegment{Duration: d, Discontinuity: b.disc, Data: b.data})
+	s.release(now) // only what is not due counts against the backlog
+	if s.backlog <= 0 {
+		return
 	}
-	seg := &OutSegment{Seq: s.nextSeq, Duration: d, Discontinuity: b.disc, discSeq: s.discSeq, Data: b.data}
-	s.nextSeq++
-	s.segs = append(s.segs, seg)
+	var total time.Duration
+	for _, seg := range s.held {
+		total += seg.Duration
+	}
+	dropped := false
+	for total > s.backlog && len(s.held) > 1 {
+		total -= s.held[0].Duration
+		s.held[0] = nil
+		s.held = s.held[1:]
+		dropped = true
+	}
+	if dropped { // players skip the gap rather than stall on it
+		s.held[0].Discontinuity = true
+	}
+}
+
+// release lists held segments that are due by now (all of them without
+// pacing), numbering them as they join.
+func (s *HLSSegmenter) release(now time.Time) {
+	n := 0
+	for len(s.held) > 0 {
+		seg := s.held[0]
+		if s.backlog > 0 && !s.ended {
+			if s.nextRel.Before(now) { // caught up: real time restarts here
+				s.nextRel = now
+			}
+			if ahead := s.nextRel.Sub(now); ahead > 0 && ahead >= s.lead {
+				break
+			}
+			s.nextRel = s.nextRel.Add(seg.Duration)
+		}
+		s.held[0] = nil
+		s.held = s.held[1:]
+		if seg.Discontinuity {
+			s.discSeq++
+		}
+		seg.Seq, seg.discSeq = s.nextSeq, s.discSeq
+		s.nextSeq++
+		s.segs = append(s.segs, seg)
+		n++
+	}
 	if len(s.segs) > s.keep {
 		s.segs = append(s.segs[:0], s.segs[len(s.segs)-s.keep:]...)
 	}
-	s.notify()
+	if n > 0 {
+		s.notify()
+	}
+}
+
+// due is how long until the next held segment may be released, or -1.
+func (s *HLSSegmenter) due(now time.Time) time.Duration {
+	if len(s.held) == 0 {
+		return -1
+	}
+	return max(s.nextRel.Sub(now)-s.lead, time.Millisecond)
 }
 
 func (s *HLSSegmenter) notify() {
@@ -257,7 +322,8 @@ func (s *HLSSegmenter) notify() {
 	s.changed = make(chan struct{})
 }
 
-// End marks the stream finished: the playlist gets EXT-X-ENDLIST.
+// End marks the stream finished: held segments are listed at once and the
+// playlist gets EXT-X-ENDLIST.
 func (s *HLSSegmenter) End() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -265,6 +331,7 @@ func (s *HLSSegmenter) End() {
 		return
 	}
 	s.ended = true
+	s.release(s.clock())
 	s.notify()
 }
 
@@ -273,7 +340,9 @@ func (s *HLSSegmenter) End() {
 func (s *HLSSegmenter) Wait(ctx context.Context, n int) bool {
 	for {
 		s.mu.Lock()
-		have, ended, ch := len(s.segs), s.ended, s.changed
+		now := s.clock()
+		s.release(now)
+		have, ended, ch, due := len(s.segs), s.ended, s.changed, s.due(now)
 		s.mu.Unlock()
 		if have >= n {
 			return true
@@ -281,10 +350,22 @@ func (s *HLSSegmenter) Wait(ctx context.Context, n int) bool {
 		if ended {
 			return false
 		}
+		var tick <-chan time.Time
+		var t *time.Timer
+		if due >= 0 { // a held segment comes due without a write
+			t = time.NewTimer(due)
+			tick = t.C
+		}
 		select {
 		case <-ctx.Done():
-			return false
 		case <-ch:
+		case <-tick:
+		}
+		if t != nil {
+			t.Stop()
+		}
+		if ctx.Err() != nil {
+			return false
 		}
 	}
 }
@@ -306,6 +387,7 @@ func (s *HLSSegmenter) Segment(seq int64) (*OutSegment, bool) {
 func (s *HLSSegmenter) Playlist(uri func(seq int64) string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.release(s.clock()) // held segments come due during upstream stalls too
 	list := s.segs[max(0, len(s.segs)-s.window):]
 	// The listed segments' longest, so one long segment ages out with it.
 	longest := s.target
