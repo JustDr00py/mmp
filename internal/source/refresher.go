@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -96,14 +98,15 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider, force bo
 	var res Result
 
 	entries, err := r.fetchEntries(ctx, p)
-	if err != nil {
-		return res, fmt.Errorf("refresh provider %d: %w", p.ID, err)
+	if err == nil && len(entries) == 0 {
+		// An empty list is almost always a provider fault (an error page,
+		// an empty body, a panel hiccup), and reconciling against it would
+		// soft-disable every stream the provider has. Keep what we have.
+		err = ErrNoStreams
 	}
-	// An empty list is almost always a provider fault (an error page, an
-	// empty body, a panel hiccup), and reconciling against it would
-	// soft-disable every stream the provider has. Keep what we have.
-	if len(entries) == 0 {
-		return res, fmt.Errorf("refresh provider %d: %w", p.ID, ErrNoStreams)
+	if err != nil {
+		r.markFailing(ctx, p.ID, err)
+		return res, fmt.Errorf("refresh provider %d: %w", p.ID, err)
 	}
 	res.Seen = len(entries)
 
@@ -178,6 +181,94 @@ func (r *Refresher) RefreshProvider(ctx context.Context, p db.Provider, force bo
 		r.AfterRefresh(ctx, p)
 	}
 	return res, nil
+}
+
+// healthEvery is how often a provider is checked between refreshes.
+const healthEvery = 5 * time.Minute
+
+// healthTimeout bounds one health check.
+const healthTimeout = 30 * time.Second
+
+// CheckProvider asks the provider whether it answers, without fetching its
+// stream list: an Xtream login, or the start of an M3U playlist. The
+// result is stored on the provider (see Describe).
+func (r *Refresher) CheckProvider(ctx context.Context, p db.Provider) error {
+	cctx, cancel := context.WithTimeout(ctx, healthTimeout)
+	defer cancel()
+	err := r.check(cctx, p)
+	if ctx.Err() != nil {
+		return ctx.Err() // shutting down: not the provider's fault
+	}
+	if err != nil {
+		r.markFailing(ctx, p.ID, err)
+		return err
+	}
+	if err := db.New(r.pool).MarkProviderHealthy(ctx, p.ID); err != nil {
+		r.log.Error("refresher: mark provider healthy", "provider_id", p.ID, "err", err)
+	}
+	return nil
+}
+
+func (r *Refresher) check(ctx context.Context, p db.Provider) error {
+	switch p.Type {
+	case "xtream":
+		client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+		if err != nil {
+			return err
+		}
+		if _, err := client.Login(ctx); err != nil {
+			return fmt.Errorf("login: %w", err)
+		}
+		return nil
+	case "m3u":
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Url, nil)
+		if err != nil {
+			return fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url))
+		}
+		if p.UserAgent != "" {
+			req.Header.Set("User-Agent", p.UserAgent)
+		}
+		resp, err := r.hc.Do(req)
+		if err != nil {
+			return fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("download playlist %s: status %d", redact.URL(p.Url), resp.StatusCode)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown provider type %q", p.Type)
+	}
+}
+
+// markFailing stores why the provider did not answer.
+func (r *Refresher) markFailing(ctx context.Context, id int64, cause error) {
+	msg := redact.Text(Describe(cause))
+	if err := db.New(r.pool).MarkProviderFailing(context.WithoutCancel(ctx), db.MarkProviderFailingParams{ID: id, Error: msg}); err != nil {
+		r.log.Error("refresher: mark provider failing", "provider_id", id, "err", err)
+	}
+}
+
+// Describe puts a provider error in words an admin can act on, keeping
+// the technical cause after them.
+func Describe(err error) string {
+	var dns *net.DNSError
+	switch {
+	case errors.As(err, &dns) && dns.IsNotFound:
+		return fmt.Sprintf("Server name %s does not exist (DNS). The provider may have moved to a new address. (%v)", dns.Name, err)
+	case errors.As(err, &dns):
+		return fmt.Sprintf("Could not look up %s (DNS). (%v)", dns.Name, err)
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return fmt.Sprintf("The server refused the connection. (%v)", err)
+	case errors.Is(err, xtream.ErrUnauthorized):
+		return fmt.Sprintf("The panel rejected the login: the account may have expired or the password changed. (%v)", err)
+	case errors.Is(err, ErrNoStreams):
+		return fmt.Sprintf("The provider answered with no streams. (%v)", err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Sprintf("The server did not answer in time. (%v)", err)
+	}
+	return err.Error()
 }
 
 // streamEntry is the provider-agnostic shape both source types map into.
@@ -442,6 +533,17 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 			if _, err := r.RefreshVOD(ctx, p, false); err != nil {
 				r.log.Error("refresher: vod refresh failed", "provider_id", p.ID, "err", err.Error())
 			}
+		}
+	}
+	// Between refreshes, check that each provider still answers. Those
+	// refreshed above were just checked.
+	due, err := q.ListProvidersDueForCheck(ctx, healthEvery.Seconds())
+	if err != nil {
+		r.log.Error("refresher: list providers due for check", "err", err)
+	}
+	for _, p := range due {
+		if err := r.CheckProvider(ctx, p); err != nil && ctx.Err() == nil {
+			r.log.Warn("refresher: provider check failed", "provider_id", p.ID, "err", redact.Text(err.Error()))
 		}
 	}
 	epgDue, err := q.ListProvidersDueForEpg(ctx, epgInterval.Seconds())

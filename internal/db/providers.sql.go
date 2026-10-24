@@ -17,7 +17,7 @@ INSERT INTO providers (
     refresh_max_disable_pct, backbone, group_filter
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at
 `
 
 type CreateProviderParams struct {
@@ -77,6 +77,9 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
 		&i.Backbone,
+		&i.LastError,
+		&i.FailingSince,
+		&i.CheckedAt,
 	)
 	return i, err
 }
@@ -91,7 +94,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -118,12 +121,15 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
 		&i.Backbone,
+		&i.LastError,
+		&i.FailingSince,
+		&i.CheckedAt,
 	)
 	return i, err
 }
 
 const getProvidersByIDs = `-- name: GetProvidersByIDs :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
 `
 
 func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provider, error) {
@@ -156,6 +162,9 @@ func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provide
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
 			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -199,7 +208,7 @@ func (q *Queries) ListBackbones(ctx context.Context) ([]ListBackbonesRow, error)
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -232,6 +241,9 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
 			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -317,7 +329,7 @@ UPDATE providers SET
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
     priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at
 `
 
 type UpdateProviderParams struct {
@@ -376,6 +388,9 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.VodRefreshedAt,
 		&i.GroupFilter,
 		&i.Backbone,
+		&i.LastError,
+		&i.FailingSince,
+		&i.CheckedAt,
 	)
 	return i, err
 }

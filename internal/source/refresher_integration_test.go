@@ -398,3 +398,59 @@ func TestRefreshRefusesTruncatedList(t *testing.T) {
 		t.Errorf("guard off: %+v, %v", res, err)
 	}
 }
+
+// TestProviderHealth: a provider that stops answering is marked failing,
+// retried every few minutes rather than every tick, and cleared once it
+// answers again.
+func TestProviderHealth(t *testing.T) {
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	ts, _ := newM3UServer(t)
+	r := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "P", Type: "m3u", Url: ts.URL + "/list.m3u",
+		UserAgent: "MMP-Test/1.0", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func() db.Provider {
+		t.Helper()
+		got, err := q.GetProvider(ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	p.Url = "http://mmp-no-such-host.invalid/list.m3u"
+	if _, err := r.RefreshProvider(ctx, p, false); err == nil {
+		t.Fatal("refresh of a dead host succeeded")
+	}
+	got := get()
+	if !strings.Contains(got.LastError, "does not exist (DNS)") || got.FailingSince == nil {
+		t.Fatalf("after failed refresh: error %q since %v", got.LastError, got.FailingSince)
+	}
+	first := *got.FailingSince
+	due, err := q.ListDueProviders(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Errorf("a provider that just failed is due again: %v", due)
+	}
+
+	// A failing health check keeps the first failure time.
+	if err := r.CheckProvider(ctx, p); err == nil {
+		t.Fatal("check of a dead host succeeded")
+	}
+	if got := get(); got.FailingSince == nil || !got.FailingSince.Equal(first) {
+		t.Errorf("failing since moved: %v, want %v", got.FailingSince, first)
+	}
+
+	p.Url = ts.URL + "/list.m3u"
+	if err := r.CheckProvider(ctx, p); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if got := get(); got.LastError != "" || got.FailingSince != nil || got.CheckedAt == nil {
+		t.Errorf("after recovery: error %q since %v checked %v", got.LastError, got.FailingSince, got.CheckedAt)
+	}
+}

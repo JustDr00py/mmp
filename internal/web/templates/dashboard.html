@@ -20,6 +20,12 @@
 </section>
 {{end}}
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Failing}}
+<div class="error" role="alert"><div>
+  <strong>{{len .}} {{if eq (len .) 1}}provider is{{else}}providers are{{end}} not answering.</strong> Their streams cannot play; channels fail over to other providers.
+  <ul>{{range .}}<li><a href="/admin/providers?q={{.Name}}">{{.Name}}</a>, first failed {{ago .FailingSince}}: {{.LastError}}</li>{{end}}</ul>
+</div></div>
+{{end}}
 <div id="live" data-sse="/admin/live" data-sse-state="#live-state">
 {{template "live" $d.Live}}
 </div>
