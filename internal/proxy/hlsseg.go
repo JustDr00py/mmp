@@ -39,7 +39,6 @@ type HLSSegmenter struct {
 	segs     []*OutSegment
 	nextSeq  int64
 	discSeq  int64
-	maxDur   time.Duration
 	ended    bool
 	changed  chan struct{} // closed and replaced whenever segs or ended change
 	pending  []byte        // unaligned remainder between writes
@@ -169,7 +168,7 @@ func (s *HLSSegmenter) packet(pkt []byte, now time.Time) {
 		cur := s.cur
 		switch {
 		case (disc && s.sinceDisc[pid]) || s.programChanged || jump:
-			s.cut(now, pts)
+			s.cut(now, -1) // pts is on the next upstream's clock
 			s.begin(now, pts, true)
 		case keyStart && s.elapsed(now, pts) >= s.target,
 			pusi && pid == s.ptsPID && s.elapsed(now, pts) >= 3*s.target, // no keyframe markers
@@ -225,7 +224,7 @@ func (s *HLSSegmenter) cut(now time.Time, nextPTS int64) {
 	b := s.cur
 	s.cur = nil
 	d, ok := ptsDelta(b.startPTS, nextPTS)
-	if !ok { // across a discontinuity the next PTS is unrelated
+	if !ok { // a discontinuity: nextPTS is -1, time it by its own PTS
 		d, ok = ptsDelta(b.startPTS, b.lastPTS)
 	}
 	if !ok || d <= 0 {
@@ -239,7 +238,6 @@ func (s *HLSSegmenter) cut(now time.Time, nextPTS int64) {
 	}
 	seg := &OutSegment{Seq: s.nextSeq, Duration: d, Discontinuity: b.disc, discSeq: s.discSeq, Data: b.data}
 	s.nextSeq++
-	s.maxDur = max(s.maxDur, d)
 	s.segs = append(s.segs, seg)
 	if len(s.segs) > s.keep {
 		s.segs = append(s.segs[:0], s.segs[len(s.segs)-s.keep:]...)
@@ -302,7 +300,12 @@ func (s *HLSSegmenter) Playlist(uri func(seq int64) string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	list := s.segs[max(0, len(s.segs)-s.window):]
-	target := int(math.Ceil(max(s.maxDur, s.target).Seconds()))
+	// The listed segments' longest, so one long segment ages out with it.
+	longest := s.target
+	for _, seg := range list {
+		longest = max(longest, seg.Duration)
+	}
+	target := int(math.Ceil(longest.Seconds()))
 	var b strings.Builder
 	fmt.Fprintf(&b, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:%d\n", target)
 	if len(list) > 0 {
