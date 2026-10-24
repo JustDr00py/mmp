@@ -186,6 +186,7 @@ type Store interface {
 type Matcher interface {
 	Propose(ctx context.Context) ([]channel.Proposal, error)
 	Apply(ctx context.Context, opts channel.ApplyOptions) (channel.ApplyResult, error)
+	KeyStreams(ctx context.Context, channelID int64, key string) ([]int64, error)
 	MatchSettings(ctx context.Context) (channel.MatchSettings, error)
 	SaveMatchSettings(ctx context.Context, m channel.MatchSettings) error
 	AutoMatch(ctx context.Context, providerID int64) (channel.ApplyResult, bool, error)

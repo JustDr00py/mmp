@@ -307,3 +307,80 @@ func TestMatchMergeIntoChannel(t *testing.T) {
 		t.Error("merge not listed")
 	}
 }
+
+// TestMatchMergeIntoChannelMoves: adding a suggestion to a second channel
+// moves it off the first (an earlier mistaken pick), and the channel page
+// can unlink it.
+func TestMatchMergeIntoChannelMoves(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	var ids []int64
+	addStream := func(pn string, prio int) {
+		prov, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: pn, Type: "m3u", Url: "http://" + pn + "/", MaxConnections: 1,
+			RefreshIntervalSecs: 3600, Priority: int32(prio), Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: prov.ID, ExternalID: "k",
+			Name: "Bucks vs Bulls :NBA 01", StreamUrl: "http://" + pn + "/k"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	addStream("A", 1)
+	addStream("B", 2)
+	wrong, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "NBA GAME 05"})
+	right, _ := q.CreateChannel(ctx, db.CreateChannelParams{Name: "NBA GAME 01"})
+	_, body := b.get("/admin/match?q=nba&min=1")
+	key := keysOn(body)["NBA 01"]
+	if key == "" {
+		t.Fatalf("no suggestion: %v", keysOn(body))
+	}
+	addTo := func(ch db.Channel) {
+		t.Helper()
+		ref := fmt.Sprintf("%s (#%d)", ch.Name, ch.ID)
+		resp, _ := b.post("/admin/match/merge", url.Values{"key": {key}, "to": {"channel"}, "channel": {ref}, "q": {"nba"}, "min": {"1"}}, b.base)
+		if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=mergedch") {
+			t.Fatalf("add to %s: %s", ch.Name, loc)
+		}
+	}
+	addTo(wrong)
+	if got := order(t, q, wrong.ID); len(got) != 2 {
+		t.Fatalf("wrong channel streams = %v", got)
+	}
+	// A new provider's copy is offered to the wrong channel; adding it to
+	// the right one moves the whole suggestion.
+	addStream("C", 3)
+	_, body = b.get("/admin/match?q=nba&min=1")
+	if keysOn(body)["NBA GAME 05"] != key {
+		t.Fatalf("new stream not offered to the first channel: %v", keysOn(body))
+	}
+	addTo(right)
+	if got := order(t, q, right.ID); !eq(got, ids) {
+		t.Errorf("right channel streams = %v, want %v", got, ids)
+	}
+	if got := order(t, q, wrong.ID); len(got) != 0 {
+		t.Errorf("streams left on the first channel: %v", got)
+	}
+
+	// The channel page lists the link and can undo it.
+	_, body = b.get("/admin/channels/" + strconv.FormatInt(right.ID, 10))
+	if !strings.Contains(body, "Linked suggestions") || !strings.Contains(body, `value="`+key+`"`) {
+		t.Fatalf("link not shown:\n%s", body)
+	}
+	if _, body = b.get("/admin/channels/" + strconv.FormatInt(wrong.ID, 10)); strings.Contains(body, "Linked suggestions") {
+		t.Error("first channel still shows the link")
+	}
+	resp, _ := b.post("/admin/channels/"+strconv.FormatInt(right.ID, 10)+"/merges/unlink", url.Values{"key": {key}}, b.base)
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=unlinked") {
+		t.Fatalf("unlink: %d %s", resp.StatusCode, loc)
+	}
+	if got := order(t, q, right.ID); len(got) != 0 {
+		t.Errorf("streams after unlink = %v", got)
+	}
+	_, body = b.get("/admin/match?q=nba&min=1")
+	if keysOn(body)["NBA 01"] != key || strings.Contains(body, "adds to</span>") {
+		t.Errorf("suggestion not standalone after unlink:\n%s", body)
+	}
+}

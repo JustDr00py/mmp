@@ -22,6 +22,17 @@
       </div>
     </form>
     <div id="picker"></div>
+    {{if $d.Merges}}
+    <h2>Linked suggestions</h2>
+    <p class="muted small">Added with <strong>Add to channel</strong> on the Match page. Their streams keep joining this channel, even after you remove them above, until you unlink them.</p>
+    <ul class="picker">
+    {{range $d.Merges}}
+      <li><span class="what"><span class="what-name"><strong>{{.Name}}</strong></span><span class="sub mono">{{.Key}}</span></span>
+        <form method="post" action="/admin/channels/{{$d.Form.ID}}/merges/unlink"><input type="hidden" name="key" value="{{.Key}}">
+          <button type="submit" class="small secondary">Unlink</button></form></li>
+    {{end}}
+    </ul>
+    {{end}}
   </section>
   <section>
     <h2>Settings</h2>

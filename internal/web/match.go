@@ -675,6 +675,35 @@ func (ui *UI) mergeIntoChannel(w http.ResponseWriter, r *http.Request, target st
 			ui.redirect(w, r, Prefix+"/match?"+back.Encode())
 			return
 		}
+		// A suggestion feeds one channel: adding it here moves it, so an
+		// earlier "Add to channel" (perhaps a mistake) no longer wins. Its
+		// streams there become unassigned, and the apply below adds them
+		// here.
+		var from []int64
+		merges = slices.DeleteFunc(merges, func(m channel.Merge) bool {
+			other, ok := m.Other(k)
+			if !ok || other == into {
+				return false
+			}
+			id, ok := channel.ChannelOfKey(other)
+			if ok {
+				from = append(from, id)
+			}
+			return ok
+		})
+		var mine []int64
+		for _, id := range from {
+			ids, err := ui.Match.KeyStreams(ctx, id, k)
+			if err == nil {
+				err = ui.removeStreams(ctx, id, ids)
+			}
+			if err != nil {
+				ui.fail(w, "match move", err)
+				return
+			}
+			ui.Log.Info("web: match suggestion moved off channel", "channel_id", id, "to", ch.ID, "streams", len(ids))
+			mine = append(mine, ids...)
+		}
 		if !slices.ContainsFunc(merges, func(m channel.Merge) bool { return m.Joins(into, k) }) {
 			merges = append(merges, channel.Merge{A: into, B: k, AName: ch.Name, BName: names[k]})
 		}
@@ -686,7 +715,7 @@ func (ui *UI) mergeIntoChannel(w http.ResponseWriter, r *http.Request, target st
 					ids = append(ids, id)
 				}
 			}
-			opts.Streams[k] = ids
+			opts.Streams[k] = append(ids, mine...)
 		}
 	}
 	if err := channel.SaveMerges(ctx, ui.Store, merges); err != nil {
@@ -702,6 +731,16 @@ func (ui *UI) mergeIntoChannel(w http.ResponseWriter, r *http.Request, target st
 	back.Set("msg", "mergedch")
 	back.Set("applied", strconv.Itoa(res.Created)+"-"+strconv.Itoa(res.Attached))
 	ui.redirect(w, r, Prefix+"/match?"+back.Encode())
+}
+
+// removeStreams takes streams off a channel's failover list.
+func (ui *UI) removeStreams(ctx context.Context, channelID int64, ids []int64) error {
+	for _, id := range ids {
+		if err := ui.Store.RemoveStreamFromChannel(ctx, db.RemoveStreamFromChannelParams{ChannelID: channelID, ProviderStreamID: id}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // matchMergeDelete undoes one merge.

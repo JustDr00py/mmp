@@ -35,6 +35,17 @@ func (m Merge) Joins(a, b string) bool {
 	return (m.A == a && m.B == b) || (m.A == b && m.B == a)
 }
 
+// Other returns the key m links k to, if m involves k.
+func (m Merge) Other(k string) (string, bool) {
+	switch k {
+	case m.A:
+		return m.B, true
+	case m.B:
+		return m.A, true
+	}
+	return "", false
+}
+
 // LoadMerges reads the merge list (empty if never saved).
 func LoadMerges(ctx context.Context, q SettingsStore) ([]Merge, error) {
 	raw, err := q.GetSetting(ctx, mergesKey)
