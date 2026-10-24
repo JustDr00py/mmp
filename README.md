@@ -416,6 +416,7 @@ without a backbone are never moved.
 | `hls.enabled` | `MMP_HLS_ENABLED` | `true` | offer `.m3u8` (HLS) streams to players |
 | `hls.segment` | `MMP_HLS_SEGMENT` | `2s` | target segment length (shorter = faster start, more requests) |
 | `hls.window` | `MMP_HLS_WINDOW` | `6` | segments listed in a live playlist |
+| `hls.backlog` | `MMP_HLS_BACKLOG` | `30s` | providers send 20-40s of video at once on connect and after a failover; segments join the playlist at real-time speed instead, so players do not skip around. At most this much is held back (the rest is skipped); it also covers a failover's gap. Higher = smoother failovers, further behind live; `0` = off |
 | `hls.idle_timeout` | `MMP_HLS_IDLE_TIMEOUT` | `30s` | an HLS client silent this long has left (frees its connection slot). An HLS stream link only plays on the network that opened it (plus its IPv4/IPv6 counterpart), so sharing it does not get around *Max connections* |
 
 ### Health prober
