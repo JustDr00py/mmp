@@ -15,12 +15,20 @@ import (
 // and B-frames (so video PTS arrives out of order, as on real channels).
 func makeTS(t *testing.T, secs int) []byte {
 	t.Helper()
+	return makeTSAt(t, secs, 0)
+}
+
+// makeTSAt is makeTS with timestamps starting about at, as on a live
+// channel whose clock has been running for hours.
+func makeTSAt(t *testing.T, secs int, at time.Duration) []byte {
+	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not installed")
 	}
 	out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
 		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i", "sine",
 		"-t", strconv.Itoa(secs), "-c:v", "libx264", "-preset", "ultrafast", "-x264-params", "bframes=3", "-g", "25", "-c:a", "aac",
+		"-output_ts_offset", strconv.FormatFloat(at.Seconds(), 'f', 3, 64),
 		"-f", "mpegts", "pipe:1").Output()
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +91,35 @@ func TestHLSSegmenterCutsOnKeyframes(t *testing.T) {
 	s.End()
 	if !strings.HasSuffix(s.Playlist(func(int64) string { return "x" }), "#EXT-X-ENDLIST\n") {
 		t.Error("ended playlist lacks ENDLIST")
+	}
+}
+
+// TestHLSSegmenterLateClock: a channel whose clock is hours in (every
+// real one) is cut on keyframes too. A PID's first PTS used to be compared
+// with 0 and taken for a timestamp break, cutting a discontinuity at every
+// switch between the audio and video PIDs.
+func TestHLSSegmenterLateClock(t *testing.T) {
+	s := NewHLSSegmenter(2*time.Second, 3)
+	feed(s, makeTSAt(t, 9, 10*time.Hour))
+	if n := len(s.segs); n < 3 || n > 5 {
+		t.Fatalf("%d segments from 9s at a 2s target, want 3-5", n)
+	}
+	for _, seg := range s.segs {
+		if seg.Discontinuity || seg.Duration < 1900*time.Millisecond || seg.Duration > 2100*time.Millisecond {
+			t.Errorf("segment %d: %v, discontinuity %v; want 2s, none", seg.Seq, seg.Duration, seg.Discontinuity)
+		}
+	}
+
+	// A real, unflagged break (the clock moves 10h on) is still caught once.
+	feed(s, makeTSAt(t, 5, 20*time.Hour))
+	var disc int
+	for _, seg := range s.segs {
+		if seg.Discontinuity {
+			disc++
+		}
+	}
+	if disc != 1 {
+		t.Errorf("%d discontinuities after one timestamp break, want 1", disc)
 	}
 }
 
