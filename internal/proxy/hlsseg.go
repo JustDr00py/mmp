@@ -152,7 +152,11 @@ func (s *HLSSegmenter) packet(pkt []byte, now time.Time) {
 	if pid == s.ptsPID {
 		pts = anyPTS
 	}
-	jump := anyPTS >= 0 && ptsJump(s.pidPTS[pid], anyPTS)
+	// A PID's first PTS since the last break has nothing to jump from.
+	jump := false
+	if last, ok := s.pidPTS[pid]; ok && anyPTS >= 0 {
+		jump = ptsJump(last, anyPTS)
+	}
 	keyStart := (s.videoPID >= 0 && pid == s.videoPID && pusi && rai) ||
 		(s.videoPID < 0 && pid == s.ptsPID && pusi)
 
