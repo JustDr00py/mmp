@@ -121,6 +121,9 @@ services:
       MMP_HTTP_TRUSTED_PROXIES: ${MMP_HTTP_TRUSTED_PROXIES:-}
       # Time zone for log timestamps and the times the admin UI shows.
       TZ: ${TZ:-UTC}
+      # How long an HLS player may go without requesting before it counts
+      # as gone (frees its connection slot and the provider connection).
+      MMP_HLS_IDLE_TIMEOUT: ${MMP_HLS_IDLE_TIMEOUT:-30s}
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
