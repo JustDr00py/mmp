@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
@@ -51,5 +52,33 @@ func TestDescribe(t *testing.T) {
 		if got := Describe(c.err); !strings.Contains(got, c.want) {
 			t.Errorf("Describe(%v) = %q, want %q in it", c.err, got, c.want)
 		}
+	}
+}
+
+// TestHostPacer: a second request to one server waits out the gap; other
+// servers and URLs without a host don't wait.
+func TestHostPacer(t *testing.T) {
+	ctx := context.Background()
+	h := hostPacer{gap: 200 * time.Millisecond}
+	start := time.Now()
+	for _, u := range []string{"http://a.example/x", "http://b.example:8080/y", "not a url", ""} {
+		if err := h.wait(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Errorf("distinct hosts waited %v", d)
+	}
+	if err := h.wait(ctx, "http://A.example:25461/z"); err != nil { // same server, other port and case
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d < 200*time.Millisecond {
+		t.Errorf("same host waited only %v, want the 200ms gap", d)
+	}
+
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := h.wait(cctx, "http://a.example/x"); err == nil {
+		t.Error("wait ignored a cancelled context")
 	}
 }

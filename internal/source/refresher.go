@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"syscall"
@@ -189,13 +190,26 @@ const healthEvery = 5 * time.Minute
 // healthTimeout bounds one health check.
 const healthTimeout = 30 * time.Second
 
+// checkRetryAfter is how long a failed health check waits before asking
+// once more. Panels that throttle logins answer a second login soon after
+// another with an error (404 here), so one refusal is not "not answering".
+var checkRetryAfter = 5 * time.Second
+
+// sameHostGap spaces out health checks of providers on one server, so the
+// accounts of one panel don't log in back to back.
+var sameHostGap = 3 * time.Second
+
 // CheckProvider asks the provider whether it answers, without fetching its
-// stream list: an Xtream login, or the start of an M3U playlist. The
-// result is stored on the provider (see Describe).
+// stream list: an Xtream login, or the start of an M3U playlist. A failure
+// is retried once after checkRetryAfter, unless the login was rejected.
+// The result is stored on the provider (see Describe).
 func (r *Refresher) CheckProvider(ctx context.Context, p db.Provider) error {
-	cctx, cancel := context.WithTimeout(ctx, healthTimeout)
-	defer cancel()
-	err := r.check(cctx, p)
+	err := r.checkOnce(ctx, p)
+	if err != nil && ctx.Err() == nil && !errors.Is(err, xtream.ErrUnauthorized) {
+		if sleepCtx(ctx, checkRetryAfter) == nil {
+			err = r.checkOnce(ctx, p)
+		}
+	}
 	if ctx.Err() != nil {
 		return ctx.Err() // shutting down: not the provider's fault
 	}
@@ -206,6 +220,50 @@ func (r *Refresher) CheckProvider(ctx context.Context, p db.Provider) error {
 	if err := db.New(r.pool).MarkProviderHealthy(ctx, p.ID); err != nil {
 		r.log.Error("refresher: mark provider healthy", "provider_id", p.ID, "err", err)
 	}
+	return nil
+}
+
+func (r *Refresher) checkOnce(ctx context.Context, p db.Provider) error {
+	cctx, cancel := context.WithTimeout(ctx, healthTimeout)
+	defer cancel()
+	return r.check(cctx, p)
+}
+
+// sleepCtx waits d, or until ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// hostPacer spaces out requests to one server by at least gap.
+type hostPacer struct {
+	gap  time.Duration
+	last map[string]time.Time // hostname -> when it was last asked
+}
+
+// wait blocks until rawURL's server was last asked gap ago, then notes it
+// as asked now. A URL without a host is not paced.
+func (h *hostPacer) wait(ctx context.Context, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	if last, ok := h.last[host]; ok {
+		if err := sleepCtx(ctx, h.gap-time.Since(last)); err != nil {
+			return err
+		}
+	}
+	if h.last == nil {
+		h.last = make(map[string]time.Time)
+	}
+	h.last[host] = time.Now()
 	return nil
 }
 
@@ -541,7 +599,11 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 	if err != nil {
 		r.log.Error("refresher: list providers due for check", "err", err)
 	}
+	pacer := hostPacer{gap: sameHostGap}
 	for _, p := range due {
+		if pacer.wait(ctx, p.Url) != nil {
+			return
+		}
 		if err := r.CheckProvider(ctx, p); err != nil && ctx.Err() == nil {
 			r.log.Warn("refresher: provider check failed", "provider_id", p.ID, "err", redact.Text(err.Error()))
 		}

@@ -403,6 +403,8 @@ func TestRefreshRefusesTruncatedList(t *testing.T) {
 // retried every few minutes rather than every tick, and cleared once it
 // answers again.
 func TestProviderHealth(t *testing.T) {
+	defer func(d time.Duration) { checkRetryAfter = d }(checkRetryAfter)
+	checkRetryAfter = time.Millisecond
 	w, q := newTestDB(t)
 	ctx := context.Background()
 	ts, _ := newM3UServer(t)
@@ -452,5 +454,42 @@ func TestProviderHealth(t *testing.T) {
 	}
 	if got := get(); got.LastError != "" || got.FailingSince != nil || got.CheckedAt == nil {
 		t.Errorf("after recovery: error %q since %v checked %v", got.LastError, got.FailingSince, got.CheckedAt)
+	}
+}
+
+// TestProviderCheckRetries: a check refused once (a panel throttling a
+// login that followed another) is asked again and not marked failing.
+func TestProviderCheckRetries(t *testing.T) {
+	defer func(d time.Duration) { checkRetryAfter = d }(checkRetryAfter)
+	checkRetryAfter = time.Millisecond
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	var calls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(rw, "#EXTM3U\n")
+	}))
+	t.Cleanup(ts.Close)
+	r := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "P", Type: "m3u", Url: ts.URL + "/list.m3u",
+		MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.CheckProvider(ctx, p); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("server asked %d times, want 2", n)
+	}
+	got, err := q.GetProvider(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError != "" || got.FailingSince != nil {
+		t.Errorf("marked failing after one refusal: %q since %v", got.LastError, got.FailingSince)
 	}
 }
