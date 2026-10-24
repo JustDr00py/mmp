@@ -22,14 +22,21 @@ func makeTS(t *testing.T, secs int) []byte {
 // channel whose clock has been running for hours.
 func makeTSAt(t *testing.T, secs int, at time.Duration) []byte {
 	t.Helper()
+	return makeTSArgs(t, secs, at)
+}
+
+// makeTSArgs is makeTSAt with extra ffmpeg output options (e.g. PIDs).
+func makeTSArgs(t *testing.T, secs int, at time.Duration, opts ...string) []byte {
+	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not installed")
 	}
-	out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+	args := []string{"-hide_banner", "-loglevel", "error",
 		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i", "sine",
 		"-t", strconv.Itoa(secs), "-c:v", "libx264", "-preset", "ultrafast", "-x264-params", "bframes=3", "-g", "25", "-c:a", "aac",
-		"-output_ts_offset", strconv.FormatFloat(at.Seconds(), 'f', 3, 64),
-		"-f", "mpegts", "pipe:1").Output()
+		"-output_ts_offset", strconv.FormatFloat(at.Seconds(), 'f', 3, 64)}
+	args = append(append(args, opts...), "-f", "mpegts", "pipe:1")
+	out, err := exec.Command("ffmpeg", args...).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +164,36 @@ func TestHLSSegmenterSwitchTiming(t *testing.T) {
 }
 
 func firstLine(b []byte) string { l, _, _ := strings.Cut(string(b), "\n"); return l }
+
+// TestHLSSegmenterNewPIDs: a switch to an upstream with the same PMT PID
+// but other elementary PIDs is a discontinuity too. The splicer's flags all
+// land on first-seen PIDs and their PTS have no history to jump from, so
+// only the PMT shows it; unmarked, the new clock made a ~20s segment (or,
+// behind, no more segments) and players skipped around.
+func TestHLSSegmenterNewPIDs(t *testing.T) {
+	pids := func(v, a string) []string {
+		return []string{"-mpegts_pmt_start_pid", "4096", "-streamid", "0:" + v, "-streamid", "1:" + a}
+	}
+	for _, offset := range []time.Duration{20 * time.Second, -20 * time.Second} {
+		s := NewHLSSegmenter(2*time.Second, 10)
+		feed(s, makeTSArgs(t, 6, 10*time.Hour, pids("256", "257")...))
+		next := makeTSArgs(t, 6, 10*time.Hour+6*time.Second+offset, pids("481", "482")...)
+		feed(s, newSplicer(true).process(next))
+		var disc int
+		for _, seg := range s.segs {
+			if seg.Discontinuity {
+				disc++
+			}
+			if seg.Duration > 2100*time.Millisecond {
+				t.Errorf("offset %v: segment %d lasts %v, want <= 2s", offset, seg.Seq, seg.Duration)
+			}
+		}
+		if disc != 1 || len(s.segs) < 5 {
+			t.Errorf("offset %v: %d segments, %d discontinuous; want >= 5 and 1:\n%s", offset, len(s.segs), disc,
+				s.Playlist(func(seq int64) string { return strconv.FormatInt(seq, 10) + ".ts" }))
+		}
+	}
+}
 
 // TestHLSSegmenterDiscontinuity: an upstream switch (the splicer flags
 // discontinuity_indicator) starts a segment marked EXT-X-DISCONTINUITY,
