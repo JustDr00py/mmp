@@ -38,6 +38,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 		r.Post("/streams/order", ui.channelReorder)
 		r.Post("/streams/{psid}/move", ui.channelMoveStream)
 		r.Post("/streams/{psid}/remove", ui.channelRemoveStream)
+		r.Post("/merges/unlink", ui.channelUnlinkMerge)
 	})
 }
 
@@ -63,8 +64,9 @@ type channelsData struct {
 }
 
 var channelFlashes = map[string]string{
-	"created": "Channel created. Add streams to its failover list below.",
-	"deleted": "Channel deleted.",
+	"created":  "Channel created. Add streams to its failover list below.",
+	"deleted":  "Channel deleted.",
+	"unlinked": "Suggestion unlinked: its streams left this channel, and new ones like them no longer join it.",
 }
 
 func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +420,14 @@ type channelPageData struct {
 	Streams   streamListData
 	Flash     string
 	Backbones []db.ListBackbonesRow // the picker's backbone filter
+	// Merges are the Match suggestions added to this channel: each keeps
+	// sending it streams until unlinked.
+	Merges []channelMerge
+}
+
+// channelMerge is one suggestion linked to a channel.
+type channelMerge struct {
+	Key, Name string
 }
 
 // streamListData is the failover list fragment's state.
@@ -455,10 +465,58 @@ func (ui *UI) renderChannel(w http.ResponseWriter, r *http.Request, status int, 
 		ui.fail(w, "list backbones", err)
 		return
 	}
+	merges, err := channel.LoadMerges(r.Context(), ui.Store)
+	if err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	var linked []channelMerge
+	for _, m := range merges {
+		if k, ok := m.Other(channel.ChannelKey(c.ID)); ok {
+			name := m.BName
+			if k == m.A {
+				name = m.AName
+			}
+			linked = append(linked, channelMerge{Key: k, Name: name})
+		}
+	}
 	if r.URL.Query().Get("msg") == "saved" {
 		flash = "Channel saved."
 	}
-	ui.render(w, r, status, "channel", c.Name, channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones})
+	ui.render(w, r, status, "channel", c.Name, channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones, Merges: linked})
+}
+
+// channelUnlinkMerge undoes an "Add to channel" from the Match page: the
+// suggestion stops feeding the channel, and its streams leave the list.
+func (ui *UI) channelUnlinkMerge(w http.ResponseWriter, r *http.Request) {
+	c, ok := ui.channel(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	key, into := r.FormValue("key"), channel.ChannelKey(c.ID)
+	merges, err := channel.LoadMerges(ctx, ui.Store)
+	if err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	ids, err := ui.Match.KeyStreams(ctx, c.ID, key)
+	if err != nil {
+		ui.fail(w, "match streams", err)
+		return
+	}
+	merges = slices.DeleteFunc(merges, func(m channel.Merge) bool { return m.Joins(into, key) })
+	if err := channel.SaveMerges(ctx, ui.Store, merges); err != nil {
+		ui.fail(w, "match merges", err)
+		return
+	}
+	if err := ui.removeStreams(ctx, c.ID, ids); err != nil {
+		ui.fail(w, "remove streams", err)
+		return
+	}
+	ui.Match.Invalidate()
+	ui.Log.Info("web: match suggestion unlinked from channel", "channel_id", c.ID, "key", key)
+	ui.redirect(w, r, Prefix+"/channels/"+strconv.FormatInt(c.ID, 10)+"?msg=unlinked")
 }
 
 func (ui *UI) channelUpdate(w http.ResponseWriter, r *http.Request) {

@@ -120,6 +120,44 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 	return Match(streams, existing, rules, merges), nil
 }
 
+// KeyStreams returns the streams on channel channelID that the suggestion
+// keyed key is made of. Match only proposes unassigned streams, so a
+// suggestion already applied to a channel is found again by matching the
+// channel's own streams among themselves.
+func (s *Service) KeyStreams(ctx context.Context, channelID int64, key string) ([]int64, error) {
+	q := db.New(s.pool)
+	rows, err := q.ListChannelStreams(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("match: channel streams: %w", err)
+	}
+	dbRules, err := q.ListMatchRules(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("match: list rules: %w", err)
+	}
+	prefixes, err := LoadIgnorePrefixes(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("match: %w", err)
+	}
+	streams := make([]Stream, len(rows))
+	for i, r := range rows {
+		streams[i] = Stream{ID: r.ProviderStreamID, ProviderID: r.ProviderID, Name: r.StreamName,
+			MatchName: StripPrefixes(r.StreamName, prefixes), TvgID: r.StreamTvgID, Group: r.GroupTitle}
+	}
+	var rules []Rule
+	for _, r := range dbRules {
+		if re, err := CompileRule(r.Pattern); err == nil && r.Enabled {
+			rules = append(rules, Rule{ID: r.ID, Pattern: re, ChannelName: r.ChannelName})
+		}
+	}
+	var ids []int64
+	for _, p := range Match(streams, nil, rules, nil) {
+		if p.Key == key {
+			ids = append(ids, p.StreamIDs...)
+		}
+	}
+	return ids, nil
+}
+
 // ApplyOptions selects which proposals Apply acts on.
 type ApplyOptions struct {
 	Keys         []string // only these proposal keys; empty = all

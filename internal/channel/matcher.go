@@ -371,7 +371,7 @@ func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKe
 	// key merged with the group's (its other side was applied).
 	for _, k := range keys {
 		for _, m := range partners[k] {
-			if id, ok := channelOfKey(m); ok && p.ChannelID == 0 {
+			if id, ok := ChannelOfKey(m); ok && p.ChannelID == 0 {
 				if _, exists := existing[id]; exists {
 					p.ChannelID = id
 				}
@@ -486,7 +486,8 @@ func streamKey(id int64) string { return "stream:" + strconv.FormatInt(id, 10) }
 // it is offered as additions to that channel.
 func ChannelKey(id int64) string { return "channel:" + strconv.FormatInt(id, 10) }
 
-func channelOfKey(k string) (int64, bool) {
+// ChannelOfKey is the channel id in a ChannelKey.
+func ChannelOfKey(k string) (int64, bool) {
 	rest, ok := strings.CutPrefix(k, "channel:")
 	if !ok {
 		return 0, false
