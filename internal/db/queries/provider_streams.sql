@@ -25,13 +25,34 @@ WHERE provider_id = $1
   AND NOT (external_id = ANY(sqlc.arg('external_ids')::text[]));
 
 -- name: MarkProviderRefreshed :exec
-UPDATE providers SET last_refreshed_at = now(), updated_at = now() WHERE id = $1;
+UPDATE providers
+SET last_refreshed_at = now(), checked_at = now(), last_error = '', failing_since = NULL, updated_at = now()
+WHERE id = $1;
+
+-- name: MarkProviderHealthy :exec
+-- A health check got an answer.
+UPDATE providers SET checked_at = now(), last_error = '', failing_since = NULL WHERE id = $1;
+
+-- name: MarkProviderFailing :exec
+-- A refresh or health check got no usable answer.
+UPDATE providers
+SET checked_at = now(), last_error = sqlc.arg('error'), failing_since = coalesce(failing_since, now())
+WHERE id = sqlc.arg('id');
 
 -- name: ListDueProviders :many
+-- A failing provider is retried every 5 minutes, not every tick.
 SELECT * FROM providers
 WHERE enabled
   AND (last_refreshed_at IS NULL
        OR last_refreshed_at <= now() - make_interval(secs => refresh_interval_secs))
+  AND (last_error = '' OR checked_at IS NULL OR checked_at <= now() - interval '5 minutes')
+ORDER BY priority, name;
+
+-- name: ListProvidersDueForCheck :many
+-- Enabled providers not checked (by a refresh or health check) lately.
+SELECT * FROM providers
+WHERE enabled
+  AND (checked_at IS NULL OR checked_at <= now() - make_interval(secs => sqlc.arg('every_secs')::double precision))
 ORDER BY priority, name;
 
 -- name: ListProvidersDueForEpg :many

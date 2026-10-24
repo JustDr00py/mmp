@@ -91,13 +91,15 @@ func (q *Queries) GetPreviewStream(ctx context.Context, id int64) (GetPreviewStr
 }
 
 const listDueProviders = `-- name: ListDueProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone FROM providers
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at FROM providers
 WHERE enabled
   AND (last_refreshed_at IS NULL
        OR last_refreshed_at <= now() - make_interval(secs => refresh_interval_secs))
+  AND (last_error = '' OR checked_at IS NULL OR checked_at <= now() - interval '5 minutes')
 ORDER BY priority, name
 `
 
+// A failing provider is retried every 5 minutes, not every tick.
 func (q *Queries) ListDueProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := q.db.Query(ctx, listDueProviders)
 	if err != nil {
@@ -128,6 +130,9 @@ func (q *Queries) ListDueProviders(ctx context.Context) ([]Provider, error) {
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
 			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -185,8 +190,60 @@ func (q *Queries) ListProviderStreams(ctx context.Context, arg ListProviderStrea
 	return items, nil
 }
 
+const listProvidersDueForCheck = `-- name: ListProvidersDueForCheck :many
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at FROM providers
+WHERE enabled
+  AND (checked_at IS NULL OR checked_at <= now() - make_interval(secs => $1::double precision))
+ORDER BY priority, name
+`
+
+// Enabled providers not checked (by a refresh or health check) lately.
+func (q *Queries) ListProvidersDueForCheck(ctx context.Context, everySecs float64) ([]Provider, error) {
+	rows, err := q.db.Query(ctx, listProvidersDueForCheck, everySecs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Provider
+	for rows.Next() {
+		var i Provider
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Url,
+			&i.Username,
+			&i.Password,
+			&i.EpgUrl,
+			&i.MaxConnections,
+			&i.UserAgent,
+			&i.RefreshIntervalSecs,
+			&i.Priority,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
+			&i.VodEnabled,
+			&i.VodRefreshedAt,
+			&i.GroupFilter,
+			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProvidersDueForEpg = `-- name: ListProvidersDueForEpg :many
-SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at, p.refresh_max_disable_pct, p.vod_enabled, p.vod_refreshed_at, p.group_filter, p.backbone FROM providers p
+SELECT p.id, p.name, p.type, p.url, p.username, p.password, p.epg_url, p.max_connections, p.user_agent, p.refresh_interval_secs, p.priority, p.enabled, p.created_at, p.updated_at, p.last_refreshed_at, p.refresh_max_disable_pct, p.vod_enabled, p.vod_refreshed_at, p.group_filter, p.backbone, p.last_error, p.failing_since, p.checked_at FROM providers p
 LEFT JOIN epg_sources s ON s.provider_id = p.id
 WHERE p.enabled
   AND (p.type = 'xtream' OR p.epg_url <> '')
@@ -225,6 +282,9 @@ func (q *Queries) ListProvidersDueForEpg(ctx context.Context, dollar_1 float64) 
 			&i.VodRefreshedAt,
 			&i.GroupFilter,
 			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -236,8 +296,37 @@ func (q *Queries) ListProvidersDueForEpg(ctx context.Context, dollar_1 float64) 
 	return items, nil
 }
 
+const markProviderFailing = `-- name: MarkProviderFailing :exec
+UPDATE providers
+SET checked_at = now(), last_error = $1, failing_since = coalesce(failing_since, now())
+WHERE id = $2
+`
+
+type MarkProviderFailingParams struct {
+	Error string `json:"error"`
+	ID    int64  `json:"id"`
+}
+
+// A refresh or health check got no usable answer.
+func (q *Queries) MarkProviderFailing(ctx context.Context, arg MarkProviderFailingParams) error {
+	_, err := q.db.Exec(ctx, markProviderFailing, arg.Error, arg.ID)
+	return err
+}
+
+const markProviderHealthy = `-- name: MarkProviderHealthy :exec
+UPDATE providers SET checked_at = now(), last_error = '', failing_since = NULL WHERE id = $1
+`
+
+// A health check got an answer.
+func (q *Queries) MarkProviderHealthy(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markProviderHealthy, id)
+	return err
+}
+
 const markProviderRefreshed = `-- name: MarkProviderRefreshed :exec
-UPDATE providers SET last_refreshed_at = now(), updated_at = now() WHERE id = $1
+UPDATE providers
+SET last_refreshed_at = now(), checked_at = now(), last_error = '', failing_since = NULL, updated_at = now()
+WHERE id = $1
 `
 
 func (q *Queries) MarkProviderRefreshed(ctx context.Context, id int64) error {

@@ -587,6 +587,16 @@ func (ui *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Setup = setupSteps(prog)
 	d.Totals = prog
+	ps, err := ui.Store.ListProviders(r.Context())
+	if err != nil {
+		ui.fail(w, "list providers", err)
+		return
+	}
+	for _, p := range ps {
+		if p.Enabled && p.LastError != "" {
+			d.Failing = append(d.Failing, p)
+		}
+	}
 	ui.render(w, r, http.StatusOK, "dashboard", "Dashboard", d)
 }
 
@@ -595,6 +605,9 @@ type dashboardData struct {
 	Live   liveSnapshot
 	Setup  *setupView // nil once every required step is done
 	Totals db.SetupProgressRow
+	// Failing are the enabled providers whose last refresh or health
+	// check got no answer.
+	Failing []db.Provider
 }
 
 type setupStep struct {

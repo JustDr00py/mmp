@@ -87,7 +87,8 @@
 {{define "provider-row"}}
 <tr id="provider-{{.ID}}">
   <td class="check"><input type="checkbox" form="bulk" name="provider" value="{{.ID}}" aria-label="Select {{.Name}}"></td>
-  <td class="name-col cell-title"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub url">{{redact .Url}}</div></td>
+  <td class="name-col cell-title"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub url">{{redact .Url}}</div>
+    {{if and .Enabled .LastError}}<div class="sub errmsg">{{.LastError}}</div>{{end}}</td>
   <td data-label="Backbone">{{if .Backbone}}<a href="/admin/providers?backbone={{.Backbone}}">{{.Backbone}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
   <td data-label="Type">{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
   <td class="num" data-label="Priority">{{.Priority}}</td>
@@ -100,6 +101,8 @@
     <form method="post" action="/admin/providers/{{.ID}}/toggle" hx-post="/admin/providers/{{.ID}}/toggle" hx-target="#provider-{{.ID}}" hx-swap="outerHTML">
       <button type="submit" class="pill {{if .Enabled}}ok{{else}}off{{end}}" title="Click to {{if .Enabled}}disable{{else}}enable{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</button>
     </form>
+    {{if and .Enabled .LastError}}<span class="pill bad" title="First failed {{ago .FailingSince}}; last checked {{ago .CheckedAt}}">Not answering</span>
+    <div class="sub">first failed {{ago .FailingSince}}</div>{{end}}
   </td>
   <td class="cell-actions"><div class="actions">
     <form method="post" action="/admin/providers/{{.ID}}/refresh" hx-post="/admin/providers/{{.ID}}/refresh" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
