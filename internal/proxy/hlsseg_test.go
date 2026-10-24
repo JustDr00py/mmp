@@ -44,8 +44,10 @@ func makeTSArgs(t *testing.T, secs int, at time.Duration, opts ...string) []byte
 }
 
 // feed writes data in odd-sized chunks, as a ring reader would deliver it.
-func feed(s *HLSSegmenter, data []byte) {
-	now := time.Now()
+func feed(s *HLSSegmenter, data []byte) { feedAt(s, data, time.Now()) }
+
+// feedAt is feed with every chunk arriving at now.
+func feedAt(s *HLSSegmenter, data []byte, now time.Time) {
 	for off := 0; off < len(data); off += 7000 {
 		s.Write(data[off:min(off+7000, len(data))], now)
 	}
@@ -55,7 +57,7 @@ var extinf = regexp.MustCompile(`#EXTINF:([0-9.]+),`)
 
 func TestHLSSegmenterCutsOnKeyframes(t *testing.T) {
 	data := makeTS(t, 9)
-	s := NewHLSSegmenter(2*time.Second, 3)
+	s := NewHLSSegmenter(2*time.Second, 3, 0)
 	feed(s, data)
 	// 9s of 1s GOPs at a 2s target: complete 2s segments; the tail stays
 	// open until the next keyframe.
@@ -106,7 +108,7 @@ func TestHLSSegmenterCutsOnKeyframes(t *testing.T) {
 // with 0 and taken for a timestamp break, cutting a discontinuity at every
 // switch between the audio and video PIDs.
 func TestHLSSegmenterLateClock(t *testing.T) {
-	s := NewHLSSegmenter(2*time.Second, 3)
+	s := NewHLSSegmenter(2*time.Second, 3, 0)
 	feed(s, makeTSAt(t, 9, 10*time.Hour))
 	if n := len(s.segs); n < 3 || n > 5 {
 		t.Fatalf("%d segments from 9s at a 2s target, want 3-5", n)
@@ -137,7 +139,7 @@ func TestHLSSegmenterLateClock(t *testing.T) {
 // so rarely that their lease idles out.
 func TestHLSSegmenterSwitchTiming(t *testing.T) {
 	for _, offset := range []time.Duration{40 * time.Second, -30 * time.Second} {
-		s := NewHLSSegmenter(2*time.Second, 3)
+		s := NewHLSSegmenter(2*time.Second, 3, 0)
 		next := bytes.Clone(makeTSAt(t, 9, 10*time.Hour+offset))
 		markDiscontinuity(next) // as the session marks a spliced upstream
 		feed(s, makeTSAt(t, 9, 10*time.Hour))
@@ -153,7 +155,7 @@ func TestHLSSegmenterSwitchTiming(t *testing.T) {
 	}
 
 	// A long segment stops counting once it leaves the window.
-	s := NewHLSSegmenter(2*time.Second, 3)
+	s := NewHLSSegmenter(2*time.Second, 3, 0)
 	s.segs = []*OutSegment{{Seq: 0, Duration: 9 * time.Second}}
 	for i := int64(1); i <= 3; i++ {
 		s.segs = append(s.segs, &OutSegment{Seq: i, Duration: 2 * time.Second})
@@ -175,7 +177,7 @@ func TestHLSSegmenterNewPIDs(t *testing.T) {
 		return []string{"-mpegts_pmt_start_pid", "4096", "-streamid", "0:" + v, "-streamid", "1:" + a}
 	}
 	for _, offset := range []time.Duration{20 * time.Second, -20 * time.Second} {
-		s := NewHLSSegmenter(2*time.Second, 10)
+		s := NewHLSSegmenter(2*time.Second, 10, 0)
 		feed(s, makeTSArgs(t, 6, 10*time.Hour, pids("256", "257")...))
 		next := makeTSArgs(t, 6, 10*time.Hour+6*time.Second+offset, pids("481", "482")...)
 		feed(s, newSplicer(true).process(next))
@@ -195,6 +197,84 @@ func TestHLSSegmenterNewPIDs(t *testing.T) {
 	}
 }
 
+// TestHLSSegmenterPacing: a provider's connect burst joins the playlist at
+// real-time speed after half a window, so the window does not slide past
+// players; beyond the backlog the oldest is dropped, marked discontinuous.
+func TestHLSSegmenterPacing(t *testing.T) {
+	t0 := time.Now()
+	now := t0
+	s := NewHLSSegmenter(2*time.Second, 6, 10*time.Second)
+	s.clock = func() time.Time { return now }
+	feedAt(s, makeTSAt(t, 21, 10*time.Hour), now) // ~10 segments at once
+	if len(s.segs) != 3 {
+		t.Fatalf("burst released %d segments, want 3 (half the window)", len(s.segs))
+	}
+	var held time.Duration
+	for _, seg := range s.held {
+		held += seg.Duration
+	}
+	if held > 10*time.Second || len(s.held) < 4 {
+		t.Errorf("held %d segments (%v), want the newest within the 10s backlog", len(s.held), held)
+	}
+	if !s.held[0].Discontinuity {
+		t.Error("the segment after the dropped ones is not marked discontinuous")
+	}
+	for i := 1; i <= 3; i++ { // one more per 2s, with no writes (an upstream stall)
+		now = t0.Add(time.Duration(i) * 2 * time.Second)
+		s.Playlist(func(int64) string { return "x.ts" })
+		if len(s.segs) != 3+i {
+			t.Fatalf("after %ds: %d segments listed, want %d", i*2, len(s.segs), 3+i)
+		}
+	}
+	pl := s.Playlist(func(seq int64) string { return strconv.FormatInt(seq, 10) + ".ts" })
+	if !strings.Contains(pl, "#EXT-X-MEDIA-SEQUENCE:0\n") || !strings.Contains(pl, "\n5.ts\n") || strings.Count(pl, "#EXT-X-DISCONTINUITY\n") != 1 {
+		t.Errorf("playlist:\n%s", pl)
+	}
+
+	// Caught up, then idle: the next burst gets half a window at once again.
+	now = now.Add(time.Minute)
+	s.Playlist(func(int64) string { return "x.ts" }) // the rest, a few at a time
+	now = now.Add(time.Minute)
+	before := s.nextSeq
+	feedAt(s, makeTSAt(t, 21, 20*time.Hour), now)
+	var got time.Duration // the first stream's short tail counts too
+	for _, seg := range s.segs {
+		if seg.Seq >= before {
+			got += seg.Duration
+		}
+	}
+	if got < 6*time.Second || got >= 8*time.Second {
+		t.Errorf("second burst released %v, want half the window (6s) and at most one more segment", got)
+	}
+
+	// End lists what is held.
+	s.End()
+	if len(s.held) != 0 || !strings.HasSuffix(s.Playlist(func(int64) string { return "x.ts" }), "#EXT-X-ENDLIST\n") {
+		t.Errorf("End left %d held", len(s.held))
+	}
+}
+
+// TestHLSSegmenterPacedWait: Wait wakes when a held segment comes due,
+// with no write to prompt it.
+func TestHLSSegmenterPacedWait(t *testing.T) {
+	s := NewHLSSegmenter(time.Second, 4, 30*time.Second)
+	feed(s, makeTSAt(t, 8, 10*time.Hour))
+	// Settle the burst: the segment at the half-window mark is due as soon
+	// as any time passes.
+	time.Sleep(50 * time.Millisecond)
+	s.Playlist(func(int64) string { return "x.ts" })
+	n := len(s.segs)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	if !s.Wait(ctx, n+1) {
+		t.Fatalf("no segment released within 3s (had %d, %d held)", n, len(s.held))
+	}
+	if d := time.Since(start); d < 500*time.Millisecond {
+		t.Errorf("released after %v, want about 1s (paced)", d)
+	}
+}
+
 // TestHLSSegmenterDiscontinuity: an upstream switch (the splicer flags
 // discontinuity_indicator) starts a segment marked EXT-X-DISCONTINUITY,
 // and DISCONTINUITY-SEQUENCE counts it once it slides out of the window.
@@ -202,7 +282,7 @@ func TestHLSSegmenterDiscontinuity(t *testing.T) {
 	a := makeTS(t, 5)
 	b := bytes.Clone(a)
 	markDiscontinuity(b) // as the session marks a spliced upstream
-	s := NewHLSSegmenter(2*time.Second, 3)
+	s := NewHLSSegmenter(2*time.Second, 3, 0)
 	feed(s, a)
 	before := len(s.segs)
 	feed(s, b)
@@ -240,7 +320,7 @@ func TestHLSSegmenterDiscontinuity(t *testing.T) {
 
 func TestHLSSegmenterWaitsForProgram(t *testing.T) {
 	data := makeTS(t, 3)
-	s := NewHLSSegmenter(time.Second, 3)
+	s := NewHLSSegmenter(time.Second, 3, 0)
 	// Garbage and a mid-stream start (no PAT yet) are skipped.
 	s.Write(bytes.Repeat([]byte{0xAB}, 5000), time.Now())
 	feed(s, data[TSPacketSize*7+50:])

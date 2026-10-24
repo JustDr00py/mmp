@@ -24,6 +24,7 @@ import (
 type HLSConfig struct {
 	Segment time.Duration // target segment length
 	Window  int           // segments listed in the playlist
+	Backlog time.Duration // most held back to pace upstream bursts (0 = off)
 	Idle    time.Duration // a client silent this long has left
 }
 
@@ -126,7 +127,7 @@ func (h *HLS) channelLocked(id int64) (*hlsChannel, error) {
 		return nil, errHLSUnavailable
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
-	ch := &hlsChannel{id: id, seg: proxy.NewHLSSegmenter(h.cfg.Segment, h.cfg.Window),
+	ch := &hlsChannel{id: id, seg: proxy.NewHLSSegmenter(h.cfg.Segment, h.cfg.Window, h.cfg.Backlog),
 		viewer: v, cancel: cancel, done: make(chan struct{})}
 	h.chans[id] = ch
 	go h.pump(ctx, ch)

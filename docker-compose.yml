@@ -57,6 +57,9 @@ services:
       # How long an HLS player may go without requesting before it counts
       # as gone (frees its connection slot and the provider connection).
       MMP_HLS_IDLE_TIMEOUT: ${MMP_HLS_IDLE_TIMEOUT:-30s}
+      # Most an HLS channel holds back to play provider bursts at real-time
+      # speed (0 = off).
+      MMP_HLS_BACKLOG: ${MMP_HLS_BACKLOG:-30s}
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups

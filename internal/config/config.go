@@ -110,6 +110,7 @@ type Config struct {
 		Enabled bool     `yaml:"enabled"`
 		Segment Duration `yaml:"segment"`      // target segment length (cut on keyframes)
 		Window  int      `yaml:"window"`       // segments in the playlist
+		Backlog Duration `yaml:"backlog"`      // most held back to pace upstream bursts (0 = off)
 		Idle    Duration `yaml:"idle_timeout"` // client silent this long has left (frees its slot)
 	} `yaml:"hls"`
 	// VOD tunes movie/series pass-through.
@@ -188,6 +189,7 @@ func Defaults() Config {
 	c.HLS.Enabled = true
 	c.HLS.Segment = Duration{2 * time.Second}
 	c.HLS.Window = 6
+	c.HLS.Backlog = Duration{30 * time.Second}
 	c.HLS.Idle = Duration{30 * time.Second}
 	c.Probe.Interval = Duration{30 * time.Minute}
 	c.Probe.Recheck = Duration{time.Minute}
@@ -343,6 +345,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		boolv("MMP_HLS_ENABLED", &c.HLS.Enabled),
 		dur("MMP_HLS_SEGMENT", &c.HLS.Segment),
 		intv("MMP_HLS_WINDOW", &c.HLS.Window),
+		dur("MMP_HLS_BACKLOG", &c.HLS.Backlog),
 		dur("MMP_HLS_IDLE_TIMEOUT", &c.HLS.Idle),
 		boolv("MMP_PROBE_ENABLED", &c.Probe.Enabled),
 		dur("MMP_PROBE_INTERVAL", &c.Probe.Interval),
@@ -433,8 +436,8 @@ func (c *Config) Validate() error {
 	if p.HLSMaxBandwidthKbps < 0 || p.HLSMaxHeight < 0 {
 		return errors.New("config: proxy.hls_max_bandwidth_kbps and hls_max_height must be >= 0")
 	}
-	if hc := c.HLS; hc.Segment.Duration < 500*time.Millisecond || hc.Window < 3 || hc.Idle.Duration < hc.Segment.Duration*3 {
-		return errors.New("config: hls.segment must be >= 500ms, hls.window >= 3, hls.idle_timeout >= 3 segments")
+	if hc := c.HLS; hc.Segment.Duration < 500*time.Millisecond || hc.Window < 3 || hc.Idle.Duration < hc.Segment.Duration*3 || hc.Backlog.Duration < 0 {
+		return errors.New("config: hls.segment must be >= 500ms, hls.window >= 3, hls.idle_timeout >= 3 segments, hls.backlog >= 0")
 	}
 	if pr := c.Probe; pr.Interval.Duration <= 0 || pr.Recheck.Duration <= 0 || pr.Sample.Duration <= 0 || pr.Concurrency < 1 {
 		return errors.New("config: probe interval/recheck/sample must be > 0 and concurrency >= 1")
