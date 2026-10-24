@@ -123,6 +123,39 @@ func TestHLSSegmenterLateClock(t *testing.T) {
 	}
 }
 
+// TestHLSSegmenterSwitchTiming: the segment a switch closes is timed by its
+// own PTS, not the next upstream's (whose clock may be a little ahead and
+// made it look ~30s long), and the target duration only reflects listed
+// segments. A long EXT-X-TARGETDURATION makes players reload the playlist
+// so rarely that their lease idles out.
+func TestHLSSegmenterSwitchTiming(t *testing.T) {
+	for _, offset := range []time.Duration{40 * time.Second, -30 * time.Second} {
+		s := NewHLSSegmenter(2*time.Second, 3)
+		next := bytes.Clone(makeTSAt(t, 9, 10*time.Hour+offset))
+		markDiscontinuity(next) // as the session marks a spliced upstream
+		feed(s, makeTSAt(t, 9, 10*time.Hour))
+		feed(s, next)
+		for _, seg := range s.segs {
+			if seg.Duration > 2100*time.Millisecond {
+				t.Errorf("offset %v: segment %d lasts %v, want <= 2s", offset, seg.Seq, seg.Duration)
+			}
+		}
+		if pl := s.Playlist(func(int64) string { return "x.ts" }); !strings.Contains(pl, "#EXT-X-TARGETDURATION:2\n") {
+			t.Errorf("offset %v: playlist:\n%s", offset, pl)
+		}
+	}
+
+	// A long segment stops counting once it leaves the window.
+	s := NewHLSSegmenter(2*time.Second, 3)
+	s.segs = []*OutSegment{{Seq: 0, Duration: 9 * time.Second}}
+	for i := int64(1); i <= 3; i++ {
+		s.segs = append(s.segs, &OutSegment{Seq: i, Duration: 2 * time.Second})
+	}
+	if pl := s.Playlist(func(int64) string { return "x.ts" }); !strings.Contains(pl, "#EXT-X-TARGETDURATION:2\n") {
+		t.Errorf("target duration kept an unlisted segment:\n%s", pl)
+	}
+}
+
 func firstLine(b []byte) string { l, _, _ := strings.Cut(string(b), "\n"); return l }
 
 // TestHLSSegmenterDiscontinuity: an upstream switch (the splicer flags
