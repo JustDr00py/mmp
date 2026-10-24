@@ -47,9 +47,10 @@ type HLSSegmenter struct {
 	videoPID int // -1: none (audio-only streams cut on time at PES starts)
 	ptsPID   int // PID whose PTS times segments: video, else first audio
 	cur      *segBuild
-	// programChanged: the PAT moved the PMT mid-segment (a new upstream),
-	// so the next segment must be marked discontinuous even if no packet
-	// carries discontinuity_indicator.
+	// programChanged: the PAT moved the PMT, or the PMT moved the
+	// elementary streams, mid-segment (a new upstream), so the next
+	// segment must be marked discontinuous even if no packet carries
+	// discontinuity_indicator.
 	programChanged bool
 	// sinceDisc: PIDs seen since the last discontinuity cut. The splicer
 	// flags the first packet of every PID, so a flag is a new switch only
@@ -129,12 +130,18 @@ func (s *HLSSegmenter) packet(pkt []byte, now time.Time) {
 		}
 	case pid == s.pmtPID && pusi:
 		if video, first, ok := parsePMT(payload); ok {
-			s.pmt = append(s.pmt[:0], pkt...)
-			s.videoPID = video
-			s.ptsPID = video
+			ptsPID := video
 			if video < 0 {
-				s.ptsPID = first
+				ptsPID = first
 			}
+			// Same PMT PID, new elementary PIDs: a new upstream whose
+			// flagged packets are all first-seen PIDs, so nothing else
+			// would mark it.
+			if s.pmt != nil && s.cur != nil && (video != s.videoPID || ptsPID != s.ptsPID) {
+				s.programChanged = true
+			}
+			s.pmt = append(s.pmt[:0], pkt...)
+			s.videoPID, s.ptsPID = video, ptsPID
 		}
 	}
 	if s.pat == nil || s.pmt == nil {
