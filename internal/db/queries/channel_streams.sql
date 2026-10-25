@@ -23,6 +23,28 @@ UPDATE channel_streams AS cs SET priority = s.ord
 FROM unnest(sqlc.arg('stream_ids')::bigint[]) WITH ORDINALITY AS s(stream_id, ord)
 WHERE cs.channel_id = sqlc.arg('channel_id') AND cs.provider_stream_id = s.stream_id;
 
+-- name: SortChannelStreamsByProvider :execrows
+-- Stable re-rank of failover lists by provider priority: ties keep their
+-- current order. Scope: channel_ids, or channels holding a stream from
+-- provider_ids, or every channel when both are null.
+WITH ranked AS (
+    SELECT cs.channel_id, cs.provider_stream_id,
+           (ROW_NUMBER() OVER (PARTITION BY cs.channel_id
+                               ORDER BY pr.priority, cs.priority, ps.id))::int AS rn
+    FROM channel_streams cs
+    JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+    JOIN providers pr ON pr.id = ps.provider_id
+    WHERE (sqlc.narg('channel_ids')::bigint[] IS NULL OR cs.channel_id = ANY(sqlc.narg('channel_ids')::bigint[]))
+      AND (sqlc.narg('provider_ids')::bigint[] IS NULL OR cs.channel_id IN (
+            SELECT cs2.channel_id FROM channel_streams cs2
+            JOIN provider_streams ps2 ON ps2.id = cs2.provider_stream_id
+            WHERE ps2.provider_id = ANY(sqlc.narg('provider_ids')::bigint[])))
+)
+UPDATE channel_streams AS cs SET priority = ranked.rn
+FROM ranked
+WHERE cs.channel_id = ranked.channel_id AND cs.provider_stream_id = ranked.provider_stream_id
+  AND cs.priority <> ranked.rn;
+
 -- name: ListChannelStreams :many
 SELECT
     cs.channel_id, cs.priority, cs.added_at,

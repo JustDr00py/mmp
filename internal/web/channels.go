@@ -28,6 +28,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 	r.Post("/channels/new", ui.channelCreate)
 	r.Post("/channels/group", ui.channelsSetGroup)
 	r.Post("/channels/delete", ui.channelsDelete)
+	r.Post("/channels/sort-streams", ui.channelsSortStreams)
 	r.Post("/channels/order", ui.channelsReorder)
 	r.Route("/channels/{id}", func(r chi.Router) {
 		r.Get("/", ui.channelPage)
@@ -36,6 +37,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 		r.Get("/picker", ui.channelPicker)
 		r.Post("/streams", ui.channelAddStream)
 		r.Post("/streams/order", ui.channelReorder)
+		r.Post("/streams/sort", ui.channelSortStreams)
 		r.Post("/streams/{psid}/move", ui.channelMoveStream)
 		r.Post("/streams/{psid}/remove", ui.channelRemoveStream)
 		r.Post("/merges/unlink", ui.channelUnlinkMerge)
@@ -139,6 +141,8 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Updated " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " of " + strconv.Itoa(atoi(q.Get("of"))) + " selected."
 	case "deleted-n":
 		d.Flash = "Deleted " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + "."
+	case "sorted-n":
+		d.Flash = "Sorted the failover lists of " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " by provider priority."
 	}
 	if len(chans) > channelsPerPage {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
@@ -241,6 +245,31 @@ func (ui *UI) channelsDelete(w http.ResponseWriter, r *http.Request) {
 	ui.Log.Info("web: channels deleted", "selected", len(ids), "deleted", n)
 	back.Set("msg", "deleted-n")
 	back.Set("n", strconv.FormatInt(n, 10))
+	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+}
+
+// channelsSortStreams orders the selected channels' failover lists by
+// provider priority; streams whose providers tie keep their order.
+func (ui *UI) channelsSortStreams(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	back := channelsBack(r)
+	ids := channelIDs(r)
+	if len(ids) == 0 {
+		ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
+		return
+	}
+	n, err := ui.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ChannelIds: ids})
+	if err != nil {
+		ui.fail(w, "sort streams", err)
+		return
+	}
+	ui.Log.Info("web: channel streams sorted", "channels", len(ids), "rows", n)
+	back.Set("msg", "sorted-n")
+	back.Set("n", strconv.Itoa(len(ids)))
 	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
 }
 
@@ -628,6 +657,20 @@ func (ui *UI) channelReorder(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ui.saveOrder(r, c.ID, ids); err != nil {
 		ui.fail(w, "reorder", err)
+		return
+	}
+	ui.renderStreamList(w, r, c.ID)
+}
+
+// channelSortStreams orders the failover list by provider priority;
+// streams whose providers tie keep their order.
+func (ui *UI) channelSortStreams(w http.ResponseWriter, r *http.Request) {
+	c, ok := ui.channel(w, r)
+	if !ok {
+		return
+	}
+	if _, err := ui.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ChannelIds: []int64{c.ID}}); err != nil {
+		ui.fail(w, "sort streams", err)
 		return
 	}
 	ui.renderStreamList(w, r, c.ID)

@@ -229,6 +229,56 @@ func TestChannelPages(t *testing.T) {
 		t.Fatalf("order after remove = %v, want %v", got, want)
 	}
 
+	// Sort by provider priority (A=1 before B=2), from the channel page...
+	if _, body := b.get(base); !strings.Contains(body, "Sort by provider priority") {
+		t.Errorf("channel page lacks the sort button")
+	}
+	if resp, _ := b.htmx(http.MethodPost, base+"/streams/sort", nil, "stream-list"); resp.StatusCode != 200 {
+		t.Fatalf("sort = %d", resp.StatusCode)
+	}
+	want = []int64{ids["BBC One HD@A"], ids["BBC One HD@B"]}
+	if got := order(t, q, cid); !eq(got, want) {
+		t.Fatalf("order after sort = %v, want %v", got, want)
+	}
+	// ...as a bulk action on the channel list...
+	b.post(base+"/streams/"+strconv.FormatInt(ids["BBC One HD@B"], 10)+"/move?dir=up", url.Values{}, b.base)
+	resp, _ = b.post("/admin/channels/sort-streams", url.Values{"channel": {strconv.FormatInt(cid, 10)}, "q": {"bbc"}}, b.base)
+	if loc := resp.Header.Get("Location"); resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "msg=sorted-n") || !strings.Contains(loc, "n=1") {
+		t.Fatalf("bulk sort = %d %q", resp.StatusCode, loc)
+	}
+	if got := order(t, q, cid); !eq(got, want) {
+		t.Fatalf("order after bulk sort = %v, want %v", got, want)
+	}
+	if _, body := b.get("/admin/channels?msg=sorted-n&n=1"); !strings.Contains(body, "Sorted the failover lists of 1 channel") {
+		t.Errorf("bulk sort flash missing")
+	}
+	// ...and when a provider's priority changes, only with the checkbox.
+	provs, _ := q.ListProviders(ctx)
+	var provB int64
+	for _, p := range provs {
+		if p.Name == "B" {
+			provB = p.ID
+		}
+	}
+	bulkPrio := func(resort bool) {
+		v := url.Values{"action": {"priority"}, "priority_to": {"0"}, "provider": {strconv.FormatInt(provB, 10)}}
+		if resort {
+			v.Set("resort_channels", "on")
+		}
+		if resp, _ := b.post("/admin/providers/bulk", v, b.base); resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("bulk priority = %d", resp.StatusCode)
+		}
+	}
+	bulkPrio(false)
+	if got := order(t, q, cid); !eq(got, want) {
+		t.Fatalf("priority change without re-sort moved streams: %v", got)
+	}
+	bulkPrio(true)
+	want = []int64{ids["BBC One HD@B"], ids["BBC One HD@A"]}
+	if got := order(t, q, cid); !eq(got, want) {
+		t.Fatalf("order after re-sort = %v, want %v", got, want)
+	}
+
 	// Settings form.
 	resp, _ = b.post(base, url.Values{"name": {"BBC One (UK)"}, "number": {"105"}, "tvg_id": {"bbc1.uk"}}, b.base)
 	if resp.Header.Get("Location") != base+"?msg=saved" {

@@ -5,6 +5,7 @@ package db
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -296,4 +297,98 @@ func TestProbeQueries(t *testing.T) {
 	if r := rows[0]; r.HealthScore != 0.5 || r.CooldownUntil == nil || !r.CooldownUntil.Equal(until) || r.LastProbedAt == nil || !r.LastProbedAt.Equal(now) {
 		t.Errorf("after record: %+v", r)
 	}
+}
+
+// TestSortChannelStreamsByProvider covers the stable re-rank: provider
+// priority first, ties keeping their order, the provider scope, and a
+// second run writing nothing.
+func TestSortChannelStreamsByProvider(t *testing.T) {
+	dsn := testDSN(t)
+	recreate(t, dsn)
+	ctx := context.Background()
+	if err := Migrate(ctx, dsn); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pool, err := Open(ctx, PoolConfig{DSN: dsn})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer pool.Close()
+	q := New(pool)
+
+	prov := map[string]int64{}
+	for name, prio := range map[string]int32{"best": 0, "tieA": 1, "tieB": 1} {
+		p, err := q.CreateProvider(ctx, CreateProviderParams{Name: name, Type: "m3u", Url: "http://" + name + "/",
+			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: prio, Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prov[name] = p.ID
+	}
+	// channel builds a channel whose failover list is streams (as
+	// "channel/provider"), in that order.
+	channel := func(name string, provs ...string) (int64, []int64) {
+		c, err := q.CreateChannel(ctx, CreateChannelParams{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for i, pn := range provs {
+			id, err := q.UpsertProviderStream(ctx, UpsertProviderStreamParams{ProviderID: prov[pn], ExternalID: name,
+				Name: name, StreamUrl: "http://" + pn + "/" + name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := q.AddStreamToChannel(ctx, AddStreamToChannelParams{ChannelID: c.ID, ProviderStreamID: id, Priority: int32(i + 1)}); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		return c.ID, ids
+	}
+	order := func(ch int64) []int64 {
+		rows, err := q.ListChannelStreams(ctx, ch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for _, r := range rows {
+			ids = append(ids, r.ProviderStreamID)
+		}
+		return ids
+	}
+	check := func(what string, ch int64, want ...int64) {
+		t.Helper()
+		if got := order(ch); !slices.Equal(got, want) {
+			t.Errorf("%s: order %v, want %v", what, got, want)
+		}
+	}
+	sort := func(arg SortChannelStreamsByProviderParams) int64 {
+		t.Helper()
+		n, err := q.SortChannelStreamsByProvider(ctx, arg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	x, xs := channel("x", "tieB", "best", "tieA") // tieB before tieA by hand
+	w, ws := channel("w", "tieA", "best")         // no tieB stream
+
+	// Scoped to tieB: only x is re-ranked; its tied streams keep their order.
+	if n := sort(SortChannelStreamsByProviderParams{ProviderIds: []int64{prov["tieB"]}}); n == 0 {
+		t.Error("provider-scoped sort changed nothing")
+	}
+	check("x after scoped sort", x, xs[1], xs[0], xs[2])
+	check("w after scoped sort", w, ws...)
+
+	// Scoped to channel w.
+	sort(SortChannelStreamsByProviderParams{ChannelIds: []int64{w}})
+	check("w after channel sort", w, ws[1], ws[0])
+
+	// Everything: already sorted, so nothing is written.
+	if n := sort(SortChannelStreamsByProviderParams{}); n != 0 {
+		t.Errorf("second sort wrote %d rows", n)
+	}
+	check("x after full sort", x, xs[1], xs[0], xs[2])
 }

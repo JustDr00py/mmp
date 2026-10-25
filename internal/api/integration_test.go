@@ -253,6 +253,23 @@ func TestChannelStreamPriorityAndReorder(t *testing.T) {
 	if len(fresh) != 2 {
 		t.Errorf("after remove = %+v", fresh)
 	}
+
+	// Sort by provider priority: A and B tie at 0, so the order stays.
+	streamsPath := "/api/v1/channels/" + strconv.FormatInt(chID, 10) + "/streams/sort"
+	code, _, arr = call(t, h, http.MethodPost, streamsPath, nil)
+	if code != 200 || len(arr) != 2 || arr[0].(map[string]any)["provider_name"] != "B" {
+		t.Fatalf("sort with tied providers = %d %v", code, arr)
+	}
+	// B drops to priority 5 and re-sorts its channels: A's stream leads.
+	code, _, _ = call(t, h, http.MethodPut, "/api/v1/providers/"+strconv.FormatInt(p2.ID, 10),
+		map[string]any{"name": "B", "type": "m3u", "url": "http://b/", "priority": 5, "resort_channels": true})
+	if code != 200 {
+		t.Fatalf("update provider = %d", code)
+	}
+	fresh, _ = q.ListChannelStreams(ctx, chID)
+	if len(fresh) != 2 || fresh[0].ProviderStreamID != s1 || fresh[1].ProviderStreamID != s3 {
+		t.Errorf("after provider re-sort = %+v", fresh)
+	}
 }
 
 // TestMatcherThreeProviders is the 3.4 AC end to end: three providers name
@@ -361,7 +378,8 @@ func TestMatcherThreeProviders(t *testing.T) {
 		t.Fatalf("second apply should be a no-op: %d %v", code, res)
 	}
 
-	// A new provider stream for an existing channel attaches, appended last.
+	// A new provider stream for an existing channel attaches at the end of
+	// its provider's priority level: D ties A at 0, so after A, before B.
 	d, _ := q.CreateProvider(ctx, db.CreateProviderParams{Name: "D", Type: "m3u", Url: "http://d/",
 		MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: 0, Enabled: true})
 	d1, _ := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: d.ID, ExternalID: "d1", Name: "ABC East 4K", StreamUrl: "http://d/1"})
@@ -371,7 +389,7 @@ func TestMatcherThreeProviders(t *testing.T) {
 	}
 	abc, _ := q.ListChannels(ctx, db.ListChannelsParams{Limit: 10, Search: ptr("ABC East")})
 	cs, _ := q.ListChannelStreams(ctx, abc[0].ID)
-	if len(cs) != 4 || cs[3].ProviderStreamID != d1 {
+	if len(cs) != 4 || cs[1].ProviderStreamID != d1 || cs[0].ProviderName != "A" || cs[2].ProviderName != "B" {
 		t.Errorf("existing channel after attach = %+v", cs)
 	}
 }
