@@ -94,6 +94,12 @@ func bulkFlash(q url.Values) (string, bool) {
 		return "A bulk refresh is already running; try again when it finishes.", true
 	case "none":
 		return "Select at least one provider first.", true
+	case "aligned":
+		if atoi(q.Get("n")) == 0 {
+			return "That backbone's providers already share one priority.", true
+		}
+		return "Gave " + plural(int64(atoi(q.Get("n"))), "provider", "providers") + " their backbone's best priority, " +
+			strconv.Itoa(atoi(q.Get("p"))) + ".", true
 	default:
 		return "", false
 	}
@@ -216,6 +222,49 @@ func (ui *UI) providersBulk(w http.ResponseWriter, r *http.Request) {
 	ui.Log.Info("web: providers bulk", "action", act, "providers", n)
 	done.Set("n", strconv.FormatInt(n, 10))
 	back(done)
+}
+
+// providersAlignBackbone gives every provider on one backbone that
+// backbone's best priority and, if asked, re-sorts the channels using the
+// providers it changed.
+func (ui *UI) providersAlignBackbone(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	label := strings.TrimSpace(r.PostForm.Get("align"))
+	if label == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	var changed []db.AlignBackbonePriorityRow
+	err := ui.inTx(ctx, func(q Store) error {
+		var err error
+		if changed, err = q.AlignBackbonePriority(ctx, label); err != nil || len(changed) == 0 || r.PostForm.Get("resort_channels") != "on" {
+			return err
+		}
+		ids := make([]int64, len(changed))
+		for i, c := range changed {
+			ids[i] = c.ID
+		}
+		n, err := q.SortChannelStreamsByProvider(ctx, db.SortChannelStreamsByProviderParams{ProviderIds: ids})
+		ui.Log.Info("web: channel streams sorted", "providers", len(ids), "rows", n)
+		return err
+	})
+	if err != nil {
+		ui.fail(w, "align backbone", err)
+		return
+	}
+	v := parseProviderFilter(r.PostForm).Values()
+	v.Set("msg", "aligned")
+	v.Set("n", strconv.Itoa(len(changed)))
+	if len(changed) > 0 {
+		v.Set("p", strconv.Itoa(int(changed[0].Priority)))
+	}
+	ui.Log.Info("web: backbone priority aligned", "providers", len(changed))
+	ui.redirect(w, r, Prefix+"/providers?"+v.Encode())
 }
 
 // refreshAll refreshes ps one at a time (as the scheduler would), so a

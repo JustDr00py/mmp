@@ -9,6 +9,43 @@ import (
 	"context"
 )
 
+const alignBackbonePriority = `-- name: AlignBackbonePriority :many
+WITH best AS (
+    SELECT min(priority)::int AS priority FROM providers WHERE backbone = $1 AND backbone <> ''
+)
+UPDATE providers SET priority = best.priority, updated_at = now()
+FROM best
+WHERE providers.backbone = $1 AND providers.priority <> best.priority
+RETURNING providers.id, providers.priority
+`
+
+type AlignBackbonePriorityRow struct {
+	ID       int64 `json:"id"`
+	Priority int32 `json:"priority"`
+}
+
+// Gives every provider on a backbone that backbone's best (lowest)
+// priority; returns the providers it changed.
+func (q *Queries) AlignBackbonePriority(ctx context.Context, backbone string) ([]AlignBackbonePriorityRow, error) {
+	rows, err := q.db.Query(ctx, alignBackbonePriority, backbone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AlignBackbonePriorityRow
+	for rows.Next() {
+		var i AlignBackbonePriorityRow
+		if err := rows.Scan(&i.ID, &i.Priority); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createProvider = `-- name: CreateProvider :one
 
 INSERT INTO providers (

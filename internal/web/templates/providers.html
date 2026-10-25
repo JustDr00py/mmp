@@ -6,6 +6,19 @@
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{if .Data.Refreshing}}<p class="hint" role="status">A bulk refresh is running in the background.</p>{{end}}
 {{if .Data.Total}}
+{{with .Data.Mixed}}<div class="card" role="note">
+  <p><strong>Backbones with mixed priorities.</strong> Providers on one backbone share an upstream; giving them one priority keeps their streams together in failover lists.
+    Leave a backbone mixed if you prefer one reseller (more connections, a longer account).</p>
+  {{range .}}
+  <form class="row" method="post" action="/admin/providers/align-backbone">
+    <input type="hidden" name="q" value="{{$.Data.Filter.Query}}"><input type="hidden" name="backbone" value="{{$.Data.Filter.Backbone}}"><input type="hidden" name="status" value="{{$.Data.Filter.Status}}">
+    <input type="hidden" name="align" value="{{.Backbone}}">
+    <span><strong>{{.Backbone}}</strong>: priorities {{.Min}} to {{.Max}}</span>
+    <label class="check small"><input type="checkbox" name="resort_channels" checked> re-sort their channels</label>
+    <button type="submit" class="small secondary">Align to {{.Min}}</button>
+  </form>
+  {{end}}
+</div>{{end}}
 <form class="search row" method="get" action="/admin/providers"
   hx-get="/admin/providers" hx-target="#providers" hx-swap="outerHTML" hx-push-url="true"
   hx-trigger="input changed delay:300ms from:find input, change, submit">
