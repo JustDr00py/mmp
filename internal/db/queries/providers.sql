@@ -34,6 +34,17 @@ DELETE FROM providers WHERE id = $1;
 SELECT backbone, count(*) AS providers FROM providers
 WHERE backbone <> '' GROUP BY backbone ORDER BY lower(backbone), backbone;
 
+-- name: AlignBackbonePriority :many
+-- Gives every provider on a backbone that backbone's best (lowest)
+-- priority; returns the providers it changed.
+WITH best AS (
+    SELECT min(priority)::int AS priority FROM providers WHERE backbone = sqlc.arg('backbone') AND backbone <> ''
+)
+UPDATE providers SET priority = best.priority, updated_at = now()
+FROM best
+WHERE providers.backbone = sqlc.arg('backbone') AND providers.priority <> best.priority
+RETURNING providers.id, providers.priority;
+
 -- name: SetProvidersBackbone :execrows
 UPDATE providers SET backbone = sqlc.arg('backbone'), updated_at = now()
 WHERE id = ANY(sqlc.arg('ids')::bigint[]);

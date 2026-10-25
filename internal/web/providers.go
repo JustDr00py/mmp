@@ -29,6 +29,7 @@ func (ui *UI) mountProviders(r chi.Router) {
 	r.Get("/providers/new", ui.providerNew)
 	r.Post("/providers/new", ui.providerCreate)
 	r.Post("/providers/bulk", ui.providersBulk)
+	r.Post("/providers/align-backbone", ui.providersAlignBackbone)
 	r.Route("/providers/{id}", func(r chi.Router) {
 		r.Get("/edit", ui.providerEdit)
 		r.Post("/edit", ui.providerUpdate)
@@ -58,6 +59,36 @@ var flashes = map[string]string{
 	"deleted": "Provider deleted.",
 }
 
+// mixedBackbone is a backbone whose providers do not share one priority.
+type mixedBackbone struct {
+	Backbone string
+	Min, Max int32 // its providers' best and worst priority
+}
+
+// mixedBackbones lists the backbones whose providers have different
+// priorities, by label.
+func mixedBackbones(rows []providerRow) []mixedBackbone {
+	byLabel := map[string]*mixedBackbone{}
+	for _, p := range rows {
+		if p.Backbone == "" {
+			continue
+		}
+		if m, ok := byLabel[p.Backbone]; ok {
+			m.Min, m.Max = min(m.Min, p.Priority), max(m.Max, p.Priority)
+		} else {
+			byLabel[p.Backbone] = &mixedBackbone{Backbone: p.Backbone, Min: p.Priority, Max: p.Priority}
+		}
+	}
+	var out []mixedBackbone
+	for _, m := range byLabel {
+		if m.Min != m.Max {
+			out = append(out, *m)
+		}
+	}
+	slices.SortFunc(out, func(a, b mixedBackbone) int { return strings.Compare(a.Backbone, b.Backbone) })
+	return out
+}
+
 // providersPerPage is the providers table's page size.
 const providersPerPage = 100
 
@@ -66,9 +97,10 @@ type providersData struct {
 	Flash      string
 	Filter     providerFilter
 	Backbones  []db.ListBackbonesRow
-	Unlabeled  int // providers without a backbone
-	Total      int // providers before filtering
-	Matching   int // providers passing the filter
+	Mixed      []mixedBackbone // backbones whose providers have different priorities
+	Unlabeled  int             // providers without a backbone
+	Total      int             // providers before filtering
+	Matching   int             // providers passing the filter
 	From, To   int
 	Prev       int  // offset of the previous page, -1 = none
 	Next       int  // offset of the next page, -1 = none
@@ -136,6 +168,7 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 			d.Unlabeled++
 		}
 	}
+	d.Mixed = mixedBackbones(rows)
 	shown := slices.DeleteFunc(rows, func(p providerRow) bool { return !f.keep(p.Provider) })
 	d.Matching = len(shown)
 	if f.Offset >= len(shown) {

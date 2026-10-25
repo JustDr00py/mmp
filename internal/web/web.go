@@ -70,6 +70,7 @@ type Store interface {
 	SetProvidersBackbone(ctx context.Context, arg db.SetProvidersBackboneParams) (int64, error)
 	SetProvidersEnabled(ctx context.Context, arg db.SetProvidersEnabledParams) (int64, error)
 	SetProvidersPriority(ctx context.Context, arg db.SetProvidersPriorityParams) (int64, error)
+	AlignBackbonePriority(ctx context.Context, backbone string) ([]db.AlignBackbonePriorityRow, error)
 	ProviderStreamCounts(ctx context.Context) ([]db.ProviderStreamCountsRow, error)
 	SetupProgress(ctx context.Context) (db.SetupProgressRow, error)
 	ProviderGroupSummary(ctx context.Context) ([]db.ProviderGroupSummaryRow, error)

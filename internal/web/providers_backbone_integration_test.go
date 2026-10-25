@@ -278,3 +278,96 @@ func TestBackbonePickerAndMatch(t *testing.T) {
 		t.Errorf("Arena Sports got streams from %v, want A and B", provs)
 	}
 }
+
+// TestAlignBackbonePriority: the providers page flags a backbone whose
+// providers have different priorities; Align gives them its best one and
+// re-sorts their channels only when asked.
+func TestAlignBackbonePriority(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	ids := map[string]int64{}
+	streams := map[string]int64{}
+	for _, p := range []struct {
+		name, backbone string
+		prio           int32
+	}{{"Near", "Same", 0}, {"Far", "Same", 2}, {"Solo", "", 1}, {"O1", "Other", 3}, {"O2", "Other", 3}} {
+		pr, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: p.name, Type: "m3u", Url: "http://" + strings.ToLower(p.name) + "/",
+			MaxConnections: 1, RefreshIntervalSecs: 3600, Priority: p.prio, Enabled: true, Backbone: p.backbone})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[p.name] = pr.ID
+		sid, err := q.UpsertProviderStream(ctx, db.UpsertProviderStreamParams{ProviderID: pr.ID, ExternalID: "news", Name: "News",
+			StreamUrl: "http://" + strings.ToLower(p.name) + "/news"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		streams[p.name] = sid
+	}
+	c, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "News"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range []string{"Solo", "Far"} {
+		if err := q.AddStreamToChannel(ctx, db.AddStreamToChannelParams{ChannelID: c.ID, ProviderStreamID: streams[p], Priority: int32(i + 1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prio := func(name string) int32 {
+		p, err := q.GetProvider(ctx, ids[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Priority
+	}
+	align := func(resort bool) string {
+		t.Helper()
+		v := url.Values{"align": {"Same"}, "q": {"x"}}
+		if resort {
+			v.Set("resort_channels", "on")
+		}
+		resp, _ := b.post("/admin/providers/align-backbone", v, b.base)
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("align = %d", resp.StatusCode)
+		}
+		return resp.Header.Get("Location")
+	}
+
+	_, body := b.get("/admin/providers")
+	if !strings.Contains(body, "<strong>Same</strong>: priorities 0 to 2") || strings.Contains(body, "<strong>Other</strong>: priorities") {
+		t.Fatalf("mixed-backbone notice:\n%s", body)
+	}
+
+	// Without the checkbox: priorities align, the channel keeps its order.
+	if loc := align(false); loc != "/admin/providers?msg=aligned&n=1&p=0&q=x" {
+		t.Errorf("align redirect = %q", loc)
+	}
+	if prio("Far") != 0 || prio("Near") != 0 || prio("O1") != 3 || prio("Solo") != 1 {
+		t.Errorf("priorities after align: Far=%d Near=%d O1=%d Solo=%d", prio("Far"), prio("Near"), prio("O1"), prio("Solo"))
+	}
+	if got := order(t, q, c.ID); !eq(got, []int64{streams["Solo"], streams["Far"]}) {
+		t.Errorf("align without re-sort moved streams: %v", got)
+	}
+	if _, body := b.get("/admin/providers?msg=aligned&n=1&p=0"); !strings.Contains(body, "Gave 1 provider their backbone&#39;s best priority, 0.") ||
+		strings.Contains(body, "Backbones with mixed priorities") {
+		t.Errorf("after align: flash missing or notice still shown")
+	}
+
+	// With it: Far (now 0) leads Solo (1).
+	if _, err := q.SetProvidersPriority(ctx, db.SetProvidersPriorityParams{Priority: 2, Ids: []int64{ids["Far"]}}); err != nil {
+		t.Fatal(err)
+	}
+	align(true)
+	if got := order(t, q, c.ID); !eq(got, []int64{streams["Far"], streams["Solo"]}) {
+		t.Errorf("align with re-sort = %v, want Far first", got)
+	}
+	// Nothing left to change.
+	if loc := align(true); !strings.Contains(loc, "n=0") {
+		t.Errorf("second align = %q", loc)
+	} else if _, body := b.get(loc); !strings.Contains(body, "already share one priority") {
+		t.Errorf("second align flash missing")
+	}
+	if resp, _ := b.post("/admin/providers/align-backbone", url.Values{"align": {" "}}, b.base); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("blank backbone = %d", resp.StatusCode)
+	}
+}
