@@ -79,6 +79,8 @@
   </li>
   {{end}}
 </ol>
+{{if gt (len .Rows) 1}}<p class="row"><button type="submit" class="small secondary" formaction="/admin/channels/{{.ChannelID}}/streams/sort"
+  hx-post="/admin/channels/{{.ChannelID}}/streams/sort" title="Streams from preferred providers first; same-priority streams keep their order">Sort by provider priority</button></p>{{end}}
 </form>
 {{else}}
 <div class="card empty"><p>No streams yet: this channel cannot play.</p><p class="muted">Search below to add streams from your providers.</p></div>

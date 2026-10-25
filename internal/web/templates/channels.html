@@ -43,6 +43,8 @@
     <option value="none">no group (Uncategorized)</option>
   </select>
   <button type="submit" class="small secondary">Apply</button>
+  <button type="submit" class="small secondary" formaction="/admin/channels/sort-streams" formnovalidate
+    title="Streams from preferred providers first; same-priority streams keep their order">Sort streams by provider</button>
   <button type="submit" class="small danger" formaction="/admin/channels/delete" formnovalidate
     data-confirm="Delete the selected channels? Their failover lists and bouquet places go with them; the streams stay at their providers, and Match can build them again.">Delete selected</button>
 </div>

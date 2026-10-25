@@ -58,7 +58,10 @@
       </select>
       <input name="backbone_to_new" maxlength="60" placeholder="New backbone" aria-label="New backbone" data-reveal-for="+new" hidden>
     </span>
-    <input name="priority_to" type="number" placeholder="Priority" aria-label="New priority" data-reveal-for="priority" hidden>
+    <span class="row" data-reveal-for="priority" hidden>
+      <input name="priority_to" type="number" placeholder="Priority" aria-label="New priority">
+      <label class="check small" title="Orders their failover lists by provider priority; streams whose providers tie keep their order"><input type="checkbox" name="resort_channels"> re-sort their channels</label>
+    </span>
     <button type="submit" class="small secondary">Apply</button>
   </div>
 </form>

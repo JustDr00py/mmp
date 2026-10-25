@@ -41,6 +41,8 @@
       <span class="hint">lower is preferred</span></label>
     <label>Refresh every (minutes)<input name="refresh_minutes" type="number" min="1" value="{{$f.RefreshMinutes}}"></label>
   </div>
+  {{if $f.ID}}<label class="check"><input type="checkbox" name="resort_channels"{{if $f.ResortChannels}} checked{{end}}> Re-sort channels that use this provider
+    <span class="hint">Orders their failover lists by provider priority after saving; streams whose providers tie keep their order.</span></label>{{end}}
   <label>Max % of streams a refresh may disable<input name="max_disable_pct" type="number" min="0" max="100" value="{{$f.MaxDisablePct}}" placeholder="default: 80">
     <span class="hint">A refresh that would disable more is refused (a truncated provider answer); blank uses the server default, 100 disables the guard.</span></label>
   <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="default: MMP/1.0"></label>

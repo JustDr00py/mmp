@@ -293,6 +293,11 @@ func (s *Service) Apply(ctx context.Context, opts ApplyOptions) (ApplyResult, er
 			}
 			res.Attached++
 		}
+		if base > 0 { // an existing list: slot the new streams into their provider's level
+			if err := slotAdded(ctx, q, chID, p.StreamIDs); err != nil {
+				return res, fmt.Errorf("match apply %q: %w", p.Key, err)
+			}
+		}
 		touched = append(touched, chID)
 	}
 	for _, bq := range opts.BouquetIDs {
@@ -401,4 +406,27 @@ func (s *Service) bouquetIDs(ctx context.Context, names []string) ([]int64, erro
 		}
 	}
 	return ids, nil
+}
+
+// slotAdded reorders channel chID's failover list so the just-appended
+// streams added sit at the end of their provider's priority level instead
+// of at the bottom, keeping the order of the rest.
+func slotAdded(ctx context.Context, q *db.Queries, chID int64, added []int64) error {
+	rows, err := q.ListChannelStreams(ctx, chID)
+	if err != nil {
+		return fmt.Errorf("channel streams: %w", err)
+	}
+	var list, add []FailoverEntry
+	for _, r := range rows {
+		e := FailoverEntry{StreamID: r.ProviderStreamID, ProviderPriority: r.ProviderPriority}
+		if slices.Contains(added, r.ProviderStreamID) {
+			add = append(add, e)
+		} else {
+			list = append(list, e)
+		}
+	}
+	if err := q.ReorderChannelStreams(ctx, db.ReorderChannelStreamsParams{ChannelID: chID, StreamIds: SlotByProvider(list, add)}); err != nil {
+		return fmt.Errorf("reorder: %w", err)
+	}
+	return nil
 }

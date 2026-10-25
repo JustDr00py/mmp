@@ -93,6 +93,7 @@ func MountChannels(r chi.Router, env *Env) {
 			r.Get("/streams", env.listChannelStreams)
 			r.Post("/streams", env.addChannelStream)
 			r.Put("/streams/order", env.reorderChannelStreams)
+			r.Post("/streams/sort", env.sortChannelStreams)
 			r.Delete("/streams/{psid}", env.removeChannelStream)
 		})
 	})
@@ -475,6 +476,29 @@ func (env *Env) reorderChannelStreams(w http.ResponseWriter, r *http.Request) {
 	streams, err := store.ListChannelStreams(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "reordered but listing failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, streams)
+}
+
+// sortChannelStreams orders a channel's failover list by provider
+// priority; streams whose providers tie keep their order.
+func (env *Env) sortChannelStreams(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := env.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{
+		ChannelIds: []int64{id},
+	}); err != nil {
+		env.Log.Error("api: sort channel streams", "channel_id", id, "err", err)
+		writeErr(w, http.StatusInternalServerError, "sort failed")
+		return
+	}
+	streams, err := env.Store.ListChannelStreams(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "sorted but listing failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, streams)

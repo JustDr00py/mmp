@@ -83,6 +83,7 @@ type Store interface {
 	AddStreamToChannel(ctx context.Context, arg db.AddStreamToChannelParams) error
 	RemoveStreamFromChannel(ctx context.Context, arg db.RemoveStreamFromChannelParams) error
 	ReorderChannelStreams(ctx context.Context, arg db.ReorderChannelStreamsParams) error
+	SortChannelStreamsByProvider(ctx context.Context, arg db.SortChannelStreamsByProviderParams) (int64, error)
 	ListChannelStreams(ctx context.Context, channelID int64) ([]db.ListChannelStreamsRow, error)
 
 	CreateBouquet(ctx context.Context, arg db.CreateBouquetParams) (db.Bouquet, error)

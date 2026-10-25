@@ -548,6 +548,42 @@ func (q *Queries) SearchStreamsAllProviders(ctx context.Context, arg SearchStrea
 	return items, nil
 }
 
+const sortChannelStreamsByProvider = `-- name: SortChannelStreamsByProvider :execrows
+WITH ranked AS (
+    SELECT cs.channel_id, cs.provider_stream_id,
+           (ROW_NUMBER() OVER (PARTITION BY cs.channel_id
+                               ORDER BY pr.priority, cs.priority, ps.id))::int AS rn
+    FROM channel_streams cs
+    JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+    JOIN providers pr ON pr.id = ps.provider_id
+    WHERE ($1::bigint[] IS NULL OR cs.channel_id = ANY($1::bigint[]))
+      AND ($2::bigint[] IS NULL OR cs.channel_id IN (
+            SELECT cs2.channel_id FROM channel_streams cs2
+            JOIN provider_streams ps2 ON ps2.id = cs2.provider_stream_id
+            WHERE ps2.provider_id = ANY($2::bigint[])))
+)
+UPDATE channel_streams AS cs SET priority = ranked.rn
+FROM ranked
+WHERE cs.channel_id = ranked.channel_id AND cs.provider_stream_id = ranked.provider_stream_id
+  AND cs.priority <> ranked.rn
+`
+
+type SortChannelStreamsByProviderParams struct {
+	ChannelIds  []int64 `json:"channel_ids"`
+	ProviderIds []int64 `json:"provider_ids"`
+}
+
+// Stable re-rank of failover lists by provider priority: ties keep their
+// current order. Scope: channel_ids, or channels holding a stream from
+// provider_ids, or every channel when both are null.
+func (q *Queries) SortChannelStreamsByProvider(ctx context.Context, arg SortChannelStreamsByProviderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, sortChannelStreamsByProvider, arg.ChannelIds, arg.ProviderIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateBouquet = `-- name: UpdateBouquet :one
 UPDATE bouquets SET name = $2, sort_order = $3 WHERE id = $1 RETURNING id, name, sort_order, created_at
 `

@@ -191,6 +191,12 @@ func (ui *UI) providersBulk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		n, err = ui.Store.SetProvidersPriority(ctx, db.SetProvidersPriorityParams{Priority: int32(p), Ids: ids})
+		if err == nil && pf.Get("resort_channels") == "on" {
+			var rows int64
+			if rows, err = ui.Store.SortChannelStreamsByProvider(ctx, db.SortChannelStreamsByProviderParams{ProviderIds: ids}); err == nil {
+				ui.Log.Info("web: channel streams sorted", "providers", len(ids), "rows", rows)
+			}
+		}
 	case "refresh":
 		var ps []db.Provider
 		if ps, err = ui.Store.GetProvidersByIDs(ctx, ids); err != nil {

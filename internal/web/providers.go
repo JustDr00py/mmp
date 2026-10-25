@@ -172,6 +172,7 @@ type providerForm struct {
 	MaxDisablePct                     string // blank = server default
 	VODEnabled                        bool
 	Enabled                           bool
+	ResortChannels                    bool // on edit: sort the channels using it after saving
 	HasPassword                       bool
 	Error                             string
 
@@ -224,6 +225,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
 		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
+		ResortChannels: f.Get("resort_channels") == "on",
 	}
 	var berr error
 	form.Backbone, berr = pickedBackbone(f, "backbone")
@@ -465,6 +467,14 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "set vod", err)
 			return
 		}
+	}
+	if form.ResortChannels {
+		n, err := ui.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ProviderIds: []int64{cur.ID}})
+		if err != nil {
+			ui.fail(w, "sort channel streams", err)
+			return
+		}
+		ui.Log.Info("web: channel streams sorted", "provider_id", cur.ID, "rows", n)
 	}
 	ui.Log.Info("web: provider updated", "provider_id", cur.ID)
 	ui.redirect(w, r, Prefix+"/providers?msg=saved")

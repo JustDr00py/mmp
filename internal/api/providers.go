@@ -70,6 +70,9 @@ type providerInput struct {
 	VODEnabled *bool `json:"vod_enabled"`
 	// Absent keeps the current label (none for new providers); "" clears it.
 	Backbone *string `json:"backbone"`
+	// Update only: afterwards, order the failover lists of the channels
+	// using this provider by provider priority.
+	ResortChannels bool `json:"resort_channels"`
 }
 
 func (in *providerInput) validate() error {
@@ -291,6 +294,15 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.VodEnabled = vod
+	}
+	if in.ResortChannels {
+		n, err := env.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ProviderIds: []int64{p.ID}})
+		if err != nil {
+			env.Log.Error("api: sort channel streams", "provider_id", p.ID, "err", err)
+			writeErr(w, http.StatusInternalServerError, "updated but re-sorting channels failed")
+			return
+		}
+		env.Log.Info("api: channel streams sorted", "provider_id", p.ID, "rows", n)
 	}
 	writeJSON(w, http.StatusOK, toJSON(p))
 }
