@@ -28,9 +28,10 @@ const Format = 1
 const manifestName = "manifest.json"
 
 // Excluded tables never go into a backup: migration bookkeeping (recorded
-// as Manifest.Schema instead), login sessions, and guide programs (large,
-// and re-downloaded from the providers after a restore).
-var Excluded = []string{"goose_db_version", "admin_sessions", "epg_programs"}
+// as Manifest.Schema instead), login sessions, and guide programs and
+// channel lists (large, and re-downloaded from the providers after a
+// restore).
+var Excluded = []string{"goose_db_version", "admin_sessions", "epg_programs", "epg_channels"}
 
 // Manifest describes a backup.
 type Manifest struct {

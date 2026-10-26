@@ -92,6 +92,13 @@ type ChannelStream struct {
 	AddedAt          time.Time `json:"added_at"`
 }
 
+type EpgChannel struct {
+	EpgSourceID  int64    `json:"epg_source_id"`
+	TvgID        string   `json:"tvg_id"`
+	DisplayNames []string `json:"display_names"`
+	ProgramCount int32    `json:"program_count"`
+}
+
 type EpgProgram struct {
 	ID           int64     `json:"id"`
 	EpgSourceID  int64     `json:"epg_source_id"`

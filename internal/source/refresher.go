@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -486,7 +487,8 @@ func (r *Refresher) RefreshEPGSource(ctx context.Context, src db.EpgSource) (int
 }
 
 // loadGuide fetches an XMLTV guide (plain or gzipped) and replaces the
-// source's programs in one transaction. label names it in errors.
+// source's programs and channel list in one transaction. label names it in
+// errors.
 func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, userAgent, label string) (int, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -497,6 +499,9 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 
 	if _, err := q.ClearEpgSourcePrograms(ctx, sourceID); err != nil {
 		return 0, fmt.Errorf("refresh epg %s: clear: %w", label, err)
+	}
+	if err := q.ClearEpgSourceChannels(ctx, sourceID); err != nil {
+		return 0, fmt.Errorf("refresh epg %s: clear channels: %w", label, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, xmltvURL, nil)
@@ -534,7 +539,25 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 		start   int64
 	}
 	seen := map[progKey]struct{}{}
-	channels := map[string]struct{}{} // lower-cased, as guide lookups match
+	// The guide's channels by lower-cased id (as guide lookups match): its
+	// <channel> elements in file order, then ids only its programs name.
+	type guideChannel struct {
+		id       string
+		names    []string
+		programs int32
+	}
+	channels := map[string]*guideChannel{}
+	var order []string
+	channel := func(id string) *guideChannel {
+		k := strings.ToLower(id)
+		c, ok := channels[k]
+		if !ok {
+			c = &guideChannel{id: id, names: []string{}} // NOT NULL column
+			channels[k] = c
+			order = append(order, k)
+		}
+		return c
+	}
 	skipped := 0
 	// Third-party guides are usually .xml.gz: detect gzip by its magic bytes.
 	var guide io.Reader = bufio.NewReaderSize(&cappedReader{r: resp.Body, n: maxEPGSize}, 64<<10)
@@ -546,14 +569,23 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 		defer gz.Close()
 		guide = &cappedReader{r: gz, n: maxEPGInflatedSize}
 	}
-	err = epg.Parse(guide, func(pr epg.Program) error {
+	onChannel := func(ec epg.Channel) error {
+		c := channel(ec.ID)
+		for _, n := range ec.Names {
+			if !slices.Contains(c.names, n) {
+				c.names = append(c.names, n)
+			}
+		}
+		return nil
+	}
+	err = epg.ParseGuide(guide, onChannel, func(pr epg.Program) error {
 		k := progKey{pr.Channel, pr.Start.UnixNano()}
 		if _, dup := seen[k]; dup || !pr.Stop.After(pr.Start) {
 			skipped++
 			return nil
 		}
 		seen[k] = struct{}{}
-		channels[strings.ToLower(pr.Channel)] = struct{}{}
+		channel(pr.Channel).programs++
 		batch = append(batch, db.InsertEpgProgramsParams{
 			EpgSourceID:  sourceID,
 			ChannelTvgID: pr.Channel,
@@ -578,8 +610,20 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	if skipped > 0 {
 		r.log.Info("epg: skipped duplicate or empty programs", "provider_id", label, "skipped", skipped)
 	}
+	rows := make([]db.InsertEpgChannelsParams, 0, len(order))
+	withPrograms := 0
+	for _, k := range order {
+		c := channels[k]
+		if c.programs > 0 {
+			withPrograms++
+		}
+		rows = append(rows, db.InsertEpgChannelsParams{EpgSourceID: sourceID, TvgID: c.id, DisplayNames: c.names, ProgramCount: c.programs})
+	}
+	if _, err := q.InsertEpgChannels(ctx, rows); err != nil {
+		return 0, fmt.Errorf("refresh epg %s: insert %d channels: %w", label, len(rows), err)
+	}
 	if err := q.MarkEpgSourceRefreshed(ctx, db.MarkEpgSourceRefreshedParams{
-		ID: sourceID, Programs: int64(total), Channels: int64(len(channels)),
+		ID: sourceID, Programs: int64(total), Channels: int64(withPrograms),
 	}); err != nil {
 		return 0, fmt.Errorf("refresh epg %s: mark: %w", label, err)
 	}

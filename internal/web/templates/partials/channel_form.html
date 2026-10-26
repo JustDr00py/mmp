@@ -21,9 +21,12 @@
     </label>
   </div>
   <div class="grid2">
-    <label>tvg-id<input name="tvg_id" value="{{.TvgID}}" placeholder="links the guide (XMLTV channel id)"></label>
+    <label>tvg-id<input id="tvg_id" name="tvg_id" value="{{.TvgID}}" placeholder="links the guide (XMLTV channel id)" autocomplete="off"
+        hx-get="/admin/epg/channels/suggest" hx-trigger="input changed delay:300ms" hx-target="#tvg-suggest" hx-sync="this:replace">
+      <span class="hint">type a name (e.g. hbo west) to pick from your guides · <a href="/admin/epg#guide-ids">search guides</a></span></label>
     <label>Logo URL<input name="logo_url" type="url" value="{{.Logo}}"></label>
   </div>
+  <div id="tvg-suggest" aria-live="polite"></div>
   <label>Guide
     <select name="guide_mode">
       <option value="">— the group's setting —</option>
@@ -37,4 +40,16 @@
     <a href="/admin/channels">Cancel</a>
   </div>
 </form>
+{{end}}
+
+{{define "tvg-suggestions"}}
+{{if .Rows}}
+<ul class="picker tvg-picks">
+{{range .Rows}}
+  <li><button type="button" class="link" data-fill="#tvg_id" data-value="{{.TvgID}}">
+    <span class="mono">{{.TvgID}}</span>
+    <span class="sub">{{range $i, $n := .DisplayNames}}{{if $i}} · {{end}}{{$n}}{{end}}{{if .DisplayNames}} · {{end}}{{.SourceName}}{{if not .ProgramCount}} · no programs{{end}}</span></button></li>
+{{end}}
+</ul>
+{{else if .Query}}<p class="sub">No guide channel matches {{.Query}}.</p>{{end}}
 {{end}}

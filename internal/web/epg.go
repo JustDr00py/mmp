@@ -24,6 +24,8 @@ func (ui *UI) mountEPG(r chi.Router) {
 	r.Get("/epg", ui.epgPage)
 	r.Post("/epg/providers/{id}/refresh", ui.epgRefresh)
 	r.Post("/epg/providers/{id}/priority", ui.epgPriority)
+	r.Get("/epg/channels", ui.epgChannels)
+	r.Get("/epg/channels/suggest", ui.tvgSuggest)
 	ui.mountEPGExtra(r)
 }
 
@@ -40,6 +42,7 @@ type epgData struct {
 	ExtraForm   extraForm
 	Flash       string
 	Guide       []db.ChannelGuideStatusRow
+	Channels    guideChannelsData
 	Query       string
 	MissingOnly bool
 	Offset      int
@@ -159,6 +162,10 @@ func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, fo
 	}
 	if d.Extras, err = ui.extraRows(r); err != nil {
 		ui.fail(w, "guide sources", err)
+		return
+	}
+	if d.Channels, err = ui.guideChannels(r); err != nil {
+		ui.fail(w, "guide channels", err)
 		return
 	}
 	form.Error, form.ProviderPriorities = formErr, ui.providerPriorities(r)

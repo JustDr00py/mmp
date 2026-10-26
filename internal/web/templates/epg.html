@@ -44,6 +44,15 @@
   <div class="row"><button type="submit">Add guide source</button></div>
 </form>
 
+<h2 id="guide-ids">Find a guide channel</h2>
+<p class="muted">The channels your guides list, to find the id to put in a channel's <span class="mono">tvg-id</span>. Search by name or id;
+  every word must match, so <span class="mono">hbo west</span> finds a guide's West feed. Lists fill in when a guide downloads.</p>
+<form class="search row" method="get" action="/admin/epg/channels" hx-get="/admin/epg/channels" hx-target="#guide-channels" hx-swap="outerHTML"
+  hx-trigger="input changed delay:300ms from:input, submit">
+  <input type="search" name="gq" value="{{$d.Channels.Query}}" placeholder="Search guide channels, e.g. hbo east" aria-label="Search guide channels">
+</form>
+{{template "guide-channels" $d.Channels}}
+
 <h2>Channel coverage</h2>
 <form class="search row" method="get" action="/admin/epg" hx-get="/admin/epg" hx-target="#guide" hx-swap="outerHTML" hx-push-url="true"
   hx-trigger="input changed delay:300ms from:input, change from:input[type=checkbox], submit">
@@ -126,5 +135,29 @@
 </nav>
 {{else if .MissingOnly}}<div class="card empty"><p>Every {{if .Query}}matching {{end}}channel has a guide.</p></div>
 {{else}}<div class="card empty"><p>No channels{{if .Query}} match{{end}}.</p></div>{{end}}
+</div>
+{{end}}
+
+{{define "guide-channels"}}
+<div id="guide-channels">
+{{if .Rows}}
+<div class="table-wrap">
+<table class="stack">
+  <thead><tr><th>Guide id</th><th>Names</th><th>Guide</th><th class="num">Programs</th><th>In your lineup</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td class="mono cell-title">{{.TvgID}}</td>
+    <td data-label="Names">{{range $i, $n := .DisplayNames}}{{if $i}} · {{end}}{{$n}}{{else}}<span class="muted">—</span>{{end}}</td>
+    <td data-label="Guide">{{.SourceName}}</td>
+    <td class="num" data-label="Programs">{{if .ProgramCount}}{{.ProgramCount}}{{else}}<span class="pill warn">none</span>{{end}}</td>
+    <td data-label="In your lineup">{{if .UsedBy}}{{.UsedBy}} channel{{if ne .UsedBy 1}}s{{end}}{{else}}<span class="muted">not used</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else if .Query}}<div class="card empty"><p>No guide channel matches.</p><p class="muted">Try fewer words, or check that the guide has downloaded since this was added.</p></div>
+{{end}}
 </div>
 {{end}}

@@ -552,3 +552,7 @@ button.gp.cut-stop { border-top-right-radius: 0; border-bottom-right-radius: 0; 
   .guide-wrap { --guide-ch: 150px; }
   .guide-ch img.logo, .guide-num { display: none; }
 }
+
+/* Guide id suggestions under a channel's tvg-id field. */
+ul.tvg-picks { margin: -.25rem 0 .75rem; }
+ul.tvg-picks button.link { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; text-align: left; width: 100%; }

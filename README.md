@@ -193,6 +193,12 @@ guide that stopped updating never hides a current one, whatever its priority. A 
 provider's priority unless you give it its own on the EPG page, so you can rank guides without changing
 the failover order. The channel coverage table there shows which guide each channel gets.
 
+**Finding a guide's channel id:** *Find a guide channel* on the **EPG** page searches the channels your
+guides list (their XMLTV `<channel>` ids and display names), so you don't have to read the XML. Every word
+must match, so `hbo west` finds a guide's West feed and leaves out East. Each result shows the guide it is
+from, how many programs it has and how many of your channels already use it. On a channel's page, type a
+name into **tvg-id** and pick the id from the suggestions. A guide's list fills in when it downloads.
+
 **Guide from stream names:** event feeds (PPV, game passes) rarely have a guide, but their stream names
 often say what is on: `Next | Jets @ Patriots | NFL Game Pass | 2026-10-18 | 17:00`. For channels without a
 guide, MMP reads the name of the channel's first stream and builds one: "Up next: Jets @ Patriots" for a
@@ -623,7 +629,7 @@ uses one of their connections and one of the provider's.
 | Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the **Events** page (open failures with their error, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
 | A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps. `eof` right after a switch can be the provider kicking a connection over its limit |
-| Channel shows no guide | Guide or EPG page → *Only channels without a guide*; set the channel's tvg-id to the guide's channel id; check the source downloaded |
+| Channel shows no guide | Guide or EPG page → *Only channels without a guide*; find the guide's channel id with *Find a guide channel* on the EPG page (or type a name in the channel's tvg-id) and set it; check the source downloaded |
 | "refresh refused: would disable …" | the provider returned far fewer streams than before (often temporary). Retry later, or use *Disable anyway* if the change is real |
 | Refresh fails with "connection refused" / timeout for a provider on the same machine | inside the container, `localhost` is the container itself: use the host's LAN IP in the provider URL |
 | Admin login keeps failing | lockout after `auth.max_attempts` failures lasts `auth.lockout` (default 5 minutes) |

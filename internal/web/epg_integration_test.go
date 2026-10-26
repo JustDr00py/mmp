@@ -310,3 +310,65 @@ func TestStreamNameGuidePages(t *testing.T) {
 		t.Error("turned off, the coverage still shows a stream-name guide")
 	}
 }
+
+// The channels guides list can be searched by name or id, on the EPG page
+// and as suggestions under a channel's tvg-id field.
+func TestGuideChannelSearch(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	src, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "US guide", Url: "http://guide.example/us.xml", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "Off guide", Url: "http://guide.example/off.xml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.InsertEpgChannels(ctx, []db.InsertEpgChannelsParams{
+		{EpgSourceID: src.ID, TvgID: "HBO.East.us", DisplayNames: []string{"HBO East", "HBO"}, ProgramCount: 40},
+		{EpgSourceID: src.ID, TvgID: "HBO.West.us", DisplayNames: []string{"HBO West"}, ProgramCount: 40},
+		{EpgSourceID: src.ID, TvgID: "HBO2.us", DisplayNames: []string{}, ProgramCount: 0},
+		{EpgSourceID: off.ID, TvgID: "HBO.Pacific.us", DisplayNames: []string{"HBO Pacific"}, ProgramCount: 40},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "HBO", TvgID: "hbo.east.us"}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := b.get("/admin/epg?gq=" + url.QueryEscape("hbo west"))
+	if !strings.Contains(body, "HBO.West.us") || strings.Contains(body, "HBO.East.us") {
+		t.Errorf("every word must match:\n%s", body)
+	}
+
+	_, body = b.htmx(http.MethodGet, "/admin/epg/channels?gq=hbo", nil, "guide-channels")
+	if !strings.HasPrefix(strings.TrimSpace(body), `<div id="guide-channels">`) {
+		t.Fatalf("fragment:\n%s", body)
+	}
+	east, west, two := strings.Index(body, "HBO.East.us"), strings.Index(body, "HBO.West.us"), strings.Index(body, "HBO2.us")
+	if east < 0 || west < east || two < west || !strings.Contains(body, "HBO East · HBO") || !strings.Contains(body, "1 channel<") {
+		t.Errorf("results (with programs first, used-by count):\n%s", body)
+	}
+	if strings.Contains(body, "HBO.Pacific.us") {
+		t.Error("disabled guide's channels listed")
+	}
+	if _, body = b.htmx(http.MethodGet, "/admin/epg/channels?gq=zzz", nil, "guide-channels"); !strings.Contains(body, "No guide channel matches") {
+		t.Errorf("no match:\n%s", body)
+	}
+	// A LIKE wildcard in the search is taken literally.
+	if _, body = b.htmx(http.MethodGet, "/admin/epg/channels?gq=%25", nil, "guide-channels"); strings.Contains(body, "HBO.West.us") {
+		t.Errorf("wildcard matched:\n%s", body)
+	}
+
+	_, body = b.htmx(http.MethodGet, "/admin/epg/channels/suggest?tvg_id=hbo+west", nil, "tvg-suggest")
+	if !strings.Contains(body, `data-value="HBO.West.us"`) || strings.Contains(body, "HBO.East.us") {
+		t.Errorf("suggestions:\n%s", body)
+	}
+	// The field already holds the one match: nothing to pick.
+	if _, body = b.htmx(http.MethodGet, "/admin/epg/channels/suggest?tvg_id=HBO.West.us", nil, "tvg-suggest"); strings.Contains(body, "data-value") {
+		t.Errorf("suggested the id already typed:\n%s", body)
+	}
+	if _, body = b.htmx(http.MethodGet, "/admin/epg/channels/suggest?tvg_id=", nil, "tvg-suggest"); strings.TrimSpace(body) != "" {
+		t.Errorf("empty field suggestions:\n%s", body)
+	}
+}

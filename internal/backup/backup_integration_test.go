@@ -113,7 +113,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("manifest = %+v", info)
 	}
 	for _, tb := range info.Manifest.Tables {
-		if tb.Name == "epg_programs" || tb.Name == "admin_sessions" || tb.Name == "goose_db_version" {
+		if tb.Name == "epg_programs" || tb.Name == "epg_channels" || tb.Name == "admin_sessions" || tb.Name == "goose_db_version" {
 			t.Errorf("excluded table %s in backup", tb.Name)
 		}
 	}

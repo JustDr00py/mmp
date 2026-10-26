@@ -1,18 +1,26 @@
 // Package epg parses XMLTV files (EPG data) in a streaming fashion:
-// programs are emitted through a callback so huge guides parse with
-// bounded memory.
+// channels and programs are emitted through callbacks so huge guides parse
+// with bounded memory.
 package epg
 
 import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/unicode"
 )
+
+// Channel is one XMLTV <channel> element: the id programs refer to and
+// the names it goes by.
+type Channel struct {
+	ID    string
+	Names []string // <display-name>s, in file order, without blanks or repeats
+}
 
 // Program is one XMLTV <programme> element.
 type Program struct {
@@ -50,6 +58,13 @@ func ParseTime(s string) (time.Time, error) {
 // Programs missing a parseable start/stop or channel are skipped (real
 // guides contain junk). emit's error aborts parsing and is returned.
 func Parse(r io.Reader, emit func(Program) error) error {
+	return ParseGuide(r, nil, emit)
+}
+
+// ParseGuide is Parse that also emits each <channel> with an id to
+// onChannel (nil: channels are skipped). Either callback's error aborts
+// parsing and is returned.
+func ParseGuide(r io.Reader, onChannel func(Channel) error, emit func(Program) error) error {
 	dec := xml.NewDecoder(r)
 	// EPG files are commonly UTF-8 but ISO-8859-1 appears in the wild.
 	dec.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
@@ -65,7 +80,8 @@ func Parse(r io.Reader, emit func(Program) error) error {
 	}
 
 	var p Program
-	inProgram := false
+	var ch Channel
+	inProgram, inChannel := false, false
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -77,6 +93,28 @@ func Parse(r io.Reader, emit func(Program) error) error {
 		switch el := tok.(type) {
 		case xml.StartElement:
 			switch el.Name.Local {
+			case "channel":
+				if onChannel == nil || inProgram {
+					continue
+				}
+				ch = Channel{}
+				inChannel = true
+				for _, a := range el.Attr {
+					if a.Name.Local == "id" {
+						ch.ID = strings.TrimSpace(a.Value)
+					}
+				}
+			case "display-name":
+				if !inChannel {
+					continue
+				}
+				text, err := elementText(dec)
+				if err != nil {
+					return fmt.Errorf("epg: display-name: %w", err)
+				}
+				if text != "" && !slices.Contains(ch.Names, text) {
+					ch.Names = append(ch.Names, text)
+				}
 			case "programme":
 				p = Program{}
 				inProgram = true
@@ -117,6 +155,15 @@ func Parse(r io.Reader, emit func(Program) error) error {
 				}
 			}
 		case xml.EndElement:
+			if el.Name.Local == "channel" && inChannel {
+				inChannel = false
+				if ch.ID == "" {
+					continue
+				}
+				if err := onChannel(ch); err != nil {
+					return err
+				}
+			}
 			if el.Name.Local == "programme" && inProgram {
 				inProgram = false
 				if p.Channel == "" || p.Start.IsZero() || p.Stop.IsZero() || !p.Stop.After(p.Start) {
