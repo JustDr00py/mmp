@@ -167,6 +167,14 @@ type ProviderGroup struct {
 	GroupTitle string `json:"group_title"`
 }
 
+type ProviderOutcomeBucket struct {
+	BucketStart time.Time `json:"bucket_start"`
+	ProviderID  int64     `json:"provider_id"`
+	Backbone    string    `json:"backbone"`
+	Outcome     string    `json:"outcome"`
+	Count       int32     `json:"count"`
+}
+
 type ProviderStream struct {
 	ID            int64      `json:"id"`
 	ProviderID    int64      `json:"provider_id"`

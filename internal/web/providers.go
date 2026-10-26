@@ -48,6 +48,7 @@ type providerRow struct {
 	Streams, Active, Cooling int64
 	SlotsInUse               int
 	Groups, GroupsSelected   int64           // stream groups, and how many are selected
+	Health                   healthBadge     // outcomes over the health window
 	Refresh                  *refreshData    // outcome of a refresh just run from this row
 	VODRefresh               *vodRefreshData // outcome of a catalog import just run from this row
 }
@@ -93,18 +94,19 @@ func mixedBackbones(rows []providerRow) []mixedBackbone {
 const providersPerPage = 100
 
 type providersData struct {
-	Rows       []providerRow
-	Flash      string
-	Filter     providerFilter
-	Backbones  []db.ListBackbonesRow
-	Mixed      []mixedBackbone // backbones whose providers have different priorities
-	Unlabeled  int             // providers without a backbone
-	Total      int             // providers before filtering
-	Matching   int             // providers passing the filter
-	From, To   int
-	Prev       int  // offset of the previous page, -1 = none
-	Next       int  // offset of the next page, -1 = none
-	Refreshing bool // a bulk refresh is running
+	Rows         []providerRow
+	Flash        string
+	Filter       providerFilter
+	Backbones    []db.ListBackbonesRow
+	Mixed        []mixedBackbone // backbones whose providers have different priorities
+	BackboneRows []backboneRow   // each backbone with its health, by label
+	Unlabeled    int             // providers without a backbone
+	Total        int             // providers before filtering
+	Matching     int             // providers passing the filter
+	From, To     int
+	Prev         int  // offset of the previous page, -1 = none
+	Next         int  // offset of the next page, -1 = none
+	Refreshing   bool // a bulk refresh is running
 }
 
 func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
@@ -128,6 +130,10 @@ func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
 	for _, g := range groups {
 		groupsByID[g.ProviderID] = g
 	}
+	hs, err := ui.healthScores(r.Context())
+	if err != nil {
+		return nil, err
+	}
 	var slots map[int64]int
 	if ui.Slots != nil {
 		slots = ui.Slots()
@@ -140,7 +146,7 @@ func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
 		c := byID[p.ID]
 		g := groupsByID[p.ID]
 		rows = append(rows, providerRow{Provider: p, Streams: c.Total, Active: c.Active, Cooling: c.Cooling, SlotsInUse: slots[p.ID],
-			Groups: g.Total, GroupsSelected: g.Selected})
+			Groups: g.Total, GroupsSelected: g.Selected, Health: badge(hs.Providers[p.ID])})
 	}
 	return rows, nil
 }
@@ -169,6 +175,12 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.Mixed = mixedBackbones(rows)
+	hs, err := ui.healthScores(r.Context())
+	if err != nil {
+		ui.fail(w, "score providers", err)
+		return
+	}
+	d.BackboneRows = backboneRows(backbones, hs.Backbones)
 	shown := slices.DeleteFunc(rows, func(p providerRow) bool { return !f.keep(p.Provider) })
 	d.Matching = len(shown)
 	if f.Offset >= len(shown) {

@@ -32,6 +32,10 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{nextID: 1, providers: map[int64]db.Provider{}, streams: map[int64][]db.ProviderStream{}}
 }
 
+func (f *fakeStore) ListOutcomeHoursSince(context.Context, time.Time) ([]db.ListOutcomeHoursSinceRow, error) {
+	return nil, nil
+}
+
 func (f *fakeStore) ListProviders(context.Context) ([]db.Provider, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

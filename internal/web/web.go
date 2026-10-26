@@ -66,6 +66,7 @@ type Store interface {
 	DeleteProvider(ctx context.Context, id int64) error
 	SetProviderEnabled(ctx context.Context, arg db.SetProviderEnabledParams) error
 	ListBackbones(ctx context.Context) ([]db.ListBackbonesRow, error)
+	ListOutcomeHoursSince(ctx context.Context, since time.Time) ([]db.ListOutcomeHoursSinceRow, error)
 	GetProvidersByIDs(ctx context.Context, ids []int64) ([]db.Provider, error)
 	SetProvidersBackbone(ctx context.Context, arg db.SetProvidersBackboneParams) (int64, error)
 	SetProvidersEnabled(ctx context.Context, arg db.SetProvidersEnabledParams) (int64, error)

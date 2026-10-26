@@ -105,6 +105,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	trackerDone := make(chan struct{})
 	go func() { tracker.Run(ctx); close(trackerDone) }()
 	defer func() { <-trackerDone }() // likewise: viewers ended by the shutdown are recorded
+	outcomes := proxy.NewOutcomes(db.New(pool), log)
+	outcomesDone := make(chan struct{})
+	go func() { outcomes.Run(ctx); close(outcomesDone) }()
+	defer func() { <-outcomesDone }() // after streams.Shutdown: the last outcomes are flushed
 
 	pc := cfg.Proxy
 	// HTTP-TS or HLS; sessions add ffmpeg for channels with an ffmpeg profile.
@@ -135,6 +139,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Log:            log,
 		OnEvent:        events.Record,
 		Metrics:        proxyMetrics,
+		Outcomes:       outcomes,
 		Probe:          mediaProbe(cfg.Probe.FFprobePath, log),
 	})
 	defer streams.Shutdown()
@@ -145,7 +150,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			ffprobe = cmp.Or(pr.FFprobePath, "ffprobe")
 		}
 		prober := &health.Prober{Log: log, Store: db.New(pool), Opener: direct,
-			Capacity: capacity, Cooldowns: cooldowns, Busy: streams.BusyStreams,
+			Capacity: capacity, Cooldowns: cooldowns, Busy: streams.BusyStreams, Outcomes: outcomes,
 			Cfg: health.Config{Interval: pr.Interval.Duration, Recheck: pr.Recheck.Duration,
 				Sample: pr.Sample.Duration, Concurrency: pr.Concurrency, FFprobePath: ffprobe}}
 		go prober.Run(ctx)
