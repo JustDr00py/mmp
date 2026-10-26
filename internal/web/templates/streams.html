@@ -18,7 +18,7 @@
 {{if $d.Streams}}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Health</th><th>Status</th></tr></thead>
+  <thead><tr><th>Name</th><th>Group</th><th>tvg-id</th><th class="num" title="Probe result, from the periodic check">Health</th><th class="num" title="Viewers&#39; playback outcomes, last 7 days">Playback</th><th>Status</th></tr></thead>
   <tbody>
   {{range $d.Streams}}
   <tr{{if .Disabled}} class="dim"{{end}}>
@@ -27,6 +27,7 @@
     <td>{{.GroupTitle}}</td>
     <td class="mono">{{.TvgID}}</td>
     <td class="num">{{pct .HealthScore}}%</td>
+    <td class="num">{{with index $d.Playback .ID}}{{if .Enough}}<span class="pill {{.Tone}}" title="{{.Failures}} of {{.Attempts}} attempts failed in the last 7 days">{{.Value}}</span>{{else}}<span class="muted" title="Fewer than 10 attempts in the last 7 days">—</span>{{end}}{{end}}</td>
     <td>
       {{if .Disabled}}<span class="pill off">gone</span>
       {{else if future .CooldownUntil}}<span class="pill warn" title="{{.LastError}}">cooling down</span>

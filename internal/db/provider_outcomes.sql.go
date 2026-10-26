@@ -11,16 +11,17 @@ import (
 )
 
 const listOutcomeHoursSince = `-- name: ListOutcomeHoursSince :many
-SELECT date_trunc('hour', bucket_start)::timestamptz AS hour_start, provider_id, backbone, outcome,
+SELECT date_trunc('hour', bucket_start)::timestamptz AS hour_start, provider_id, stream_id, backbone, outcome,
        SUM(count)::bigint AS count
 FROM provider_outcome_buckets
 WHERE bucket_start >= $1::timestamptz
-GROUP BY date_trunc('hour', bucket_start), provider_id, backbone, outcome
+GROUP BY date_trunc('hour', bucket_start), provider_id, stream_id, backbone, outcome
 `
 
 type ListOutcomeHoursSinceRow struct {
 	HourStart  time.Time `json:"hour_start"`
 	ProviderID int64     `json:"provider_id"`
+	StreamID   int64     `json:"stream_id"`
 	Backbone   string    `json:"backbone"`
 	Outcome    string    `json:"outcome"`
 	Count      int64     `json:"count"`
@@ -40,6 +41,7 @@ func (q *Queries) ListOutcomeHoursSince(ctx context.Context, since time.Time) ([
 		if err := rows.Scan(
 			&i.HourStart,
 			&i.ProviderID,
+			&i.StreamID,
 			&i.Backbone,
 			&i.Outcome,
 			&i.Count,
@@ -68,25 +70,27 @@ func (q *Queries) PruneOutcomeBuckets(ctx context.Context, before time.Time) (in
 
 const upsertOutcomeBucket = `-- name: UpsertOutcomeBucket :exec
 
-INSERT INTO provider_outcome_buckets (bucket_start, provider_id, backbone, outcome, count)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (bucket_start, provider_id, backbone, outcome)
+INSERT INTO provider_outcome_buckets (bucket_start, provider_id, stream_id, backbone, outcome, count)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (bucket_start, provider_id, stream_id, backbone, outcome)
 DO UPDATE SET count = provider_outcome_buckets.count + EXCLUDED.count
 `
 
 type UpsertOutcomeBucketParams struct {
 	BucketStart time.Time `json:"bucket_start"`
 	ProviderID  int64     `json:"provider_id"`
+	StreamID    int64     `json:"stream_id"`
 	Backbone    string    `json:"backbone"`
 	Outcome     string    `json:"outcome"`
 	Count       int32     `json:"count"`
 }
 
-// Upstream outcome counts for the provider and backbone health scores.
+// Upstream outcome counts for the provider, backbone and stream health scores.
 func (q *Queries) UpsertOutcomeBucket(ctx context.Context, arg UpsertOutcomeBucketParams) error {
 	_, err := q.db.Exec(ctx, upsertOutcomeBucket,
 		arg.BucketStart,
 		arg.ProviderID,
+		arg.StreamID,
 		arg.Backbone,
 		arg.Outcome,
 		arg.Count,

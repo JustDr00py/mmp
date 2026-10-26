@@ -13,6 +13,7 @@ import (
 // healthScores holds the provider and backbone health over the window.
 type healthScores struct {
 	Providers map[int64]health.Score
+	Streams   map[int64]health.Score
 	Backbones map[string]health.Score
 }
 
@@ -25,11 +26,12 @@ func (ui *UI) healthScores(ctx context.Context) (healthScores, error) {
 	}
 	buckets := make([]health.Bucket, 0, len(rows))
 	for _, r := range rows {
-		buckets = append(buckets, health.Bucket{Start: r.HourStart, ProviderID: r.ProviderID,
+		buckets = append(buckets, health.Bucket{Start: r.HourStart, ProviderID: r.ProviderID, StreamID: r.StreamID,
 			Backbone: r.Backbone, Outcome: r.Outcome, Count: r.Count})
 	}
 	return healthScores{
 		Providers: health.ByKey(buckets, func(b health.Bucket) int64 { return b.ProviderID }, now),
+		Streams:   health.ByKey(buckets, func(b health.Bucket) int64 { return b.StreamID }, now),
 		Backbones: health.ByKey(buckets, func(b health.Bucket) string { return b.Backbone }, now),
 	}, nil
 }

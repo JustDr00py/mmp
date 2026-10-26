@@ -25,18 +25,19 @@ func TestOutcomeBuckets(t *testing.T) {
 	q := New(pool)
 
 	minute := time.Now().UTC().Truncate(time.Hour).Add(5 * time.Minute)
-	upsert := func(at time.Time, backbone, outcome string, n int32) {
+	upsert := func(at time.Time, stream int64, backbone, outcome string, n int32) {
 		t.Helper()
 		if err := q.UpsertOutcomeBucket(ctx, UpsertOutcomeBucketParams{BucketStart: at, ProviderID: 7,
-			Backbone: backbone, Outcome: outcome, Count: n}); err != nil {
+			StreamID: stream, Backbone: backbone, Outcome: outcome, Count: n}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	upsert(minute, "Strong8K", "open_ok", 2)
-	upsert(minute, "Strong8K", "open_ok", 3) // same key: counts add up
-	upsert(minute.Add(time.Minute), "Strong8K", "open_ok", 4)
-	upsert(minute.Add(time.Minute), "Strong8K", "open_failed", 1)
-	upsert(minute.Add(-8*24*time.Hour), "Strong8K", "open_failed", 9) // outside the window
+	upsert(minute, 0, "Strong8K", "open_ok", 2)
+	upsert(minute, 0, "Strong8K", "open_ok", 3) // same key: counts add up
+	upsert(minute.Add(time.Minute), 0, "Strong8K", "open_ok", 4)
+	upsert(minute.Add(time.Minute), 0, "Strong8K", "open_failed", 1)
+	upsert(minute.Add(time.Minute), 9, "Strong8K", "open_ok", 1)         // a stream of the same provider: its own row
+	upsert(minute.Add(-8*24*time.Hour), 0, "Strong8K", "open_failed", 9) // outside the window
 
 	since := minute.Add(-7 * 24 * time.Hour)
 	rows, err := q.ListOutcomeHoursSince(ctx, since)
@@ -50,8 +51,8 @@ func TestOutcomeBuckets(t *testing.T) {
 			t.Errorf("hour_start = %v, want the hour of %v", r.HourStart, minute)
 		}
 	}
-	if len(rows) != 2 || got["open_ok"] != 9 || got["open_failed"] != 1 {
-		t.Fatalf("hourly rows = %+v, want open_ok 9 and open_failed 1 within the window", rows)
+	if len(rows) != 3 || got["open_ok"] != 10 || got["open_failed"] != 1 {
+		t.Fatalf("hourly rows = %+v, want open_ok 10 and open_failed 1 within the window", rows)
 	}
 
 	n, err := q.PruneOutcomeBuckets(ctx, since)

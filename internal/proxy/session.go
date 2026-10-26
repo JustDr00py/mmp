@@ -352,13 +352,13 @@ func (s *Session) Run(ctx context.Context) error {
 				// Opener errors carry redacted URLs only.
 				s.log.Warn("session: open failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 					"cooldown", d, "err", err)
-				s.cfg.Outcomes.Record(c.ProviderID, c.Backbone, OutcomeOpenFailed)
+				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeOpenFailed)
 				s.emit(Event{Type: EventOpenFailed, ProviderID: c.ProviderID, FromStreamID: c.StreamID, Message: err.Error()})
 				lastProblem = err.Error()
 				continue
 			}
 
-			s.cfg.Outcomes.Record(c.ProviderID, c.Backbone, OutcomeOpenOK)
+			s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeOpenOK)
 			why := failedWhy
 			if b, ok := jumped[c.StreamID]; ok && why != "" {
 				why += "; skipped the other streams on backbone " + b
@@ -398,9 +398,9 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 			if res.delivered {
-				s.cfg.Outcomes.Record(c.ProviderID, c.Backbone, OutcomeMidPlayFailure)
+				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeMidPlayFailure)
 			} else {
-				s.cfg.Outcomes.Record(c.ProviderID, c.Backbone, OutcomeOpenFailed)
+				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeOpenFailed)
 			}
 			s.log.Warn("session: upstream failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
 				"reason", res.reason, "cooldown", d)

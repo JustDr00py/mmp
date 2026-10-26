@@ -49,6 +49,7 @@ var outcomeWeights = map[string]outcomeWeight{
 type Bucket struct {
 	Start      time.Time
 	ProviderID int64
+	StreamID   int64 // 0: not about one stream
 	Backbone   string
 	Outcome    string
 	Count      int64

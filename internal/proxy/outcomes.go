@@ -29,6 +29,7 @@ type OutcomeStore interface {
 type outcomeKey struct {
 	minute     time.Time
 	providerID int64
+	streamID   int64
 	backbone   string
 	outcome    string
 }
@@ -52,13 +53,14 @@ func NewOutcomes(store OutcomeStore, log *slog.Logger) *Outcomes {
 	return &Outcomes{store: store, log: log, counts: map[outcomeKey]int32{}}
 }
 
-// Record counts one outcome for providerID, under the backbone it had, now.
-// Stream candidates with no provider (0) are not counted.
-func (o *Outcomes) Record(providerID int64, backbone, outcome string) {
+// Record counts one outcome for providerID and streamID, under the backbone
+// it had, now. streamID 0 means the outcome is not about one stream (probes
+// count per provider only). Candidates with no provider (0) are not counted.
+func (o *Outcomes) Record(providerID, streamID int64, backbone, outcome string) {
 	if o == nil || providerID == 0 {
 		return
 	}
-	k := outcomeKey{minute: time.Now().Truncate(time.Minute), providerID: providerID, backbone: backbone, outcome: outcome}
+	k := outcomeKey{minute: time.Now().Truncate(time.Minute), providerID: providerID, streamID: streamID, backbone: backbone, outcome: outcome}
 	o.mu.Lock()
 	o.counts[k]++
 	o.mu.Unlock()
@@ -91,7 +93,7 @@ func (o *Outcomes) flush(ctx context.Context) {
 	o.mu.Unlock()
 	for k, n := range pending {
 		err := o.store.UpsertOutcomeBucket(ctx, db.UpsertOutcomeBucketParams{
-			BucketStart: k.minute, ProviderID: k.providerID, Backbone: k.backbone,
+			BucketStart: k.minute, ProviderID: k.providerID, StreamID: k.streamID, Backbone: k.backbone,
 			Outcome: k.outcome, Count: n,
 		})
 		if err != nil && ctx.Err() == nil {
