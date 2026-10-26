@@ -369,6 +369,7 @@ admin:                        # only used to create the first admin
 | `http.read_header_timeout` | `MMP_HTTP_READ_HEADER_TIMEOUT` | `10s` | |
 | `http.shutdown_timeout` | `MMP_HTTP_SHUTDOWN_TIMEOUT` | `15s` | grace period for open requests on stop |
 | `http.trusted_proxies` | `MMP_HTTP_TRUSTED_PROXIES` | none | reverse proxies (IPs or CIDRs, comma-separated in the env var) whose `X-Forwarded-For` names the real client; see below |
+| `upstream.allow_cidrs` | `MMP_UPSTREAM_ALLOW_CIDRS` | none | private or local addresses (IPs or CIDRs, comma-separated in the env var) MMP may still fetch playlists, guides and streams from; see below |
 | `admin.username` / `admin.password` | `MMP_ADMIN_USERNAME` / `MMP_ADMIN_PASSWORD` | — | create the first admin if no enabled admin exists; never logged |
 
 ### Proxy and failover
@@ -403,6 +404,7 @@ without a backbone are never moved.
 | `refresh.interval` | `MMP_REFRESH_INTERVAL` | `6h` | refresh interval new providers start with; each provider then keeps its own (provider form) |
 | `refresh.epg_interval` | `MMP_REFRESH_EPG_INTERVAL` | `12h` | guide download interval |
 | `refresh.max_disable_pct` | `MMP_REFRESH_MAX_DISABLE_PCT` | `80` | a refresh that would remove more than this % of a provider's streams is refused (probably a truncated answer); `100` turns the guard off; each provider can override it |
+| `refresh.timeout` | `MMP_REFRESH_TIMEOUT` | `15m` | longest one scheduled provider or guide refresh may take, so a slow provider cannot hold up the rest |
 | `match.auto` | `MMP_MATCH_AUTO` | `false` | *Settings page.* Apply match suggestions automatically after every refresh |
 | `match.min_providers` | `MMP_MATCH_MIN_PROVIDERS` | `2` | *Settings page.* Auto-match only creates channels seen at this many providers |
 | `match.auto_new_channels` | `MMP_MATCH_AUTO_NEW_CHANNELS` | `true` | *Settings page.* `false`: auto-match only adds new streams to channels you already have (extra failover), never creates channels |
@@ -573,6 +575,13 @@ uses one of their connections and one of the provider's.
   `https://` address (the admin cookie then becomes `Secure` automatically). Turn off response buffering
   for streams and the dashboard (`proxy_buffering off;` in nginx; MMP also sends `X-Accel-Buffering: no`)
   and allow long-lived responses.
+- **Providers on your own network:** a provider chooses every URL MMP fetches (playlist entries, redirects,
+  HLS segments), so MMP refuses to connect to loopback, private (10.x, 172.16-31.x, 192.168.x, fd00::/8),
+  link-local (including 169.254.169.254 cloud metadata) and other non-public addresses. Otherwise a
+  hostile provider could make MMP fetch internal services and stream the answers to a player. If a
+  provider really is on your LAN (a local tuner, tvheadend), or MMP fetches through an HTTP proxy on a
+  private address, list it: `MMP_UPSTREAM_ALLOW_CIDRS=192.168.1.20` (or a CIDR). Refused fetches fail
+  with "upstream address is private or local".
 - **Client addresses behind a reverse proxy:** MMP sees the proxy's address on every connection, so the
   dashboard lists every viewer under it and all clients share one login-lockout bucket. List the proxy
   in `http.trusted_proxies`: the address MMP sees it connect from, which is what the dashboard shows

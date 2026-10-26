@@ -52,6 +52,9 @@ services:
       # For one on this host proxying to localhost:<port>, the gateway of
       # the network below (172.28.0.1 by default). Blank: none.
       MMP_HTTP_TRUSTED_PROXIES: ${MMP_HTTP_TRUSTED_PROXIES:-}
+      # Private or local addresses MMP may fetch from (a provider on your LAN).
+      # Blank: none; every other private address is refused.
+      MMP_UPSTREAM_ALLOW_CIDRS: ${MMP_UPSTREAM_ALLOW_CIDRS:-}
       # Time zone for log timestamps and the times the admin UI shows.
       TZ: ${TZ:-UTC}
       # How long an HLS player may go without requesting before it counts
