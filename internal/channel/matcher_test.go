@@ -106,6 +106,33 @@ func TestMatchAttachesToExisting(t *testing.T) {
 	}
 }
 
+// TestMatchMinorityTvgID: one stream with another channel's tvg-id, linked
+// in by name, does not send the whole group to that channel.
+func TestMatchMinorityTvgID(t *testing.T) {
+	streams := []Stream{
+		{ID: 1, ProviderID: 1, Name: "US - NICK HD", TvgID: "nickelodeon.us"},
+		{ID: 2, ProviderID: 2, Name: "US| NICKELODEON HD", TvgID: "Nickelodeon.us"},
+		{ID: 3, ProviderID: 3, Name: "US ★ NICK HD", TvgID: "Nicktoons.us"}, // mislabeled
+	}
+	existing := []Existing{
+		{ID: 16, Name: "NICKELODEON WEST", TvgID: "nickelodeon.us"}, // west feed: other key
+		{ID: 26, Name: "NICK TOONS", TvgID: "nicktoons.us"},
+	}
+	got := Match(streams, existing, nil, nil)
+	if len(got) != 1 || len(got[0].StreamIDs) != 3 {
+		t.Fatalf("want one group of 3, got %+v", got)
+	}
+	if got[0].ChannelID != 0 {
+		t.Errorf("attached to channel %d, want a new channel", got[0].ChannelID)
+	}
+
+	// Once Nickelodeon exists, its tvg-id attaches the group.
+	existing = append(existing, Existing{ID: 30, Name: "Nickelodeon", TvgID: "nickelodeon.us"})
+	if got := Match(streams, existing, nil, nil); got[0].ChannelID != 30 {
+		t.Errorf("attached to channel %d, want 30", got[0].ChannelID)
+	}
+}
+
 func TestMatchDeterministic(t *testing.T) {
 	in := threeProviders()
 	first := Match(in, nil, []Rule{skyRule()}, nil)

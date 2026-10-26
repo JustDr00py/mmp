@@ -378,14 +378,8 @@ func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKe
 			}
 		}
 	}
-	for _, t := range tvgKeys {
-		if p.ChannelID != 0 {
-			break
-		}
-		if id, ok := byTvg[t]; ok {
-			p.ChannelID = id
-			break
-		}
+	if p.ChannelID == 0 {
+		p.ChannelID = channelOfTvg(tvgKeys, byTvg)
 	}
 	if p.ChannelID == 0 && rule != nil {
 		p.ChannelID = byName["name:"+NormalizeName(rule.ChannelName)]
@@ -594,6 +588,35 @@ func tvgKey(tvg string) string {
 		return ""
 	}
 	return "tvg:" + t
+}
+
+// channelOfTvg is the existing channel of the group's main tvg key: of the
+// keys most of its streams carry (sorted holds one per stream), the first
+// with a channel; 0 for none. A key fewer streams carry does not pick the
+// channel: one provider tagging "NICK HD" nicktoons.us must not send all of
+// Nickelodeon to Nicktoons. Name matching may still attach the group.
+func channelOfTvg(sorted []string, byTvg map[string]int64) int64 {
+	type run struct {
+		key string
+		n   int
+	}
+	var runs []run
+	most := 0
+	for i := 0; i < len(sorted); {
+		j := i + 1
+		for j < len(sorted) && sorted[j] == sorted[i] {
+			j++
+		}
+		runs = append(runs, run{sorted[i], j - i})
+		most = max(most, j-i)
+		i = j
+	}
+	for _, r := range runs {
+		if id, ok := byTvg[r.key]; ok && r.n == most {
+			return id
+		}
+	}
+	return 0
 }
 
 // hasDup reports whether a sorted slice has a repeated element.
