@@ -2,8 +2,9 @@
 -- wholesale per source on every refresh (guides are large but stateless).
 
 -- name: UpsertEpgSource :one
+-- No row when the provider's guide is off (or the provider is gone).
 INSERT INTO epg_sources (name, url, provider_id)
-VALUES ($1, $2, $3)
+SELECT sqlc.arg('name'), sqlc.arg('url'), p.id FROM providers p WHERE p.id = sqlc.arg('provider_id') AND p.epg_enabled
 ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
     name = EXCLUDED.name,
     url  = EXCLUDED.url
@@ -27,8 +28,9 @@ INSERT INTO epg_channels (epg_source_id, tvg_id, display_names, program_count) V
 -- name: SearchGuideChannels :many
 -- The channels enabled guides list, for finding a channel's guide id:
 -- every word of the search must appear in the id or a display name
--- (words are LIKE patterns). Exact id matches first, then those with
--- programs. used_by counts the lineup's channels already on the id.
+-- (words are LIKE patterns), optionally within one guide, only ids with
+-- programs, or only ids no channel uses yet. Exact id matches first, then
+-- those with programs. used_by counts the lineup's channels already on the id.
 SELECT e.tvg_id, e.display_names, e.program_count, s.id AS source_id, s.name AS source_name,
        (SELECT count(*) FROM channels c WHERE c.tvg_id <> '' AND lower(c.tvg_id) = lower(e.tvg_id)) AS used_by
 FROM epg_channels e
@@ -38,6 +40,10 @@ WHERE NOT EXISTS (
     SELECT 1 FROM unnest(sqlc.arg('words')::text[]) w
     WHERE NOT (e.tvg_id ILIKE w OR array_to_string(e.display_names, ' ') ILIKE w)
 )
+  AND (sqlc.narg('source_id')::bigint IS NULL OR s.id = sqlc.narg('source_id'))
+  AND (NOT sqlc.arg('with_programs')::bool OR e.program_count > 0)
+  AND (NOT sqlc.arg('unused')::bool OR NOT EXISTS (
+    SELECT 1 FROM channels c WHERE c.tvg_id <> '' AND lower(c.tvg_id) = lower(e.tvg_id)))
 ORDER BY lower(e.tvg_id) = lower(sqlc.arg('exact')::text) DESC, e.program_count > 0 DESC,
          lower(e.tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
 LIMIT sqlc.arg('limit');
@@ -153,3 +159,20 @@ SELECT * FROM epg_sources
 WHERE provider_id IS NULL AND enabled
   AND (last_refreshed_at IS NULL OR last_refreshed_at <= now() - make_interval(secs => $1::double precision))
 ORDER BY priority NULLS LAST, id;
+
+-- name: SetProviderGuideEnabled :exec
+-- Turns a provider's guide on or off. Off also deletes its downloaded
+-- guide (programs and channel list go with it).
+WITH p AS (
+    UPDATE providers SET epg_enabled = sqlc.arg('enabled'), updated_at = now()
+    WHERE providers.id = sqlc.arg('id')
+    RETURNING providers.id, providers.epg_enabled
+)
+DELETE FROM epg_sources s USING p WHERE s.provider_id = p.id AND NOT p.epg_enabled;
+
+-- name: ListGuideSourceNames :many
+-- Enabled guides with a downloaded channel list, for the guide channel
+-- search's guide filter.
+SELECT s.id, s.name FROM epg_sources s
+WHERE s.enabled AND EXISTS (SELECT 1 FROM epg_channels e WHERE e.epg_source_id = s.id)
+ORDER BY lower(s.name), s.id;

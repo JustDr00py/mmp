@@ -12,6 +12,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/nameguide"
+	"github.com/JustDr00py/mmp/internal/source"
 )
 
 const guideRowsPerPage = 100
@@ -24,6 +25,7 @@ func (ui *UI) mountEPG(r chi.Router) {
 	r.Get("/epg", ui.epgPage)
 	r.Post("/epg/providers/{id}/refresh", ui.epgRefresh)
 	r.Post("/epg/providers/{id}/priority", ui.epgPriority)
+	r.Post("/epg/providers/{id}/guide", ui.epgGuideSwitch)
 	r.Get("/epg/channels", ui.epgChannels)
 	r.Get("/epg/channels/suggest", ui.tvgSuggest)
 	ui.mountEPGExtra(r)
@@ -97,7 +99,16 @@ func (ui *UI) epgSources(r *http.Request) ([]epgSource, error) {
 		}
 		out = append(out, src)
 	}
-	slices.SortStableFunc(out, func(a, b epgSource) int { return cmp.Compare(a.GuidePriority(), b.GuidePriority()) })
+	// Guides turned off last.
+	slices.SortStableFunc(out, func(a, b epgSource) int {
+		if a.Provider.EpgEnabled != b.Provider.EpgEnabled {
+			if a.Provider.EpgEnabled {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Compare(a.GuidePriority(), b.GuidePriority())
+	})
 	return out, nil
 }
 
@@ -106,6 +117,8 @@ var epgFlashes = map[string]string{
 	"extra-saved":   "Guide source saved.",
 	"extra-deleted": "Guide source deleted.",
 	"priority":      "Guide priority saved. Channels take their guide from the new order at once.",
+	"guide-on":      "Guide turned on. It downloads within a minute; reload to see its programs.",
+	"guide-off":     "Guide turned off and its downloaded programs deleted. Channels take their guide from the other sources.",
 }
 
 func (ui *UI) epgPage(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +197,10 @@ func (ui *UI) epgRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this provider has no guide", http.StatusBadRequest)
 		return
 	}
+	if !p.EpgEnabled {
+		http.Error(w, source.ErrGuideOff.Error(), http.StatusConflict)
+		return
+	}
 	ctx, cancel := contextFor(r, refreshTimeout)
 	defer cancel()
 	start := time.Now()
@@ -244,4 +261,30 @@ func (ui *UI) epgPriority(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: guide priority saved", "provider_id", p.ID)
 	ui.redirect(w, r, Prefix+"/epg?msg=priority")
+}
+
+// epgGuideSwitch turns a provider's guide on (downloaded with the next due
+// guides, within a minute) or off (its downloaded guide is deleted).
+func (ui *UI) epgGuideSwitch(w http.ResponseWriter, r *http.Request) {
+	p, ok := ui.provider(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	on := r.PostForm.Get("enabled") == "on"
+	if on != p.EpgEnabled {
+		if err := ui.Store.SetProviderGuideEnabled(r.Context(), db.SetProviderGuideEnabledParams{ID: p.ID, Enabled: on}); err != nil {
+			ui.fail(w, "set guide", err)
+			return
+		}
+		ui.Log.Info("web: provider guide switched", "provider_id", p.ID, "on", on)
+	}
+	msg := "guide-off"
+	if on {
+		msg = "guide-on"
+	}
+	ui.redirect(w, r, Prefix+"/epg?msg="+msg)
 }

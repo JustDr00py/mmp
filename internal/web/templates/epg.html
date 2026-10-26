@@ -5,7 +5,8 @@
 <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
   A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
   with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
-  rank guides without changing the failover order.</p>
+  rank guides without changing the failover order. Connections to the same service serve the same guide: turn off all but one
+  so it is downloaded and stored once.</p>
 <h2>Sources</h2>
 {{if $d.Sources}}
 <div class="table-wrap">
@@ -46,10 +47,17 @@
 
 <h2 id="guide-ids">Find a guide channel</h2>
 <p class="muted">The channels your guides list, to find the id to put in a channel's <span class="mono">tvg-id</span>. Search by name or id;
-  every word must match, so <span class="mono">hbo west</span> finds a guide's West feed. Lists fill in when a guide downloads.</p>
+  every word must match, so <span class="mono">hbo west</span> finds a guide's West feed. Pick a guide to search only it, or to list
+  its channels. Lists fill in when a guide downloads.</p>
 <form class="search row" method="get" action="/admin/epg/channels" hx-get="/admin/epg/channels" hx-target="#guide-channels" hx-swap="outerHTML"
-  hx-trigger="input changed delay:300ms from:input, submit">
+  hx-trigger="input changed delay:300ms from:find input[type=search], change, submit">
   <input type="search" name="gq" value="{{$d.Channels.Query}}" placeholder="Search guide channels, e.g. hbo east" aria-label="Search guide channels">
+  <select name="guide" aria-label="Guide">
+    <option value="0">All guides</option>
+    {{range $d.Channels.Guides}}<option value="{{.ID}}"{{if eq .ID $d.Channels.Guide}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <label class="check"><input type="checkbox" name="programs" value="1"{{if $d.Channels.WithPrograms}} checked{{end}}> With programs</label>
+  <label class="check"><input type="checkbox" name="unused" value="1"{{if $d.Channels.Unused}} checked{{end}}> Not in your lineup</label>
 </form>
 {{template "guide-channels" $d.Channels}}
 
@@ -63,6 +71,18 @@
 {{end}}
 
 {{define "source-row"}}
+{{if not .Provider.EpgEnabled}}
+<tr id="epg-{{.Provider.ID}}" class="dim">
+  <td><a href="/admin/providers/{{.Provider.ID}}/edit">{{.Provider.Name}}</a> <span class="pill off">guide off</span>
+    {{if not .Provider.Enabled}}<span class="pill off">provider disabled</span>{{end}}</td>
+  <td colspan="4"><span class="muted small">Not downloaded; channels take their guide from the other sources.</span></td>
+  <td><div class="actions">
+    <form method="post" action="/admin/epg/providers/{{.Provider.ID}}/guide">
+      <input type="hidden" name="enabled" value="on">
+      <button type="submit" class="small secondary">Turn on</button></form>
+  </div></td>
+</tr>
+{{else}}
 <tr id="epg-{{.Provider.ID}}">
   <td><a href="/admin/providers/{{.Provider.ID}}/edit">{{.Provider.Name}}</a>
     {{with .Stats}}<div class="sub mono">{{redact .Url}}</div>{{end}}
@@ -83,10 +103,14 @@
       hx-target="#epg-{{.Provider.ID}}" hx-swap="outerHTML" hx-indicator="#epg-{{.Provider.ID}}-busy" hx-disabled-elt="find button">
       <button type="submit" class="small">Download now</button>
     </form>
+    <form method="post" action="/admin/epg/providers/{{.Provider.ID}}/guide"
+      data-confirm="Turn off {{.Provider.Name}}'s guide? Its downloaded programs are deleted and it is no longer downloaded.">
+      <button type="submit" class="small secondary">Turn off</button></form>
     <span id="epg-{{.Provider.ID}}-busy" class="htmx-indicator sub">downloading…</span>
     {{with .Refresh}}{{if .OK}}<span class="okmsg small">{{.Result.Seen}} programs · {{.Elapsed}}</span>{{else}}<span class="errmsg small">{{.Error}}</span>{{end}}{{end}}
   </div></td>
 </tr>
+{{end}}
 {{end}}
 
 {{define "extra-row"}}
@@ -157,7 +181,8 @@
   </tbody>
 </table>
 </div>
-{{else if .Query}}<div class="card empty"><p>No guide channel matches.</p><p class="muted">Try fewer words, or check that the guide has downloaded since this was added.</p></div>
+{{if .More}}<p class="muted small">Showing the first {{len .Rows}}. Add words to narrow the search.</p>{{end}}
+{{else if or .Query .Guide}}<div class="card empty"><p>No guide channel matches.</p><p class="muted">Try fewer words or filters, or check that the guide has downloaded since this was added.</p></div>
 {{end}}
 </div>
 {{end}}

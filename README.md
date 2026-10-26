@@ -126,6 +126,7 @@ The admin UI walks you through the same five steps. Each page links to the next.
 | URL | the panel's base URL, e.g. `http://panel.example:8080` | the full playlist URL |
 | Username / Password | your panel login | leave empty (or use them if your URL needs basic auth) |
 | EPG URL | leave empty: the panel provides one | optional XMLTV URL for the guide |
+| Download this provider's guide | on; untick for a second connection to a service whose guide another provider already downloads | same |
 | Max connections | **the number of simultaneous streams your subscription allows** | same |
 | Priority | lower = preferred when several providers have a channel | same |
 
@@ -193,10 +194,17 @@ guide that stopped updating never hides a current one, whatever its priority. A 
 provider's priority unless you give it its own on the EPG page, so you can rank guides without changing
 the failover order. The channel coverage table there shows which guide each channel gets.
 
+Several connections to the same service serve the same guide. Keep it on for one and turn it off for the
+others (the provider form's *Download this provider's guide*, or **Turn off** on the EPG page), so it is
+downloaded and stored once: channels find their guide in any source by tvg-id, whichever provider their
+streams come from. Turning a guide off deletes what was downloaded for it; turning it back on downloads it
+within a minute.
+
 **Finding a guide's channel id:** *Find a guide channel* on the **EPG** page searches the channels your
 guides list (their XMLTV `<channel>` ids and display names), so you don't have to read the XML. Every word
-must match, so `hbo west` finds a guide's West feed and leaves out East. Each result shows the guide it is
-from, how many programs it has and how many of your channels already use it. On a channel's page, type a
+must match, so `hbo west` finds a guide's West feed and leaves out East. Filter to one guide (which, with no
+search, lists all its channels), to ids with programs, or to ids none of your channels use yet. Each result
+shows the guide it is from, how many programs it has and how many of your channels already use it. On a channel's page, type a
 name into **tvg-id** and pick the id from the suggestions. A guide's list fills in when it downloads.
 
 **Guide from stream names:** event feeds (PPV, game passes) rarely have a guide, but their stream names

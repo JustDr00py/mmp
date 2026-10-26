@@ -62,7 +62,8 @@ func (f *fakeStore) CreateProvider(_ context.Context, a db.CreateProviderParams)
 	defer f.mu.Unlock()
 	p := db.Provider{ID: f.nextID, Name: a.Name, Type: a.Type, Url: a.Url, Username: a.Username, Password: a.Password,
 		EpgUrl: a.EpgUrl, MaxConnections: a.MaxConnections, UserAgent: a.UserAgent,
-		RefreshIntervalSecs: a.RefreshIntervalSecs, Priority: a.Priority, Enabled: a.Enabled, Backbone: a.Backbone}
+		RefreshIntervalSecs: a.RefreshIntervalSecs, Priority: a.Priority, Enabled: a.Enabled, Backbone: a.Backbone,
+		EpgEnabled: true} // the column's default
 	f.nextID++
 	f.providers[p.ID] = p
 	return p, nil
@@ -108,6 +109,15 @@ func (f *fakeStore) SetProviderEnabled(_ context.Context, a db.SetProviderEnable
 	defer f.mu.Unlock()
 	p := f.providers[a.ID]
 	p.Enabled = a.Enabled
+	f.providers[a.ID] = p
+	return nil
+}
+
+func (f *fakeStore) SetProviderGuideEnabled(_ context.Context, a db.SetProviderGuideEnabledParams) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.providers[a.ID]
+	p.EpgEnabled = a.Enabled
 	f.providers[a.ID] = p
 	return nil
 }

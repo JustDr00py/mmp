@@ -29,7 +29,7 @@ func TestEPGPage(t *testing.T) {
 	withEPG := mk("Lists", "m3u", "http://guide.example/xmltv.php?username=gu&password=guide-secret", 2)
 	mk("NoGuide", "m3u", "", 3)
 
-	src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "Lists", Url: withEPG.EpgUrl, ProviderID: &withEPG.ID})
+	src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "Lists", Url: withEPG.EpgUrl, ProviderID: withEPG.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestProviderGuidePriority(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: name, Url: p.EpgUrl, ProviderID: &p.ID})
+		src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: name, Url: p.EpgUrl, ProviderID: p.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -370,5 +370,137 @@ func TestGuideChannelSearch(t *testing.T) {
 	}
 	if _, body = b.htmx(http.MethodGet, "/admin/epg/channels/suggest?tvg_id=", nil, "tvg-suggest"); strings.TrimSpace(body) != "" {
 		t.Errorf("empty field suggestions:\n%s", body)
+	}
+}
+
+// The guide channel search narrows to one guide (and then lists it
+// without a search), to ids with programs, or to ids no channel uses.
+func TestGuideChannelSearchFilters(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	us, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "US guide", Url: "http://guide.example/us.xml", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uk, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "UK guide", Url: "http://guide.example/uk.xml", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.InsertEpgChannels(ctx, []db.InsertEpgChannelsParams{
+		{EpgSourceID: us.ID, TvgID: "Nick.us", DisplayNames: []string{"Nickelodeon East"}, ProgramCount: 40},
+		{EpgSourceID: us.ID, TvgID: "NickJr.us", DisplayNames: []string{"Nick Jr"}, ProgramCount: 0},
+		{EpgSourceID: us.ID, TvgID: "CNN.us", DisplayNames: []string{"CNN"}, ProgramCount: 40},
+		{EpgSourceID: uk.ID, TvgID: "Nick.uk", DisplayNames: []string{"Nickelodeon UK"}, ProgramCount: 40},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: "Nick", TvgID: "nick.us"}); err != nil {
+		t.Fatal(err)
+	}
+	search := func(query string) string {
+		t.Helper()
+		_, body := b.htmx(http.MethodGet, "/admin/epg/channels?"+query, nil, "guide-channels")
+		return body
+	}
+	has := func(body string, ids ...string) string {
+		var got []string
+		for _, id := range []string{"Nick.us", "NickJr.us", "CNN.us", "Nick.uk"} {
+			if strings.Contains(body, ">"+id+"<") {
+				got = append(got, id)
+			}
+		}
+		return strings.Join(got, " ")
+	}
+	for _, c := range []struct{ query, want string }{
+		{"gq=nick", "Nick.us NickJr.us Nick.uk"},
+		{"gq=nick&guide=" + strconv.FormatInt(uk.ID, 10), "Nick.uk"},
+		{"gq=&guide=" + strconv.FormatInt(us.ID, 10), "Nick.us NickJr.us CNN.us"}, // a guide's whole list
+		{"gq=nick&programs=1", "Nick.us Nick.uk"},
+		{"gq=nick&unused=1", "NickJr.us Nick.uk"},
+		{"gq=nick&guide=" + strconv.FormatInt(us.ID, 10) + "&programs=1&unused=1", ""},
+		{"gq=", ""}, // no search, no guide: nothing
+	} {
+		if got := has(search(c.query)); got != c.want {
+			t.Errorf("%s: found %q, want %q", c.query, got, c.want)
+		}
+	}
+	// The guide picker offers the guides with a channel list.
+	_, body := b.get("/admin/epg?gq=nick&guide=" + strconv.FormatInt(uk.ID, 10))
+	if !strings.Contains(body, `<option value="`+strconv.FormatInt(uk.ID, 10)+`" selected>UK guide</option>`) || !strings.Contains(body, ">US guide</option>") {
+		t.Errorf("guide picker:\n%s", body)
+	}
+}
+
+// A provider's guide can be turned off (its downloaded guide deleted, no
+// longer offered for download) and back on, from the EPG page or the
+// provider form.
+func TestProviderGuideSwitch(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "Backup line", Type: "xtream", Url: "http://backup.example/",
+		Username: "u", Password: "pw", RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.EpgEnabled {
+		t.Fatal("new providers should download their guide")
+	}
+	src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "Backup line EPG", Url: "http://backup.example/xmltv.php", ProviderID: p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.InsertEpgChannels(ctx, []db.InsertEpgChannelsParams{{EpgSourceID: src.ID, TvgID: "Nick.us", DisplayNames: []string{"Nickelodeon"}, ProgramCount: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	id := strconv.FormatInt(p.ID, 10)
+
+	resp, _ := b.post("/admin/epg/providers/"+id+"/guide", url.Values{}, b.base)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("turn off = %d", resp.StatusCode)
+	}
+	if p, _ = q.GetProvider(ctx, p.ID); p.EpgEnabled {
+		t.Error("guide still on")
+	}
+	if _, err := q.GetEpgSourceByProvider(ctx, &p.ID); err == nil {
+		t.Error("downloaded guide kept")
+	}
+	if _, body := b.htmx(http.MethodGet, "/admin/epg/channels?gq=nick", nil, "guide-channels"); strings.Contains(body, "Nick.us") {
+		t.Error("turned-off guide's channels still searchable")
+	}
+	_, body := b.get("/admin/epg")
+	if !strings.Contains(body, "guide off") || !strings.Contains(body, ">Turn on</button>") {
+		t.Errorf("EPG page:\n%s", body)
+	}
+	if resp, _ := b.post("/admin/epg/providers/"+id+"/refresh", url.Values{}, b.base); resp.StatusCode != http.StatusConflict {
+		t.Errorf("download of a turned-off guide = %d, want 409", resp.StatusCode)
+	}
+	// Nothing recreates it, even a download that read the provider before.
+	if _, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "x", Url: "http://backup.example/x", ProviderID: p.ID}); err == nil {
+		t.Error("guide source recreated while off")
+	}
+
+	if resp, _ := b.post("/admin/epg/providers/"+id+"/guide", url.Values{"enabled": {"on"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("turn on = %d", resp.StatusCode)
+	}
+	if p, _ = q.GetProvider(ctx, p.ID); !p.EpgEnabled {
+		t.Error("guide still off")
+	}
+
+	// The provider form's checkbox: saving it unticked turns it off.
+	form := url.Values{"name": {p.Name}, "type": {"xtream"}, "url": {p.Url}, "username": {"u"},
+		"max_connections": {"1"}, "refresh_minutes": {"60"}, "priority": {"0"}, "enabled": {"on"}}
+	if resp, body := b.post("/admin/providers/"+id+"/edit", form, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit = %d:\n%s", resp.StatusCode, body)
+	}
+	if p, _ = q.GetProvider(ctx, p.ID); p.EpgEnabled {
+		t.Error("unticked checkbox left the guide on")
+	}
+	form.Set("epg_enabled", "on")
+	b.post("/admin/providers/"+id+"/edit", form, b.base)
+	if p, _ = q.GetProvider(ctx, p.ID); !p.EpgEnabled {
+		t.Error("ticked checkbox left the guide off")
+	}
+	if _, body := b.get("/admin/providers/" + id + "/edit"); !strings.Contains(body, `name="epg_enabled" checked`) {
+		t.Error("form does not show the guide on")
 	}
 }

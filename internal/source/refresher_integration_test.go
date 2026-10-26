@@ -340,6 +340,60 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	}
 }
 
+// A provider whose guide is turned off is not downloaded: not due, and a
+// download asked for anyway (or already under way) refuses.
+func TestRefreshEPGGuideOff(t *testing.T) {
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	ts := httptest.NewServer(http.HandlerFunc(func(w2 http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w2, `<?xml version="1.0"?><tv><programme start="20261013180000 +0000" stop="20261013190000 +0000" channel="us.abc"><title>A</title></programme></tv>`)
+	}))
+	t.Cleanup(ts.Close)
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{
+		Name: "Backup", Type: "m3u", Url: "http://unused.example/", EpgUrl: ts.URL,
+		MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := NewRefresher(slog.New(slog.NewTextHandler(io.Discard, nil)), w.pool, 80)
+	due := func() int {
+		ps, err := q.ListProvidersDueForEpg(ctx, 3600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(ps)
+	}
+	if due() != 1 {
+		t.Fatal("new provider's guide not due")
+	}
+	before := p // read while the guide was on
+	if err := q.SetProviderGuideEnabled(ctx, db.SetProviderGuideEnabledParams{ID: p.ID, Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	if due() != 0 {
+		t.Error("turned-off guide is due")
+	}
+	if p, _ = q.GetProvider(ctx, p.ID); p.EpgEnabled {
+		t.Fatal("guide still on")
+	}
+	for _, pp := range []db.Provider{p, before} {
+		if _, err := ref.RefreshEPG(ctx, pp); !errors.Is(err, ErrGuideOff) {
+			t.Errorf("refresh (read with guide on: %v) = %v, want ErrGuideOff", pp.EpgEnabled, err)
+		}
+	}
+	if _, err := q.GetEpgSourceByProvider(ctx, &p.ID); err == nil {
+		t.Error("a guide source was created")
+	}
+	if err := q.SetProviderGuideEnabled(ctx, db.SetProviderGuideEnabledParams{ID: p.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = q.GetProvider(ctx, p.ID)
+	if n, err := ref.RefreshEPG(ctx, p); err != nil || n != 1 {
+		t.Errorf("refresh once back on = %d, %v", n, err)
+	}
+}
+
 // playlist builds an M3U with streams n0..n(count-1).
 func playlist(count int) string {
 	var b strings.Builder

@@ -58,7 +58,7 @@ ORDER BY priority, name;
 -- name: ListProvidersDueForEpg :many
 SELECT p.* FROM providers p
 LEFT JOIN epg_sources s ON s.provider_id = p.id
-WHERE p.enabled
+WHERE p.enabled AND p.epg_enabled
   AND (p.type = 'xtream' OR p.epg_url <> '')
   AND (s.last_refreshed_at IS NULL
        OR s.last_refreshed_at <= now() - make_interval(secs => $1::double precision))

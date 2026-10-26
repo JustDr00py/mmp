@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/JustDr00py/mmp/internal/db"
@@ -92,6 +93,9 @@ func NewRefresher(log *slog.Logger, pool *pgxpool.Pool, maxDisablePct int) *Refr
 // ErrNoStreams means a provider answered with no streams at all; the
 // refresh is refused so existing streams stay enabled.
 var ErrNoStreams = errors.New("provider returned no streams (existing streams kept)")
+
+// ErrGuideOff: the provider's guide is turned off, so it is not downloaded.
+var ErrGuideOff = errors.New("this provider's guide is turned off")
 
 // DisableRefusedError means a refresh would soft-disable more of the
 // provider's active streams than the configured threshold allows — almost
@@ -454,8 +458,12 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 }
 
 // RefreshEPG fetches the provider's XMLTV guide (panel-provided for Xtream,
-// epg_url for M3U) and replaces its stored programs.
+// epg_url for M3U) and replaces its stored programs. A provider whose guide
+// is turned off answers ErrGuideOff.
 func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) {
+	if !p.EpgEnabled {
+		return 0, ErrGuideOff
+	}
 	xmltvURL := p.EpgUrl
 	if p.Type == "xtream" && xmltvURL == "" {
 		client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
@@ -469,8 +477,11 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 
 	source, err := db.New(r.pool).UpsertEpgSource(ctx, db.UpsertEpgSourceParams{
-		Name: p.Name + " EPG", Url: xmltvURL, ProviderID: &p.ID,
+		Name: p.Name + " EPG", Url: xmltvURL, ProviderID: p.ID,
 	})
+	if errors.Is(err, pgx.ErrNoRows) { // turned off since p was read
+		return 0, ErrGuideOff
+	}
 	if err != nil {
 		return 0, fmt.Errorf("refresh epg provider %d: upsert source: %w", p.ID, err)
 	}

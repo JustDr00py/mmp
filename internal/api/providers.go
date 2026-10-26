@@ -33,6 +33,8 @@ type providerJSON struct {
 	// VODEnabled imports the provider's movies and series (Xtream only).
 	VODEnabled     bool       `json:"vod_enabled"`
 	VODRefreshedAt *time.Time `json:"vod_refreshed_at,omitempty"`
+	// EPGEnabled downloads the provider's guide (Xtream's, or epg_url).
+	EPGEnabled bool `json:"epg_enabled"`
 	// GroupFilter limits matching and the stream picker to the selected
 	// groups (see /providers/{id}/groups).
 	GroupFilter bool `json:"group_filter"`
@@ -46,7 +48,7 @@ func toJSON(p db.Provider) providerJSON {
 		EPGURL: p.EpgUrl, MaxConnections: p.MaxConnections, UserAgent: p.UserAgent,
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
 		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
-		VODEnabled:           p.VodEnabled, VODRefreshedAt: p.VodRefreshedAt,
+		VODEnabled:           p.VodEnabled, VODRefreshedAt: p.VodRefreshedAt, EPGEnabled: p.EpgEnabled,
 		GroupFilter: p.GroupFilter, Backbone: p.Backbone,
 	}
 }
@@ -68,6 +70,9 @@ type providerInput struct {
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	// Absent keeps the current setting (off for new providers).
 	VODEnabled *bool `json:"vod_enabled"`
+	// Absent keeps the current setting (on for new providers). Turning it
+	// off deletes the provider's downloaded guide.
+	EPGEnabled *bool `json:"epg_enabled"`
 	// Absent keeps the current label (none for new providers); "" clears it.
 	Backbone *string `json:"backbone"`
 	// Update only: afterwards, order the failover lists of the channels
@@ -193,6 +198,14 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		p.VodEnabled = true
 	}
+	if in.EPGEnabled != nil && !*in.EPGEnabled {
+		if err := env.Store.SetProviderGuideEnabled(r.Context(), db.SetProviderGuideEnabledParams{ID: p.ID, Enabled: false}); err != nil {
+			env.Log.Error("api: turn guide off", "provider_id", p.ID, "err", err)
+			writeErr(w, http.StatusInternalServerError, "create provider failed")
+			return
+		}
+		p.EpgEnabled = false
+	}
 	writeJSON(w, http.StatusCreated, toJSON(p))
 }
 
@@ -294,6 +307,14 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.VodEnabled = vod
+	}
+	if in.EPGEnabled != nil && *in.EPGEnabled != p.EpgEnabled {
+		if err := env.Store.SetProviderGuideEnabled(r.Context(), db.SetProviderGuideEnabledParams{ID: p.ID, Enabled: *in.EPGEnabled}); err != nil {
+			env.Log.Error("api: set guide", "provider_id", p.ID, "err", err)
+			writeErr(w, http.StatusInternalServerError, "update provider failed")
+			return
+		}
+		p.EpgEnabled = *in.EPGEnabled
 	}
 	if in.ResortChannels {
 		n, err := env.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ProviderIds: []int64{p.ID}})
