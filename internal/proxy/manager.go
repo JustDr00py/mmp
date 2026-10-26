@@ -32,10 +32,11 @@ type ManagerConfig struct {
 	RetryBackoff   time.Duration
 	StableAfter    time.Duration
 
-	Log     *slog.Logger
-	OnEvent func(Event)
-	Metrics *Metrics   // optional
-	Probe   MediaProbe // optional: resolution, frame rate and audio layout for the dashboard
+	Log      *slog.Logger
+	OnEvent  func(Event)
+	Metrics  *Metrics   // optional
+	Outcomes *Outcomes  // optional: per-provider results for the health scores
+	Probe    MediaProbe // optional: resolution, frame rate and audio layout for the dashboard
 }
 
 // Manager owns one Session per active channel and fans its ring out to
@@ -128,6 +129,7 @@ func (m *Manager) start(channelID int64) *channelRun {
 		Log:            m.log,
 		OnEvent:        m.cfg.OnEvent,
 		Metrics:        m.cfg.Metrics,
+		Outcomes:       m.cfg.Outcomes,
 		Probe:          m.cfg.Probe,
 		Reclaim:        m.reclaimIdle,
 	})

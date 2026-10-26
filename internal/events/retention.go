@@ -75,6 +75,7 @@ type PruneStore interface {
 	PruneUserNetworks(ctx context.Context, before time.Time) (int64, error)
 	PruneAuthFailures(ctx context.Context, before time.Time) (int64, error)
 	PruneAudit(ctx context.Context, before time.Time) (int64, error)
+	PruneOutcomeBuckets(ctx context.Context, before time.Time) (int64, error)
 }
 
 // Prune deletes the events, customer activity and audit entries older than the
@@ -92,6 +93,7 @@ func Prune(ctx context.Context, q PruneStore, now time.Time) (int64, error) {
 		prune func(context.Context, time.Time) (int64, error)
 	}{
 		{"events", q.PruneEvents},
+		{"provider outcomes", q.PruneOutcomeBuckets},
 		{"viewing sessions", q.PruneViewingSessions},
 		{"user networks", q.PruneUserNetworks},
 		{"failed logins", q.PruneAuthFailures},

@@ -19,6 +19,20 @@
   </form>
   {{end}}
 </div>{{end}}
+{{with .Data.BackboneRows}}<div class="card">
+  <p><strong>Backbone health</strong> <span class="muted small">out of 100, from the last 7 days of stream attempts. Its providers' results pooled together.</span></p>
+  <div class="table-wrap"><table class="stack">
+    <thead><tr><th>Backbone</th><th class="num">Providers</th><th class="num">Health</th><th class="num">Attempts</th></tr></thead>
+    <tbody>
+    {{range .}}<tr>
+      <td data-label="Backbone">{{.Backbone}}</td>
+      <td class="num" data-label="Providers">{{.Providers}}</td>
+      <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}">{{.Health.Value}}</span>{{else}}<span class="muted">not enough attempts</span>{{end}}</td>
+      <td class="num" data-label="Attempts">{{.Health.Attempts}} <span class="sub">({{.Health.Failures}} failed)</span></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+</div>{{end}}
 <form class="search row" method="get" action="/admin/providers"
   hx-get="/admin/providers" hx-target="#providers" hx-swap="outerHTML" hx-push-url="true"
   hx-trigger="input changed delay:300ms from:find input, change, submit">
@@ -82,7 +96,7 @@
 <table class="stack">
   <thead><tr>
     <th class="check" aria-label="Select"></th><th>Name</th><th>Backbone</th><th>Type</th><th class="num">Priority</th><th class="num">Slots</th>
-    <th class="num">Streams</th><th>Last refresh</th><th>Status</th><th></th>
+    <th class="num">Streams</th><th class="num">Health</th><th>Last refresh</th><th>Status</th><th></th>
   </tr></thead>
   <tbody>
   {{range .Rows}}{{template "provider-row" .}}{{end}}
@@ -111,6 +125,7 @@
   <td class="num" data-label="Slots">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
   <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
     {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if not .GroupFilter}}all {{.Groups}} groups{{else if .GroupsSelected}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}<span class="pill warn">choose groups</span>{{end}}</a></div>{{end}}</td>
+  <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}" title="{{.Health.Failures}} of {{.Health.Attempts}} attempts failed in the last 7 days">{{.Health.Value}}</span>{{else}}<span class="muted" title="Fewer than 10 attempts in the last 7 days">—</span>{{end}}</td>
   <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
     {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}</div>{{end}}</td>
   <td data-label="Status">

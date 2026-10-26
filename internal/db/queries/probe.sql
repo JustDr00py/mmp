@@ -5,7 +5,7 @@
 -- provider, not soft-disabled. A channel profile's user agent wins over the
 -- provider's, as it does for playback.
 SELECT ps.id AS stream_id, ps.stream_url, ps.health_score, ps.cooldown_until, ps.last_probed_at,
-       pr.id AS provider_id, pr.max_connections,
+       pr.id AS provider_id, pr.max_connections, pr.backbone,
        COALESCE(NULLIF(max(sp.user_agent), ''), pr.user_agent)::text AS user_agent
 FROM channel_streams cs
 JOIN channels c ON c.id = cs.channel_id AND c.enabled

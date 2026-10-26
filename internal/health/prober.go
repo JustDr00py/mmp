@@ -58,8 +58,10 @@ type Prober struct {
 	// Busy returns streams a session is playing right now; they are
 	// evidently up and must not cost a second provider slot. Optional.
 	Busy func() map[int64]bool
-	Cfg  Config
-	Now  func() time.Time
+	// Outcomes, optional, counts each probe result for the provider health scores.
+	Outcomes *proxy.Outcomes
+	Cfg      Config
+	Now      func() time.Time
 }
 
 func (p *Prober) now() time.Time {
@@ -192,9 +194,11 @@ func (p *Prober) probe(ctx context.Context, t db.ListProbeTargetsRow) Result {
 		res.OK = true
 		score += scoreWeight
 		p.Cooldowns.Reset(t.StreamID)
+		p.Outcomes.Record(t.ProviderID, t.Backbone, proxy.OutcomeProbeOK)
 	} else {
 		res.Err = err.Error()
 		until := now.Add(p.Cooldowns.Fail(t.StreamID, now))
+		p.Outcomes.Record(t.ProviderID, t.Backbone, proxy.OutcomeProbeFail)
 		rec.CooldownUntil, rec.LastError = &until, res.Err
 		p.Log.Info("prober: stream failed", "stream_id", t.StreamID, "provider_id", t.ProviderID,
 			"cooldown_until", until, "err", res.Err)

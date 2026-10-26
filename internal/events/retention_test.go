@@ -28,6 +28,8 @@ func (f *fakeStore) SetSetting(_ context.Context, arg db.SetSettingParams) error
 	return nil
 }
 
+func (f *fakeStore) PruneOutcomeBuckets(context.Context, time.Time) (int64, error) { return 0, nil }
+
 func (f *fakeStore) PruneEvents(_ context.Context, before time.Time) (int64, error) {
 	f.before = append(f.before, before)
 	if len(f.batches) == 0 {

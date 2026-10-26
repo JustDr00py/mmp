@@ -13,7 +13,7 @@ import (
 const listProbeTargets = `-- name: ListProbeTargets :many
 
 SELECT ps.id AS stream_id, ps.stream_url, ps.health_score, ps.cooldown_until, ps.last_probed_at,
-       pr.id AS provider_id, pr.max_connections,
+       pr.id AS provider_id, pr.max_connections, pr.backbone,
        COALESCE(NULLIF(max(sp.user_agent), ''), pr.user_agent)::text AS user_agent
 FROM channel_streams cs
 JOIN channels c ON c.id = cs.channel_id AND c.enabled
@@ -32,6 +32,7 @@ type ListProbeTargetsRow struct {
 	LastProbedAt   *time.Time `json:"last_probed_at"`
 	ProviderID     int64      `json:"provider_id"`
 	MaxConnections int32      `json:"max_connections"`
+	Backbone       string     `json:"backbone"`
 	UserAgent      string     `json:"user_agent"`
 }
 
@@ -56,6 +57,7 @@ func (q *Queries) ListProbeTargets(ctx context.Context) ([]ListProbeTargetsRow, 
 			&i.LastProbedAt,
 			&i.ProviderID,
 			&i.MaxConnections,
+			&i.Backbone,
 			&i.UserAgent,
 		); err != nil {
 			return nil, err
