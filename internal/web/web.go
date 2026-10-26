@@ -118,6 +118,7 @@ type Store interface {
 	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
 	SearchGuideChannels(ctx context.Context, arg db.SearchGuideChannelsParams) ([]db.SearchGuideChannelsRow, error)
+	ListGuideSourceNames(ctx context.Context) ([]db.ListGuideSourceNamesRow, error)
 	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
 	ListGuidePrograms(ctx context.Context, arg db.ListGuideProgramsParams) ([]db.ListGuideProgramsRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)
@@ -153,6 +154,7 @@ type Store interface {
 	RemoveChannelsFromBouquet(ctx context.Context, arg db.RemoveChannelsFromBouquetParams) (int64, error)
 
 	SetProviderVODEnabled(ctx context.Context, arg db.SetProviderVODEnabledParams) error
+	SetProviderGuideEnabled(ctx context.Context, arg db.SetProviderGuideEnabledParams) error
 	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
 	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
 	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)

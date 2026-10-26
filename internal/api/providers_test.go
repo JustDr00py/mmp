@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,9 +45,17 @@ func (f *fakeStore) CreateProvider(_ context.Context, arg db.CreateProviderParam
 		Username: arg.Username, Password: arg.Password, EpgUrl: arg.EpgUrl,
 		MaxConnections: arg.MaxConnections, UserAgent: arg.UserAgent,
 		RefreshIntervalSecs: arg.RefreshIntervalSecs, Priority: arg.Priority, Enabled: arg.Enabled,
+		EpgEnabled: true, // the column's default
 	}
 	f.providers[p.ID] = p
 	return p, nil
+}
+
+func (f *fakeStore) SetProviderGuideEnabled(_ context.Context, arg db.SetProviderGuideEnabledParams) error {
+	p := f.providers[arg.ID]
+	p.EpgEnabled = arg.Enabled
+	f.providers[arg.ID] = p
+	return nil
 }
 
 func (f *fakeStore) GetProvider(_ context.Context, id int64) (db.Provider, error) {
@@ -339,5 +348,34 @@ func TestCreateProviderDefaultRefresh(t *testing.T) {
 	// Unset Env.DefaultRefresh keeps the 6h fallback.
 	if (&Env{}).defaultRefreshSecs() != 21600 {
 		t.Error("fallback is not 6h")
+	}
+}
+
+// epg_enabled is on unless asked otherwise, and absent on update keeps it.
+func TestProviderEPGEnabled(t *testing.T) {
+	store := newFakeStore()
+	h := newTestServer(t, store, &fakeRefresher{})
+	base := map[string]any{"name": "Backup", "type": "xtream", "url": "http://panel.b:8080", "username": "bob", "password": "pw"}
+	with := func(k string, v any) map[string]any {
+		m := maps.Clone(base)
+		m[k] = v
+		return m
+	}
+
+	rec, raw := doJSON(t, h, http.MethodPost, "/api/v1/providers", base)
+	if body := asMap(t, raw); rec.Code != http.StatusCreated || body["epg_enabled"] != true {
+		t.Fatalf("default create = %d: %v", rec.Code, body)
+	}
+	rec, raw = doJSON(t, h, http.MethodPost, "/api/v1/providers", with("epg_enabled", false))
+	body := asMap(t, raw)
+	if rec.Code != http.StatusCreated || body["epg_enabled"] != false {
+		t.Fatalf("create with guide off = %d: %v", rec.Code, body)
+	}
+	path := fmt.Sprintf("/api/v1/providers/%v", body["id"])
+	if _, raw = doJSON(t, h, http.MethodPut, path, base); asMap(t, raw)["epg_enabled"] != false {
+		t.Errorf("update without epg_enabled changed it: %v", raw)
+	}
+	if _, raw = doJSON(t, h, http.MethodPut, path, with("epg_enabled", true)); asMap(t, raw)["epg_enabled"] != true {
+		t.Errorf("update turning the guide on: %v", raw)
 	}
 }

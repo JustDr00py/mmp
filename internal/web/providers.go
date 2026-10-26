@@ -216,6 +216,7 @@ type providerForm struct {
 	Priority                          string
 	MaxDisablePct                     string // blank = server default
 	VODEnabled                        bool
+	GuideEnabled                      bool // download the provider's guide
 	Enabled                           bool
 	ResortChannels                    bool // on edit: sort the channels using it after saving
 	HasPassword                       bool
@@ -234,7 +235,7 @@ func formFromProvider(p db.Provider) providerForm {
 		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username, EPGURL: p.EpgUrl,
 		UserAgent: p.UserAgent, Backbone: p.Backbone, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
 		RefreshMinutes: strconv.Itoa(int(p.RefreshIntervalSecs / 60)), Priority: strconv.Itoa(int(p.Priority)),
-		Enabled: p.Enabled, HasPassword: p.Password != "", VODEnabled: p.VodEnabled,
+		Enabled: p.Enabled, HasPassword: p.Password != "", VODEnabled: p.VodEnabled, GuideEnabled: p.EpgEnabled,
 	}
 	if p.RefreshMaxDisablePct != nil {
 		f.MaxDisablePct = strconv.Itoa(int(*p.RefreshMaxDisablePct))
@@ -270,7 +271,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
 		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
-		ResortChannels: f.Get("resort_channels") == "on",
+		GuideEnabled: f.Get("epg_enabled") == "on", ResortChannels: f.Get("resort_channels") == "on",
 	}
 	var berr error
 	form.Backbone, berr = pickedBackbone(f, "backbone")
@@ -328,7 +329,7 @@ func humanize(msg string) string {
 }
 
 func (ui *UI) providerNew(w http.ResponseWriter, r *http.Request) {
-	f := providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: strconv.Itoa(ui.defaultRefreshMinutes()), Priority: "0", Enabled: true}
+	f := providerForm{Type: "xtream", MaxConnections: "1", RefreshMinutes: strconv.Itoa(ui.defaultRefreshMinutes()), Priority: "0", Enabled: true, GuideEnabled: true}
 	if !ui.withBackbones(w, r, &f) {
 		return
 	}
@@ -429,6 +430,12 @@ func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !form.GuideEnabled { // new providers download their guide by default
+		if err := ui.Store.SetProviderGuideEnabled(r.Context(), db.SetProviderGuideEnabledParams{ID: created.ID, Enabled: false}); err != nil {
+			ui.fail(w, "turn guide off", err)
+			return
+		}
+	}
 	ui.Log.Info("web: provider created", "provider_id", created.ID)
 	ui.redirect(w, r, Prefix+"/providers?msg=created")
 }
@@ -512,6 +519,14 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "set vod", err)
 			return
 		}
+	}
+	// Off deletes the downloaded guide; on downloads it with the next due guides.
+	if form.GuideEnabled != cur.EpgEnabled {
+		if err := ui.Store.SetProviderGuideEnabled(r.Context(), db.SetProviderGuideEnabledParams{ID: cur.ID, Enabled: form.GuideEnabled}); err != nil {
+			ui.fail(w, "set guide", err)
+			return
+		}
+		ui.Log.Info("web: provider guide switched", "provider_id", cur.ID, "on", form.GuideEnabled)
 	}
 	if form.ResortChannels {
 		n, err := ui.Store.SortChannelStreamsByProvider(r.Context(), db.SortChannelStreamsByProviderParams{ProviderIds: []int64{cur.ID}})

@@ -167,6 +167,7 @@ type Provider struct {
 	LastError            string     `json:"last_error"`
 	FailingSince         *time.Time `json:"failing_since"`
 	CheckedAt            *time.Time `json:"checked_at"`
+	EpgEnabled           bool       `json:"epg_enabled"`
 }
 
 type ProviderGroup struct {

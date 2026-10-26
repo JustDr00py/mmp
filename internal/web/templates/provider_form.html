@@ -34,6 +34,9 @@
   </div>
   <label>EPG URL<input name="epg_url" type="url" value="{{$f.EPGURL}}" placeholder="optional; Xtream panels provide one">
   </label>
+  <label class="check"><input type="checkbox" name="epg_enabled"{{if $f.GuideEnabled}} checked{{end}}> Download this provider's guide
+    <span class="hint">Untick for a second connection to a service whose guide another provider already downloads: channels find their guide in any source.
+      {{- if and $f.ID $f.GuideEnabled}} Unticking deletes the guide downloaded for this provider.{{end}}</span></label>
   <div class="grid3">
     <label>Max connections<input name="max_connections" type="number" min="0" value="{{$f.MaxConnections}}">
       <span class="hint">0 = unlimited</span></label>

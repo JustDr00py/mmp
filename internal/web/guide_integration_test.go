@@ -21,7 +21,7 @@ func TestGuidePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "Lists", Url: p.EpgUrl, ProviderID: &p.ID})
+	src, err := q.UpsertEpgSource(ctx, db.UpsertEpgSourceParams{Name: "Lists", Url: p.EpgUrl, ProviderID: p.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

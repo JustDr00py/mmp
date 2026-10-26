@@ -417,6 +417,39 @@ func (q *Queries) ListGuidePrograms(ctx context.Context, arg ListGuideProgramsPa
 	return items, nil
 }
 
+const listGuideSourceNames = `-- name: ListGuideSourceNames :many
+SELECT s.id, s.name FROM epg_sources s
+WHERE s.enabled AND EXISTS (SELECT 1 FROM epg_channels e WHERE e.epg_source_id = s.id)
+ORDER BY lower(s.name), s.id
+`
+
+type ListGuideSourceNamesRow struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// Enabled guides with a downloaded channel list, for the guide channel
+// search's guide filter.
+func (q *Queries) ListGuideSourceNames(ctx context.Context) ([]ListGuideSourceNamesRow, error) {
+	rows, err := q.db.Query(ctx, listGuideSourceNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGuideSourceNamesRow
+	for rows.Next() {
+		var i ListGuideSourceNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEpgSourceRefreshed = `-- name: MarkEpgSourceRefreshed :exec
 UPDATE epg_sources
 SET last_refreshed_at = now(), program_count = $1, channel_count = $2
@@ -445,15 +478,22 @@ WHERE NOT EXISTS (
     SELECT 1 FROM unnest($1::text[]) w
     WHERE NOT (e.tvg_id ILIKE w OR array_to_string(e.display_names, ' ') ILIKE w)
 )
-ORDER BY lower(e.tvg_id) = lower($2::text) DESC, e.program_count > 0 DESC,
+  AND ($2::bigint IS NULL OR s.id = $2)
+  AND (NOT $3::bool OR e.program_count > 0)
+  AND (NOT $4::bool OR NOT EXISTS (
+    SELECT 1 FROM channels c WHERE c.tvg_id <> '' AND lower(c.tvg_id) = lower(e.tvg_id)))
+ORDER BY lower(e.tvg_id) = lower($5::text) DESC, e.program_count > 0 DESC,
          lower(e.tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
-LIMIT $3
+LIMIT $6
 `
 
 type SearchGuideChannelsParams struct {
-	Words []string `json:"words"`
-	Exact string   `json:"exact"`
-	Limit int32    `json:"limit"`
+	Words        []string `json:"words"`
+	SourceID     *int64   `json:"source_id"`
+	WithPrograms bool     `json:"with_programs"`
+	Unused       bool     `json:"unused"`
+	Exact        string   `json:"exact"`
+	Limit        int32    `json:"limit"`
 }
 
 type SearchGuideChannelsRow struct {
@@ -467,10 +507,18 @@ type SearchGuideChannelsRow struct {
 
 // The channels enabled guides list, for finding a channel's guide id:
 // every word of the search must appear in the id or a display name
-// (words are LIKE patterns). Exact id matches first, then those with
-// programs. used_by counts the lineup's channels already on the id.
+// (words are LIKE patterns), optionally within one guide, only ids with
+// programs, or only ids no channel uses yet. Exact id matches first, then
+// those with programs. used_by counts the lineup's channels already on the id.
 func (q *Queries) SearchGuideChannels(ctx context.Context, arg SearchGuideChannelsParams) ([]SearchGuideChannelsRow, error) {
-	rows, err := q.db.Query(ctx, searchGuideChannels, arg.Words, arg.Exact, arg.Limit)
+	rows, err := q.db.Query(ctx, searchGuideChannels,
+		arg.Words,
+		arg.SourceID,
+		arg.WithPrograms,
+		arg.Unused,
+		arg.Exact,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -494,6 +542,27 @@ func (q *Queries) SearchGuideChannels(ctx context.Context, arg SearchGuideChanne
 		return nil, err
 	}
 	return items, nil
+}
+
+const setProviderGuideEnabled = `-- name: SetProviderGuideEnabled :exec
+WITH p AS (
+    UPDATE providers SET epg_enabled = $1, updated_at = now()
+    WHERE providers.id = $2
+    RETURNING providers.id, providers.epg_enabled
+)
+DELETE FROM epg_sources s USING p WHERE s.provider_id = p.id AND NOT p.epg_enabled
+`
+
+type SetProviderGuideEnabledParams struct {
+	Enabled bool  `json:"enabled"`
+	ID      int64 `json:"id"`
+}
+
+// Turns a provider's guide on or off. Off also deletes its downloaded
+// guide (programs and channel list go with it).
+func (q *Queries) SetProviderGuideEnabled(ctx context.Context, arg SetProviderGuideEnabledParams) error {
+	_, err := q.db.Exec(ctx, setProviderGuideEnabled, arg.Enabled, arg.ID)
+	return err
 }
 
 const setProviderGuidePriority = `-- name: SetProviderGuidePriority :execrows
@@ -555,7 +624,7 @@ func (q *Queries) UpdateExtraEpgSource(ctx context.Context, arg UpdateExtraEpgSo
 const upsertEpgSource = `-- name: UpsertEpgSource :one
 
 INSERT INTO epg_sources (name, url, provider_id)
-VALUES ($1, $2, $3)
+SELECT $1, $2, p.id FROM providers p WHERE p.id = $3 AND p.epg_enabled
 ON CONFLICT (provider_id) WHERE provider_id IS NOT NULL DO UPDATE SET
     name = EXCLUDED.name,
     url  = EXCLUDED.url
@@ -565,11 +634,12 @@ RETURNING id, name, url, provider_id, enabled, last_refreshed_at, created_at, pr
 type UpsertEpgSourceParams struct {
 	Name       string `json:"name"`
 	Url        string `json:"url"`
-	ProviderID *int64 `json:"provider_id"`
+	ProviderID int64  `json:"provider_id"`
 }
 
 // EPG source bookkeeping and program storage. Programs are replaced
 // wholesale per source on every refresh (guides are large but stateless).
+// No row when the provider's guide is off (or the provider is gone).
 func (q *Queries) UpsertEpgSource(ctx context.Context, arg UpsertEpgSourceParams) (EpgSource, error) {
 	row := q.db.QueryRow(ctx, upsertEpgSource, arg.Name, arg.Url, arg.ProviderID)
 	var i EpgSource
