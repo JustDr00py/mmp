@@ -612,8 +612,9 @@ type streamsData struct {
 	Query      string
 	Offset     int
 	PrevOffset int
-	NextOffset int // 0 when there is no next page
-	First      int // 1-based index of the first row shown
+	NextOffset int                   // 0 when there is no next page
+	First      int                   // 1-based index of the first row shown
+	Playback   map[int64]healthBadge // outcome score per stream on this page
 }
 
 func (ui *UI) streamsPage(w http.ResponseWriter, r *http.Request) {
@@ -643,6 +644,15 @@ func (ui *UI) streamsPage(w http.ResponseWriter, r *http.Request) {
 		streams, d.NextOffset = streams[:streamsPerPage], offset+streamsPerPage
 	}
 	d.Streams = streams
+	hs, err := ui.healthScores(r.Context())
+	if err != nil {
+		ui.fail(w, "score streams", err)
+		return
+	}
+	d.Playback = map[int64]healthBadge{}
+	for _, s := range streams {
+		d.Playback[s.ID] = badge(hs.Streams[s.ID])
+	}
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "streams" {
 		ui.fragment(w, r, "streams", "streams-table", d)
 		return

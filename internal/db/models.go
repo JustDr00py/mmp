@@ -173,6 +173,7 @@ type ProviderOutcomeBucket struct {
 	Backbone    string    `json:"backbone"`
 	Outcome     string    `json:"outcome"`
 	Count       int32     `json:"count"`
+	StreamID    int64     `json:"stream_id"`
 }
 
 type ProviderStream struct {

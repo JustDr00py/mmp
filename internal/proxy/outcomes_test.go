@@ -28,10 +28,10 @@ func (f *fakeOutcomeStore) UpsertOutcomeBucket(_ context.Context, arg db.UpsertO
 func TestOutcomesAccumulateAndFlush(t *testing.T) {
 	store := &fakeOutcomeStore{}
 	o := NewOutcomes(store, nil)
-	o.Record(7, "Strong8K", OutcomeOpenOK)
-	o.Record(7, "Strong8K", OutcomeOpenOK)
-	o.Record(7, "Strong8K", OutcomeOpenFailed)
-	o.Record(8, "", OutcomeProbeFail)
+	o.Record(7, 0, "Strong8K", OutcomeOpenOK)
+	o.Record(7, 0, "Strong8K", OutcomeOpenOK)
+	o.Record(7, 0, "Strong8K", OutcomeOpenFailed)
+	o.Record(8, 0, "", OutcomeProbeFail)
 
 	o.flush(context.Background())
 
@@ -52,11 +52,11 @@ func TestOutcomesAccumulateAndFlush(t *testing.T) {
 
 func TestOutcomesIgnoreNilAndUnknownProvider(t *testing.T) {
 	var none *Outcomes
-	none.Record(1, "", OutcomeOpenOK) // must not panic
+	none.Record(1, 0, "", OutcomeOpenOK) // must not panic
 
 	store := &fakeOutcomeStore{}
 	o := NewOutcomes(store, nil)
-	o.Record(0, "", OutcomeOpenOK)
+	o.Record(0, 0, "", OutcomeOpenOK)
 	o.flush(context.Background())
 	if len(store.rows) != 0 {
 		t.Fatalf("recorded %d rows for provider 0, want none", len(store.rows))
@@ -66,12 +66,30 @@ func TestOutcomesIgnoreNilAndUnknownProvider(t *testing.T) {
 func TestOutcomesFlushDropsFailedWrites(t *testing.T) {
 	store := &fakeOutcomeStore{err: errors.New("database down")}
 	o := NewOutcomes(store, nil)
-	o.Record(1, "", OutcomeOpenOK)
+	o.Record(1, 0, "", OutcomeOpenOK)
 	o.flush(context.Background())
 
 	store.err = nil
 	o.flush(context.Background())
 	if len(store.rows) != 0 {
 		t.Fatalf("a failed write was retried with %d rows, want it dropped", len(store.rows))
+	}
+}
+
+func TestOutcomesKeepStreamsApart(t *testing.T) {
+	store := &fakeOutcomeStore{}
+	o := NewOutcomes(store, nil)
+	o.Record(7, 101, "Strong8K", OutcomeOpenOK)
+	o.Record(7, 102, "Strong8K", OutcomeOpenFailed)
+	o.Record(7, 0, "Strong8K", OutcomeProbeOK)
+
+	o.flush(context.Background())
+
+	streams := map[int64]bool{}
+	for _, r := range store.rows {
+		streams[r.StreamID] = true
+	}
+	if len(store.rows) != 3 || !streams[101] || !streams[102] || !streams[0] {
+		t.Fatalf("rows = %+v, want one row per stream (101, 102) and one for the provider probe (0)", store.rows)
 	}
 }
