@@ -117,6 +117,7 @@ type Store interface {
 	UpdateExtraEpgSource(ctx context.Context, arg db.UpdateExtraEpgSourceParams) (db.EpgSource, error)
 	DeleteExtraEpgSource(ctx context.Context, id int64) (int64, error)
 	ChannelGuideStatus(ctx context.Context, arg db.ChannelGuideStatusParams) ([]db.ChannelGuideStatusRow, error)
+	SearchGuideChannels(ctx context.Context, arg db.SearchGuideChannelsParams) ([]db.SearchGuideChannelsRow, error)
 	ListEnabledChannels(ctx context.Context) ([]db.ListEnabledChannelsRow, error)
 	ListGuidePrograms(ctx context.Context, arg db.ListGuideProgramsParams) ([]db.ListGuideProgramsRow, error)
 	ChannelStreamCounts(ctx context.Context) ([]db.ChannelStreamCountsRow, error)

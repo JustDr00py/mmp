@@ -154,6 +154,18 @@
     setTimeout(() => { btn.textContent = label; }, 1500);
   });
 
+  // <button data-fill="#input" data-value="v"> puts v in that input and
+  // clears the suggestion list it sits in.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-fill]');
+    if (!btn) return;
+    const field = document.querySelector(btn.dataset.fill);
+    if (!field) return;
+    field.value = btn.dataset.value;
+    btn.closest('ul')?.remove();
+    field.focus();
+  });
+
   // <div data-sse="/url" data-sse-state="#el">: the server re-renders the
   // block and sends it as a "live" event; the browser reconnects on its own.
   const bars = (root) => root.querySelectorAll('[data-pct]').forEach((el) => { el.style.width = `${el.dataset.pct}%`; });

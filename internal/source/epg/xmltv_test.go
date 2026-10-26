@@ -116,3 +116,37 @@ func TestParseLatin1(t *testing.T) {
 		t.Errorf("title = %q, want Köche", got)
 	}
 }
+
+func TestParseGuideChannels(t *testing.T) {
+	doc := `<?xml version="1.0"?><tv>
+<channel id="HBO.East.us"><display-name>HBO East</display-name><display-name lang="en">HBO</display-name><display-name>HBO East</display-name><icon src="x"/></channel>
+<channel id=" HBO.West.us "><display-name> HBO West </display-name><display-name></display-name></channel>
+<channel id=""><display-name>No id</display-name></channel>
+<channel id="bare.us"/>
+<programme start="20261013180000 +0000" stop="20261013190000 +0000" channel="HBO.East.us"><title>A</title></programme>
+</tv>`
+	var chans []Channel
+	progs := 0
+	err := ParseGuide(strings.NewReader(doc), func(c Channel) error { chans = append(chans, c); return nil },
+		func(Program) error { progs++; return nil })
+	if err != nil {
+		t.Fatalf("ParseGuide: %v", err)
+	}
+	if progs != 1 || len(chans) != 3 {
+		t.Fatalf("got %d programs, channels %+v", progs, chans)
+	}
+	if c := chans[0]; c.ID != "HBO.East.us" || strings.Join(c.Names, "|") != "HBO East|HBO" {
+		t.Errorf("channel 0 = %+v", c)
+	}
+	if c := chans[1]; c.ID != "HBO.West.us" || strings.Join(c.Names, "|") != "HBO West" {
+		t.Errorf("channel 1 = %+v", c)
+	}
+	if c := chans[2]; c.ID != "bare.us" || len(c.Names) != 0 {
+		t.Errorf("channel 2 = %+v", c)
+	}
+
+	sentinel := errors.New("halt")
+	if err := ParseGuide(strings.NewReader(doc), func(Channel) error { return sentinel }, func(Program) error { return nil }); !errors.Is(err, sentinel) {
+		t.Errorf("channel callback error = %v", err)
+	}
+}

@@ -270,6 +270,9 @@ func TestRefreshEPGReplaces(t *testing.T) {
 
 	// Second refresh with different content replaces, not appends.
 	guide.Store(`<?xml version="1.0"?><tv>
+<channel id="us.abc"><display-name>ABC East</display-name></channel>
+<channel id="US.ABC"><display-name>ABC</display-name><display-name>ABC East</display-name></channel>
+<channel id="us.cbs"><display-name>CBS</display-name></channel>
 <programme start="20261013200000 +0000" stop="20261013210000 +0000" channel="us.abc"><title>B</title></programme>
 <programme start="20261013210000 +0000" stop="20261013220000 +0000" channel="us.nbc"><title>C</title></programme>
 </tv>`)
@@ -293,6 +296,22 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	if src.LastRefreshedAt == nil {
 		t.Error("epg source last_refreshed_at not set")
 	}
+	// The channel list: <channel>s in file order (one per id, whatever its
+	// case, names merged), then ids only programs name.
+	guideChannels := func() string {
+		rows, err := q.SearchGuideChannels(ctx, db.SearchGuideChannelsParams{Words: []string{}, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range rows {
+			out = append(out, fmt.Sprintf("%s%v:%d", r.TvgID, r.DisplayNames, r.ProgramCount))
+		}
+		return strings.Join(out, " ")
+	}
+	if got, want := guideChannels(), "us.abc[ABC East ABC]:1 us.nbc[]:1 us.cbs[CBS]:0"; got != want {
+		t.Errorf("guide channels = %q, want %q", got, want)
+	}
 
 	// Real guides repeat programs (here more than one COPY batch apart)
 	// and carry zero-length ones: both are skipped, the rest imports.
@@ -315,6 +334,9 @@ func TestRefreshEPGReplaces(t *testing.T) {
 	}
 	if n, _ := q.CountEpgPrograms(ctx, src.ID); n != int64(programChunk+11) {
 		t.Errorf("programs = %d, want %d (duplicate and empty skipped)", n, programChunk+11)
+	}
+	if got, want := guideChannels(), "us.abc[]:1 us.nbc[]:1010"; got != want {
+		t.Errorf("guide channels after replace = %q, want %q", got, want)
 	}
 }
 

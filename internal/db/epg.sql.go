@@ -103,6 +103,15 @@ func (q *Queries) ChannelGuideStatus(ctx context.Context, arg ChannelGuideStatus
 	return items, nil
 }
 
+const clearEpgSourceChannels = `-- name: ClearEpgSourceChannels :exec
+DELETE FROM epg_channels WHERE epg_source_id = $1
+`
+
+func (q *Queries) ClearEpgSourceChannels(ctx context.Context, epgSourceID int64) error {
+	_, err := q.db.Exec(ctx, clearEpgSourceChannels, epgSourceID)
+	return err
+}
+
 const clearEpgSourcePrograms = `-- name: ClearEpgSourcePrograms :execrows
 DELETE FROM epg_programs WHERE epg_source_id = $1
 `
@@ -217,6 +226,13 @@ func (q *Queries) GetEpgSourceByProvider(ctx context.Context, providerID *int64)
 		&i.ChannelCount,
 	)
 	return i, err
+}
+
+type InsertEpgChannelsParams struct {
+	EpgSourceID  int64    `json:"epg_source_id"`
+	TvgID        string   `json:"tvg_id"`
+	DisplayNames []string `json:"display_names"`
+	ProgramCount int32    `json:"program_count"`
 }
 
 type InsertEpgProgramsParams struct {
@@ -417,6 +433,67 @@ type MarkEpgSourceRefreshedParams struct {
 func (q *Queries) MarkEpgSourceRefreshed(ctx context.Context, arg MarkEpgSourceRefreshedParams) error {
 	_, err := q.db.Exec(ctx, markEpgSourceRefreshed, arg.Programs, arg.Channels, arg.ID)
 	return err
+}
+
+const searchGuideChannels = `-- name: SearchGuideChannels :many
+SELECT e.tvg_id, e.display_names, e.program_count, s.id AS source_id, s.name AS source_name,
+       (SELECT count(*) FROM channels c WHERE c.tvg_id <> '' AND lower(c.tvg_id) = lower(e.tvg_id)) AS used_by
+FROM epg_channels e
+JOIN epg_sources s ON s.id = e.epg_source_id AND s.enabled
+LEFT JOIN providers pr ON pr.id = s.provider_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest($1::text[]) w
+    WHERE NOT (e.tvg_id ILIKE w OR array_to_string(e.display_names, ' ') ILIKE w)
+)
+ORDER BY lower(e.tvg_id) = lower($2::text) DESC, e.program_count > 0 DESC,
+         lower(e.tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
+LIMIT $3
+`
+
+type SearchGuideChannelsParams struct {
+	Words []string `json:"words"`
+	Exact string   `json:"exact"`
+	Limit int32    `json:"limit"`
+}
+
+type SearchGuideChannelsRow struct {
+	TvgID        string   `json:"tvg_id"`
+	DisplayNames []string `json:"display_names"`
+	ProgramCount int32    `json:"program_count"`
+	SourceID     int64    `json:"source_id"`
+	SourceName   string   `json:"source_name"`
+	UsedBy       int64    `json:"used_by"`
+}
+
+// The channels enabled guides list, for finding a channel's guide id:
+// every word of the search must appear in the id or a display name
+// (words are LIKE patterns). Exact id matches first, then those with
+// programs. used_by counts the lineup's channels already on the id.
+func (q *Queries) SearchGuideChannels(ctx context.Context, arg SearchGuideChannelsParams) ([]SearchGuideChannelsRow, error) {
+	rows, err := q.db.Query(ctx, searchGuideChannels, arg.Words, arg.Exact, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchGuideChannelsRow
+	for rows.Next() {
+		var i SearchGuideChannelsRow
+		if err := rows.Scan(
+			&i.TvgID,
+			&i.DisplayNames,
+			&i.ProgramCount,
+			&i.SourceID,
+			&i.SourceName,
+			&i.UsedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setProviderGuidePriority = `-- name: SetProviderGuidePriority :execrows

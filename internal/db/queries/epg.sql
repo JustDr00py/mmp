@@ -18,6 +18,30 @@ WHERE id = sqlc.arg('id');
 -- name: ClearEpgSourcePrograms :execrows
 DELETE FROM epg_programs WHERE epg_source_id = $1;
 
+-- name: ClearEpgSourceChannels :exec
+DELETE FROM epg_channels WHERE epg_source_id = $1;
+
+-- name: InsertEpgChannels :copyfrom
+INSERT INTO epg_channels (epg_source_id, tvg_id, display_names, program_count) VALUES ($1, $2, $3, $4);
+
+-- name: SearchGuideChannels :many
+-- The channels enabled guides list, for finding a channel's guide id:
+-- every word of the search must appear in the id or a display name
+-- (words are LIKE patterns). Exact id matches first, then those with
+-- programs. used_by counts the lineup's channels already on the id.
+SELECT e.tvg_id, e.display_names, e.program_count, s.id AS source_id, s.name AS source_name,
+       (SELECT count(*) FROM channels c WHERE c.tvg_id <> '' AND lower(c.tvg_id) = lower(e.tvg_id)) AS used_by
+FROM epg_channels e
+JOIN epg_sources s ON s.id = e.epg_source_id AND s.enabled
+LEFT JOIN providers pr ON pr.id = s.provider_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest(sqlc.arg('words')::text[]) w
+    WHERE NOT (e.tvg_id ILIKE w OR array_to_string(e.display_names, ' ') ILIKE w)
+)
+ORDER BY lower(e.tvg_id) = lower(sqlc.arg('exact')::text) DESC, e.program_count > 0 DESC,
+         lower(e.tvg_id), COALESCE(s.priority, pr.priority, 2147483647), s.id
+LIMIT sqlc.arg('limit');
+
 -- name: InsertEpgPrograms :copyfrom
 INSERT INTO epg_programs (
     epg_source_id, channel_tvg_id, title, sub_title, description, start_time, stop_time

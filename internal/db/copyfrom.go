@@ -9,6 +9,41 @@ import (
 	"context"
 )
 
+// iteratorForInsertEpgChannels implements pgx.CopyFromSource.
+type iteratorForInsertEpgChannels struct {
+	rows                 []InsertEpgChannelsParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForInsertEpgChannels) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForInsertEpgChannels) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].EpgSourceID,
+		r.rows[0].TvgID,
+		r.rows[0].DisplayNames,
+		r.rows[0].ProgramCount,
+	}, nil
+}
+
+func (r iteratorForInsertEpgChannels) Err() error {
+	return nil
+}
+
+func (q *Queries) InsertEpgChannels(ctx context.Context, arg []InsertEpgChannelsParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"epg_channels"}, []string{"epg_source_id", "tvg_id", "display_names", "program_count"}, &iteratorForInsertEpgChannels{rows: arg})
+}
+
 // iteratorForInsertEpgPrograms implements pgx.CopyFromSource.
 type iteratorForInsertEpgPrograms struct {
 	rows                 []InsertEpgProgramsParams
