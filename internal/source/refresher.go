@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/redact"
 	"github.com/JustDr00py/mmp/internal/source/epg"
 	"github.com/JustDr00py/mmp/internal/source/m3u"
@@ -30,6 +31,32 @@ import (
 
 // maxM3USize bounds playlist downloads (100 MiB: big but bounded).
 const maxM3USize = 100 << 20
+
+// Guide downloads are bounded twice: as fetched, and after gzip, so a small
+// gzip bomb cannot inflate into an endless guide.
+const (
+	maxEPGSize         = 512 << 20 // 512 MiB as downloaded
+	maxEPGInflatedSize = 4 << 30   // 4 GiB once decompressed
+)
+
+// errGuideTooLarge: a guide past maxEPGSize or maxEPGInflatedSize.
+var errGuideTooLarge = errors.New("guide too large")
+
+// cappedReader fails with errGuideTooLarge once more than n bytes were read,
+// instead of pretending the input ended (a cut guide would load as a short
+// one).
+type cappedReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	k, err := c.r.Read(p)
+	if c.n -= int64(k); c.n < 0 {
+		return k, errGuideTooLarge
+	}
+	return k, err
+}
 
 // programChunk is the COPY batch size for EPG inserts.
 const programChunk = 1000
@@ -44,6 +71,10 @@ type Refresher struct {
 	// provider may override it per row. 100 disables the guard.
 	MaxDisablePct int
 
+	// Timeout bounds each scheduled refresh of one provider or guide; 0
+	// means no bound. On-demand refreshes keep their caller's deadline.
+	Timeout time.Duration
+
 	// AfterRefresh, if set, runs after each successful provider refresh
 	// (scheduled or on demand), e.g. to auto-match new streams. Set it
 	// before Start.
@@ -54,7 +85,7 @@ type Refresher struct {
 // The http client carries no global timeout: per-refresh deadlines come from
 // the caller's context.
 func NewRefresher(log *slog.Logger, pool *pgxpool.Pool, maxDisablePct int) *Refresher {
-	return &Refresher{log: log, pool: pool, hc: &http.Client{}, MaxDisablePct: maxDisablePct}
+	return &Refresher{log: log, pool: pool, hc: netguard.Client(), MaxDisablePct: maxDisablePct}
 }
 
 // ErrNoStreams means a provider answered with no streams at all; the
@@ -402,6 +433,9 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 
 	var out []streamEntry
 	err = m3u.Parse(io.LimitReader(resp.Body, maxM3USize), func(e m3u.Entry) error {
+		if !absHTTP(e.URL) {
+			return nil // not http(s): nothing MMP could or should open
+		}
 		out = append(out, streamEntry{
 			externalID: e.URL, // M3U has no ids: the URL is the stable key
 			name:       e.Name,
@@ -503,14 +537,14 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	channels := map[string]struct{}{} // lower-cased, as guide lookups match
 	skipped := 0
 	// Third-party guides are usually .xml.gz: detect gzip by its magic bytes.
-	var guide io.Reader = bufio.NewReaderSize(resp.Body, 64<<10)
+	var guide io.Reader = bufio.NewReaderSize(&cappedReader{r: resp.Body, n: maxEPGSize}, 64<<10)
 	if head, _ := guide.(*bufio.Reader).Peek(2); len(head) == 2 && head[0] == 0x1f && head[1] == 0x8b {
 		gz, err := gzip.NewReader(guide)
 		if err != nil {
 			return 0, fmt.Errorf("refresh epg %s: gzip: %w", label, err)
 		}
 		defer gz.Close()
-		guide = gz
+		guide = &cappedReader{r: gz, n: maxEPGInflatedSize}
 	}
 	err = epg.Parse(guide, func(pr epg.Program) error {
 		k := progKey{pr.Channel, pr.Start.UnixNano()}
@@ -573,6 +607,17 @@ func (r *Refresher) Start(ctx context.Context, tick time.Duration, epgInterval t
 	}
 }
 
+// bounded runs one scheduled refresh under timeout d (0: no bound), so a
+// provider that answers slowly cannot hold up the ones after it.
+func bounded[T any](ctx context.Context, d time.Duration, fn func(context.Context) (T, error)) (T, error) {
+	if d > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
+	}
+	return fn(ctx)
+}
+
 func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 	q := db.New(r.pool)
 	providers, err := q.ListDueProviders(ctx)
@@ -581,14 +626,14 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 		return
 	}
 	for _, p := range providers {
-		if _, err := r.RefreshProvider(ctx, p, false); err != nil { // scheduled: never force
+		if _, err := bounded(ctx, r.Timeout, func(ctx context.Context) (Result, error) { return r.RefreshProvider(ctx, p, false) }); err != nil { // scheduled: never force
 			r.log.Error("refresher: refresh failed", "provider_id", p.ID, "err", err.Error())
 		}
 		// The catalogs are independent of the live list: a VOD-only panel
 		// (no live channels, so the live refresh fails) still gets its
 		// movies and series.
 		if p.VodEnabled && p.Type == "xtream" {
-			if _, err := r.RefreshVOD(ctx, p, false); err != nil {
+			if _, err := bounded(ctx, r.Timeout, func(ctx context.Context) (VODResult, error) { return r.RefreshVOD(ctx, p, false) }); err != nil {
 				r.log.Error("refresher: vod refresh failed", "provider_id", p.ID, "err", err.Error())
 			}
 		}
@@ -614,7 +659,7 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 		return
 	}
 	for _, p := range epgDue {
-		if _, err := r.RefreshEPG(ctx, p); err != nil {
+		if _, err := bounded(ctx, r.Timeout, func(ctx context.Context) (int, error) { return r.RefreshEPG(ctx, p) }); err != nil {
 			r.log.Error("refresher: epg refresh failed", "provider_id", p.ID, "err", err.Error())
 		}
 	}
@@ -624,7 +669,7 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 		return
 	}
 	for _, src := range extra {
-		if _, err := r.RefreshEPGSource(ctx, src); err != nil {
+		if _, err := bounded(ctx, r.Timeout, func(ctx context.Context) (int, error) { return r.RefreshEPGSource(ctx, src) }); err != nil {
 			r.log.Error("refresher: extra guide refresh failed", "epg_source_id", src.ID, "err", err.Error())
 		}
 	}

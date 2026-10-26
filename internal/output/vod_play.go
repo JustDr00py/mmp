@@ -14,6 +14,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
@@ -249,17 +250,21 @@ func (h *Handlers) vodClient() *http.Client {
 }
 
 var defaultVODClient = &http.Client{
-	Transport: &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ResponseHeaderTimeout: 15 * time.Second,
-		MaxIdleConnsPerHost:   4,
-	},
+	Transport: vodTransport(),
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
 		}
 		return nil
 	},
+}
+
+// vodTransport dials through netguard: a provider picks the film URLs.
+func vodTransport() *http.Transport {
+	t := netguard.Transport()
+	t.ResponseHeaderTimeout = 15 * time.Second
+	t.MaxIdleConnsPerHost = 4
+	return t
 }
 
 // vodLease is the slot pair one user's playback of one item holds. Players

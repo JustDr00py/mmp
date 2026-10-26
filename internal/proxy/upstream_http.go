@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/redact"
 )
 
@@ -102,7 +103,7 @@ type HTTPOpener struct {
 // NewHTTPOpener builds an opener. The client has no overall timeout: a live
 // stream body is read indefinitely.
 func NewHTTPOpener(connectTimeout time.Duration) *HTTPOpener {
-	return &HTTPOpener{Client: &http.Client{}, ConnectTimeout: connectTimeout}
+	return &HTTPOpener{Client: netguard.Client(), ConnectTimeout: connectTimeout}
 }
 
 // Open issues the GET and returns the response body. Errors carry only the

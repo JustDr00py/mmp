@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/redact"
 )
 
@@ -34,7 +35,7 @@ func New(baseURL, username, password, userAgent string) (*Client, error) {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("xtream: invalid base URL %q", redact.URL(baseURL))
 	}
-	hc := &http.Client{} // timeouts come from the caller's context
+	hc := netguard.Client() // timeouts come from the caller's context
 	return &Client{base: u, username: username, password: password, ua: userAgent, hc: hc}, nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/redact"
 )
 
@@ -50,7 +51,7 @@ type HLSOpener struct {
 
 // NewHLSOpener builds an HLS opener.
 func NewHLSOpener(connectTimeout time.Duration, lim VariantLimit) *HLSOpener {
-	return &HLSOpener{Client: &http.Client{}, ConnectTimeout: connectTimeout, Variants: lim}
+	return &HLSOpener{Client: netguard.Client(), ConnectTimeout: connectTimeout, Variants: lim}
 }
 
 // Open fetches the playlist (resolving a master playlist to its

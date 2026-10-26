@@ -91,7 +91,17 @@ type Config struct {
 		// refresh may soft-disable; a bigger drop (a truncated provider
 		// answer) is refused unless forced. 100 disables the guard.
 		MaxDisablePct int `yaml:"max_disable_pct"`
+		// Timeout bounds one scheduled provider refresh (playlist, VOD or
+		// guide), so a provider that answers slowly cannot hold up the rest.
+		Timeout Duration `yaml:"timeout"`
 	} `yaml:"refresh"`
+	Upstream struct {
+		// AllowCIDRs are private or local addresses (IPs or CIDRs) MMP may
+		// still fetch from: a provider on the LAN, or an HTTP proxy. Every
+		// other private, loopback or link-local address is refused, so a
+		// provider cannot point MMP at internal services.
+		AllowCIDRs []string `yaml:"allow_cidrs"`
+	} `yaml:"upstream"`
 	Match struct {
 		Auto         bool `yaml:"auto"`          // run the matcher after each provider refresh
 		MinProviders int  `yaml:"min_providers"` // auto-create channels only for groups at >= N providers
@@ -179,6 +189,7 @@ func Defaults() Config {
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Refresh.MaxDisablePct = 80
+	c.Refresh.Timeout = Duration{15 * time.Minute}
 	c.Match.MinProviders = 2
 	c.Match.AutoNewChannels = true
 	c.Match.AutoGroup = "source"
@@ -312,6 +323,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		}
 	}
 	list("MMP_HTTP_TRUSTED_PROXIES", &c.HTTP.TrustedProxies)
+	list("MMP_UPSTREAM_ALLOW_CIDRS", &c.Upstream.AllowCIDRs)
 	list("MMP_MATCH_AUTO_BOUQUETS", &c.Match.AutoBouquets)
 	str("MMP_MATCH_AUTO_GROUP", &c.Match.AutoGroup)
 	for _, e := range []error{
@@ -327,6 +339,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_PROXY_COOLDOWN_MAX", &c.Proxy.CooldownMax),
 		dur("MMP_REFRESH_INTERVAL", &c.Refresh.Interval),
 		dur("MMP_REFRESH_EPG_INTERVAL", &c.Refresh.EPGInterval),
+		dur("MMP_REFRESH_TIMEOUT", &c.Refresh.Timeout),
 		intv("MMP_REFRESH_MAX_DISABLE_PCT", &c.Refresh.MaxDisablePct),
 		dur("MMP_AUTH_SESSION_TTL", &c.Auth.SessionTTL),
 		dur("MMP_AUTH_LOCKOUT", &c.Auth.Lockout),
@@ -365,15 +378,25 @@ func (c *Config) applyEnv(getenv envLookup) error {
 // TrustedProxyPrefixes parses http.trusted_proxies: CIDRs, or single
 // addresses (a /32 or /128).
 func (c *Config) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	return prefixes("http.trusted_proxies", c.HTTP.TrustedProxies)
+}
+
+// UpstreamAllowPrefixes parses upstream.allow_cidrs like trusted_proxies.
+func (c *Config) UpstreamAllowPrefixes() ([]netip.Prefix, error) {
+	return prefixes("upstream.allow_cidrs", c.Upstream.AllowCIDRs)
+}
+
+// prefixes parses CIDRs, or single addresses (a /32 or /128).
+func prefixes(field string, list []string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
-	for _, s := range c.HTTP.TrustedProxies {
+	for _, s := range list {
 		if p, err := netip.ParsePrefix(s); err == nil {
 			out = append(out, p.Masked())
 			continue
 		}
 		a, err := netip.ParseAddr(s)
 		if err != nil {
-			return nil, fmt.Errorf("config: http.trusted_proxies: %q is not an IP address or CIDR", s)
+			return nil, fmt.Errorf("config: %s: %q is not an IP address or CIDR", field, s)
 		}
 		a = a.Unmap()
 		out = append(out, netip.PrefixFrom(a, a.BitLen()))
@@ -398,6 +421,12 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.TrustedProxyPrefixes(); err != nil {
 		return err
+	}
+	if _, err := c.UpstreamAllowPrefixes(); err != nil {
+		return err
+	}
+	if c.Refresh.Timeout.Duration <= 0 {
+		return errors.New("config: refresh.timeout must be > 0")
 	}
 	if c.Auth.SessionTTL.Duration <= 0 {
 		return errors.New("config: auth.session_ttl must be > 0")

@@ -31,6 +31,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/health"
 	"github.com/JustDr00py/mmp/internal/metrics"
 	"github.com/JustDr00py/mmp/internal/nameguide"
+	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/server"
@@ -77,6 +78,10 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 	log := newLogger(cfg)
 	log.Info("mmp starting", "version", version, "listen", cfg.Listen)
+	// Providers choose the URLs MMP fetches: keep those fetches off the local
+	// network unless allowlisted.
+	allow, _ := cfg.UpstreamAllowPrefixes() // checked by cfg.Validate
+	netguard.Enable(allow)
 
 	if err := db.Migrate(ctx, cfg.DB.DSN); err != nil {
 		return err
@@ -196,6 +201,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		log.Info("match: cleaned up event slots and '+' names", "streams_unlinked", res.Unlinked,
 			"channels_renamed", len(res.Renamed), "renames", res.Renamed)
 	}
+	refresher.Timeout = cfg.Refresh.Timeout.Duration
 	refresher.AfterRefresh = matcher.AutoMatchHook()
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
 		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
