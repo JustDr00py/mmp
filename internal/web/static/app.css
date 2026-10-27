@@ -206,6 +206,7 @@ td a:not(.button):hover { text-decoration: underline; }
 td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 td form { margin: 0; }
 tr.dim td { opacity: .55; }
+meter.fail-rate { width: 8rem; height: .8rem; vertical-align: middle; }
 .actions { white-space: nowrap; display: flex; gap: .35rem; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
 .actions-row { flex-wrap: wrap; }
 .actions-row form { margin: 0; }

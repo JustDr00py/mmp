@@ -30,6 +30,7 @@ func (ui *UI) mountProviders(r chi.Router) {
 	r.Post("/providers/new", ui.providerCreate)
 	r.Post("/providers/bulk", ui.providersBulk)
 	r.Post("/providers/align-backbone", ui.providersAlignBackbone)
+	r.Get("/providers/backbone", ui.backbonePage)
 	r.Route("/providers/{id}", func(r chi.Router) {
 		r.Get("/edit", ui.providerEdit)
 		r.Post("/edit", ui.providerUpdate)

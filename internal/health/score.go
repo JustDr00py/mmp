@@ -44,6 +44,9 @@ var outcomeWeights = map[string]outcomeWeight{
 	OutcomeProbeFail:      {failure: true, weight: 0.5},
 }
 
+// IsFailure reports whether an outcome counts as a failure.
+func IsFailure(outcome string) bool { return outcomeWeights[outcome].failure }
+
 // Bucket is one stored outcome count: Count outcomes of one kind for one
 // provider, under the backbone it had, in the minute starting at Start.
 type Bucket struct {
