@@ -13,10 +13,12 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
-// DefaultUserAgent is sent when the candidate sets none.
-const DefaultUserAgent = "MMP/1.0"
+// DefaultUserAgent is sent when the candidate sets none: the same one
+// logins and refreshes use.
+const DefaultUserAgent = xtream.DefaultUserAgent
 
 // ErrConnectTimeout means the upstream did not return response headers
 // within the connect timeout.
