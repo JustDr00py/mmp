@@ -314,9 +314,7 @@ func (r *Refresher) check(ctx context.Context, p db.Provider) error {
 		if err != nil {
 			return fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url))
 		}
-		if p.UserAgent != "" {
-			req.Header.Set("User-Agent", p.UserAgent)
-		}
+		req.Header.Set("User-Agent", userAgentOr(p.UserAgent))
 		resp, err := r.hc.Do(req)
 		if err != nil {
 			return fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
@@ -419,9 +417,7 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 	if err != nil {
 		return nil, fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url)) // err echoes the raw URL
 	}
-	if p.UserAgent != "" {
-		req.Header.Set("User-Agent", p.UserAgent)
-	}
+	req.Header.Set("User-Agent", userAgentOr(p.UserAgent))
 	resp, err := r.hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
@@ -503,9 +499,7 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	if err != nil {
 		return 0, fmt.Errorf("refresh epg %s: fetch %s: invalid url", label, redact.URL(xmltvURL))
 	}
-	if userAgent != "" {
-		req.Header.Set("User-Agent", userAgent)
-	}
+	req.Header.Set("User-Agent", userAgentOr(userAgent))
 	resp, err := r.hc.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("refresh epg %s: fetch %s: %w", label, redact.URL(xmltvURL), redact.Err(err))
@@ -673,4 +667,12 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 			r.log.Error("refresher: extra guide refresh failed", "epg_source_id", src.ID, "err", err.Error())
 		}
 	}
+}
+
+// userAgentOr returns ua, or the default when the provider sets none.
+func userAgentOr(ua string) string {
+	if ua == "" {
+		return xtream.DefaultUserAgent
+	}
+	return ua
 }

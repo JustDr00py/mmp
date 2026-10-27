@@ -16,7 +16,7 @@
   <label>ffmpeg arguments<input name="ffmpeg_args" class="mono" value="{{$f.FFmpegArgs}}" placeholder="-c copy">
     <span class="hint">Output options only: MMP supplies the input and the MPEG-TS output. Examples: <span class="mono">-c copy</span> ·
       <span class="mono">-c:v libx264 -preset veryfast -b:v 3M -c:a aac</span>. Ignored in passthrough mode.</span></label>
-  <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="blank: the provider's (or MMP/1.0)">
+  <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="blank: the provider's (or VLC's)">
     <span class="hint">Overrides the provider's user agent for channels using this profile.</span></label>
   <div class="row">
     <button type="submit">{{if $f.ID}}Save{{else}}Create profile{{end}}</button>

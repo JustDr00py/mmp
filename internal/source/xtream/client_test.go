@@ -89,6 +89,22 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+// Some panels block Go's default User-Agent, so an unset one must not
+// fall through to it.
+func TestDefaultUserAgent(t *testing.T) {
+	fp := newFakePanel(t)
+	c, err := New(fp.ts.URL, "alice", "pw123", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Login(context.Background()); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if fp.gotUA != DefaultUserAgent {
+		t.Errorf("user agent = %q, want %q", fp.gotUA, DefaultUserAgent)
+	}
+}
+
 func TestLoginBadCredentials(t *testing.T) {
 	fp := newFakePanel(t)
 	c, _ := New(fp.ts.URL, "alice", "wrong", "")

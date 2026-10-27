@@ -17,6 +17,11 @@ import (
 	"github.com/JustDr00py/mmp/internal/redact"
 )
 
+// DefaultUserAgent is sent when the provider sets none. Go's own
+// "Go-http-client/1.1" is blocked by some panels (Cloudflare 520s, resets),
+// and providers that allow only known players all accept VLC.
+const DefaultUserAgent = "VLC/3.0.20 LibVLC/3.0.20"
+
 // ErrUnauthorized is returned when the panel rejects the credentials.
 var ErrUnauthorized = errors.New("xtream: invalid credentials")
 
@@ -36,6 +41,9 @@ func New(baseURL, username, password, userAgent string) (*Client, error) {
 		return nil, fmt.Errorf("xtream: invalid base URL %q", redact.URL(baseURL))
 	}
 	hc := netguard.Client() // timeouts come from the caller's context
+	if userAgent == "" {
+		userAgent = DefaultUserAgent
+	}
 	return &Client{base: u, username: username, password: password, ua: userAgent, hc: hc}, nil
 }
 
@@ -151,9 +159,7 @@ func (c *Client) get(ctx context.Context, rawURL string, out any) error {
 	if err != nil {
 		return errors.New("xtream: build request: invalid url") // err echoes the URL, password included
 	}
-	if c.ua != "" {
-		req.Header.Set("User-Agent", c.ua)
-	}
+	req.Header.Set("User-Agent", c.ua)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("xtream: request: %w", redact.Err(err)) // the URL carries the password
