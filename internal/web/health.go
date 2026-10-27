@@ -17,17 +17,26 @@ type healthScores struct {
 	Backbones map[string]health.Score
 }
 
-// healthScores scores every provider and backbone as of now.
-func (ui *UI) healthScores(ctx context.Context) (healthScores, error) {
-	now := time.Now()
+// outcomeBuckets is the scoring window's outcomes as of now, per hour.
+func (ui *UI) outcomeBuckets(ctx context.Context, now time.Time) ([]health.Bucket, error) {
 	rows, err := ui.Store.ListOutcomeHoursSince(ctx, now.Add(-health.Window))
 	if err != nil {
-		return healthScores{}, err
+		return nil, err
 	}
 	buckets := make([]health.Bucket, 0, len(rows))
 	for _, r := range rows {
 		buckets = append(buckets, health.Bucket{Start: r.HourStart, ProviderID: r.ProviderID, StreamID: r.StreamID,
 			Backbone: r.Backbone, Outcome: r.Outcome, Count: r.Count})
+	}
+	return buckets, nil
+}
+
+// healthScores scores every provider and backbone as of now.
+func (ui *UI) healthScores(ctx context.Context) (healthScores, error) {
+	now := time.Now()
+	buckets, err := ui.outcomeBuckets(ctx, now)
+	if err != nil {
+		return healthScores{}, err
 	}
 	return healthScores{
 		Providers: health.ByKey(buckets, func(b health.Bucket) int64 { return b.ProviderID }, now),

@@ -1,0 +1,69 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
+<div class="head"><h1>{{$d.Name}} {{if $d.Health.Enough}}<span class="pill {{$d.Health.Tone}}">{{$d.Health.Value}}</span>{{end}}</h1>
+  <a class="button secondary" href="/admin/providers?backbone={{$d.Name}}">Show its providers</a></div>
+<p class="lede">{{$d.Health.Attempts}} stream attempts on this backbone in the last 7 days, {{$d.Health.Failures}} failed.
+  {{if not $d.Health.Enough}}Too few to score yet. {{end}}The score weighs recent attempts more (their weight halves every 6 hours),
+  counts a failure while playing double and probes half, so it can differ from the plain failure rate below.</p>
+
+<h2>Providers</h2>
+{{if $d.Providers}}
+<div class="table-wrap"><table class="stack">
+  <thead><tr><th>Provider</th><th class="num">Health</th><th class="num">Attempts</th></tr></thead>
+  <tbody>
+  {{range $d.Providers}}<tr{{if or .Gone .NowOn (not .Enabled)}} class="dim"{{end}}>
+    <td class="cell-title">{{if .Gone}}Deleted provider #{{.ID}}{{else}}<a href="/admin/providers/{{.ID}}/edit">{{.Name}}</a>{{end}}
+      {{with .NowOn}}<span class="pill off">now on {{.}}</span>{{end}}
+      {{if and (not .Gone) (not .Enabled)}}<span class="pill off">disabled</span>{{end}}</td>
+    <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}">{{.Health.Value}}</span>{{else}}<span class="muted">not enough attempts</span>{{end}}</td>
+    <td class="num" data-label="Attempts">{{.Health.Attempts}} <span class="sub">({{.Health.Failures}} failed)</span></td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{end}}
+
+{{if $d.Outcomes}}
+<h2>Attempts by result</h2>
+<div class="table-wrap"><table class="stack">
+  <thead><tr><th>Result</th><th class="num">Attempts</th><th class="num">Share</th></tr></thead>
+  <tbody>
+  {{range $d.Outcomes}}<tr>
+    <td class="cell-title">{{if .Failure}}<span class="pill bad">{{.Label}}</span>{{else}}{{.Label}}{{end}}</td>
+    <td class="num" data-label="Attempts">{{.Count}}</td>
+    <td class="num" data-label="Share">{{.Percent}}%</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+
+<h2>By day</h2>
+<div class="table-wrap"><table class="stack">
+  <thead><tr><th>Day</th><th class="num">Attempts</th><th class="num">Failed</th><th>Failure rate</th></tr></thead>
+  <tbody>
+  {{range $d.Days}}<tr>
+    <td class="cell-title">{{.Day.Format "Mon Jan 2"}}</td>
+    <td class="num" data-label="Attempts">{{.Attempts}}</td>
+    <td class="num" data-label="Failed">{{.Failures}}</td>
+    <td data-label="Failure rate"><meter class="fail-rate" min="0" max="100" low="10" high="30" optimum="0" value="{{.Percent}}">{{.Percent}}%</meter> {{.Percent}}%</td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{else}}
+<div class="card empty"><p>No stream attempts on this backbone in the last 7 days.</p></div>
+{{end}}
+
+{{if $d.Streams}}
+<h2>Streams that fail most</h2>
+<div class="table-wrap"><table class="stack">
+  <thead><tr><th>Stream</th><th>Provider</th><th class="num">Health</th><th class="num">Attempts</th></tr></thead>
+  <tbody>
+  {{range $d.Streams}}<tr>
+    <td class="cell-title"><a href="/admin/providers/{{.ProviderID}}/streams?q={{.Name}}">{{.Name}}</a></td>
+    <td data-label="Provider">{{.ProviderName}}</td>
+    <td class="num" data-label="Health"><span class="pill {{.Health.Tone}}">{{.Health.Value}}</span></td>
+    <td class="num" data-label="Attempts">{{.Health.Attempts}} <span class="sub">({{.Health.Failures}} failed)</span></td>
+  </tr>{{end}}
+  </tbody>
+</table></div>
+{{end}}
+{{end}}

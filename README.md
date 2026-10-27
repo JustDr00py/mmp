@@ -396,6 +396,11 @@ on its provider's **backbone** go to the back of the failover list for 5 minutes
 same network usually carry the same broken feed; the failover event says when it skipped them. Streams
 without a backbone are never moved.
 
+The **Providers** page scores each provider and backbone out of 100 from the last 7 days of stream
+attempts. Click a backbone in its *Backbone health* table to see why it scores as it does: each provider's
+score on it, attempts by result (failed to open, failed while playing, probes), a day-by-day failure rate,
+and the streams that fail most.
+
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `proxy.stall_timeout` | `MMP_PROXY_STALL_TIMEOUT` | `12s` | no stream data for this long → fail over. Many providers deliver in bursts with several-second gaps; too short a value makes working streams fail over again and again |

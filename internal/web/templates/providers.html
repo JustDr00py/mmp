@@ -25,7 +25,7 @@
     <thead><tr><th>Backbone</th><th class="num">Providers</th><th class="num">Health</th><th class="num">Attempts</th></tr></thead>
     <tbody>
     {{range .}}<tr>
-      <td data-label="Backbone">{{.Backbone}}</td>
+      <td data-label="Backbone"><a href="/admin/providers/backbone?name={{.Backbone}}">{{.Backbone}}</a></td>
       <td class="num" data-label="Providers">{{.Providers}}</td>
       <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}">{{.Health.Value}}</span>{{else}}<span class="muted">not enough attempts</span>{{end}}</td>
       <td class="num" data-label="Attempts">{{.Health.Attempts}} <span class="sub">({{.Health.Failures}} failed)</span></td>
