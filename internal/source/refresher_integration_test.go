@@ -275,6 +275,8 @@ func TestRefreshEPGReplaces(t *testing.T) {
 <channel id="us.cbs"><display-name>CBS</display-name></channel>
 <programme start="20261013200000 +0000" stop="20261013210000 +0000" channel="us.abc"><title>B</title></programme>
 <programme start="20261013210000 +0000" stop="20261013220000 +0000" channel="us.nbc"><title>C</title></programme>
+<programme start="20261013220000 +0000" stop="20261014020000 +0000" channel="us.nbc"><title>No information</title></programme>
+<programme start="20261013200000 +0000" stop="20261014000000 +0000" channel="us.cn"><title> Channel No Longer Available </title></programme>
 </tv>`)
 	if _, err := ref.RefreshEPG(ctx, p); err != nil {
 		t.Fatalf("epg refresh 2: %v", err)
@@ -297,7 +299,9 @@ func TestRefreshEPGReplaces(t *testing.T) {
 		t.Error("epg source last_refreshed_at not set")
 	}
 	// The channel list: <channel>s in file order (one per id, whatever its
-	// case, names merged), then ids only programs name.
+	// case, names merged), then ids only programs name. Filler programs
+	// ("Channel No Longer Available") are not stored, so a better guide
+	// can supply the channel; their ids are still listed.
 	guideChannels := func() string {
 		rows, err := q.SearchGuideChannels(ctx, db.SearchGuideChannelsParams{Words: []string{}, Limit: 10})
 		if err != nil {
@@ -309,7 +313,7 @@ func TestRefreshEPGReplaces(t *testing.T) {
 		}
 		return strings.Join(out, " ")
 	}
-	if got, want := guideChannels(), "us.abc[ABC East ABC]:1 us.nbc[]:1 us.cbs[CBS]:0"; got != want {
+	if got, want := guideChannels(), "us.abc[ABC East ABC]:1 us.nbc[]:1 us.cbs[CBS]:0 us.cn[]:0"; got != want {
 		t.Errorf("guide channels = %q, want %q", got, want)
 	}
 
