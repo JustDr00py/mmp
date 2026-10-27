@@ -63,6 +63,7 @@ func (h *Handlers) Mount(r chi.Router) {
 	r.Get("/playlist/{token}.m3u", h.tokenPlaylist)
 	r.Get("/xmltv.php", h.xmltvPHP)
 	r.Get("/epg/{token}.xml", h.tokenGuide)
+	r.Get("/epg/{token}.xml.gz", h.tokenGuideGz)
 	r.Get("/player_api.php", h.playerAPI)
 	r.Post("/player_api.php", h.playerAPI)
 	r.Get("/live/{user}/{pass}/{id}", h.liveXtream)

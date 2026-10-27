@@ -7,6 +7,16 @@
   with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
   rank guides without changing the failover order. Connections to the same service serve the same guide: turn off all but one
   so it is downloaded and stored once.</p>
+{{with $d.Share}}
+<div class="card creds">
+  <h3>Share the guide <span class="hint">every enabled channel, a day back and a week ahead</span></h3>
+  {{template "copy-field" (field "epg-share-xml" "XMLTV URL" .XML)}}
+  {{template "copy-field" (field "epg-share-gz" "Compressed (.gz)" .Gz)}}
+  <div class="row"><a class="button small secondary" href="{{.Gz}}" download="epg.xml.gz">Download .xml.gz</a></div>
+  <p class="hint">These links carry your private stream token: anyone with them can read the guide and watch as you. Customers get their own
+    guide link, limited to their bouquets, on their user page.</p>
+</div>
+{{end}}
 <h2>Sources</h2>
 {{if $d.Sources}}
 <div class="table-wrap">

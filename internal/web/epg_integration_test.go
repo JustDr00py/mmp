@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +59,10 @@ func TestEPGPage(t *testing.T) {
 	}
 	if strings.Contains(body, "guide-secret") {
 		t.Error("EPG URL shown with its password")
+	}
+	// The signed-in admin's guide links, plain and gzipped.
+	if !strings.Contains(body, `id="epg-share-xml"`) || !regexp.MustCompile(`/epg/[A-Za-z0-9_-]+\.xml\.gz" download`).MatchString(body) {
+		t.Errorf("guide share links missing")
 	}
 	if !strings.Contains(body, `<td class="num">3</td><td class="num">2</td>`) { // 3 programs, 2 tvg-ids
 		t.Errorf("source stats missing")

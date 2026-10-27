@@ -1,0 +1,7 @@
+{{define "copy-field"}}
+<div class="copy">
+  <label class="label" for="{{.ID}}">{{.Label}}</label>
+  <input id="{{.ID}}" class="mono" value="{{.Value}}" readonly>
+  <button type="button" class="small secondary" data-copy="#{{.ID}}">Copy</button>
+</div>
+{{end}}

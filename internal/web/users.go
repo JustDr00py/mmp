@@ -120,6 +120,7 @@ type userForm struct {
 type credentials struct {
 	Server, Username, Password string
 	TokenPlaylist, TokenGuide  string
+	TokenGuideGz               string
 	M3U, XMLTV                 string // with the password; only when Password is set
 	HLS                        bool   // whether .m3u8 output is offered
 }
@@ -128,7 +129,8 @@ func (ui *UI) credentialsFor(u db.User, password string) credentials {
 	base := ui.BaseURL
 	c := credentials{Server: base, Username: u.Username, Password: password,
 		TokenPlaylist: base + "/playlist/" + url.PathEscape(u.StreamToken) + ".m3u",
-		TokenGuide:    base + "/epg/" + url.PathEscape(u.StreamToken) + ".xml"}
+		TokenGuide:    base + "/epg/" + url.PathEscape(u.StreamToken) + ".xml",
+		TokenGuideGz:  base + "/epg/" + url.PathEscape(u.StreamToken) + ".xml.gz"}
 	if password != "" {
 		q := url.Values{"username": {u.Username}, "password": {password}}
 		c.XMLTV = base + "/xmltv.php?" + q.Encode()

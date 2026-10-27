@@ -18,6 +18,7 @@
       <h3>M3U playlist + guide <span class="hint">VLC, Kodi, Plex, Jellyfin…</span></h3>
       {{template "copy-field" (field "cred-m3u-token" "Playlist URL" $c.TokenPlaylist)}}
       {{template "copy-field" (field "cred-epg-token" "Guide (XMLTV) URL" $c.TokenGuide)}}
+      {{template "copy-field" (field "cred-epg-gz" "Guide, gzipped" $c.TokenGuideGz)}}
       <p class="hint">These links carry a private token instead of the password. Anyone with them can watch as this user: rotate the token if they leak.</p>
       {{if $d.ShowSecret}}
       <details><summary class="small">Password-based links (get.php / xmltv.php)</summary>
@@ -86,12 +87,4 @@
     </div>
   </div>
 </section>
-{{end}}
-
-{{define "copy-field"}}
-<div class="copy">
-  <label class="label" for="{{.ID}}">{{.Label}}</label>
-  <input id="{{.ID}}" class="mono" value="{{.Value}}" readonly>
-  <button type="button" class="small secondary" data-copy="#{{.ID}}">Copy</button>
-</div>
 {{end}}
