@@ -63,6 +63,20 @@ func (c *cappedReader) Read(p []byte) (int, error) {
 // programChunk is the COPY batch size for EPG inserts.
 const programChunk = 1000
 
+// fillerTitles are program titles (lower-cased) that providers put on
+// channels they have no schedule for. Stored, they would count as a
+// schedule and hide a lower-priority guide that has the real one.
+var fillerTitles = map[string]bool{
+	"channel no longer available": true,
+	"no information":              true,
+	"no information available":    true,
+	"tv guide is not available":   true,
+}
+
+func isFiller(title string) bool {
+	return fillerTitles[strings.ToLower(strings.TrimSpace(title))]
+}
+
 // Refresher refreshes providers on demand and on a schedule.
 type Refresher struct {
 	log  *slog.Logger
@@ -563,7 +577,7 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 		}
 		return c
 	}
-	skipped := 0
+	skipped, fillers := 0, 0
 	// Third-party guides are usually .xml.gz: detect gzip by its magic bytes.
 	var guide io.Reader = bufio.NewReaderSize(&cappedReader{r: resp.Body, n: maxEPGSize}, 64<<10)
 	if head, _ := guide.(*bufio.Reader).Peek(2); len(head) == 2 && head[0] == 0x1f && head[1] == 0x8b {
@@ -590,6 +604,13 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 			return nil
 		}
 		seen[k] = struct{}{}
+		if isFiller(pr.Title) {
+			// The id stays listed, with no programs, so guide lookups
+			// fall through to another source.
+			channel(pr.Channel)
+			fillers++
+			return nil
+		}
 		channel(pr.Channel).programs++
 		batch = append(batch, db.InsertEpgProgramsParams{
 			EpgSourceID:  sourceID,
@@ -614,6 +635,9 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	}
 	if skipped > 0 {
 		r.log.Info("epg: skipped duplicate or empty programs", "provider_id", label, "skipped", skipped)
+	}
+	if fillers > 0 {
+		r.log.Info("epg: skipped filler programs", "provider_id", label, "skipped", fillers)
 	}
 	rows := make([]db.InsertEpgChannelsParams, 0, len(order))
 	withPrograms := 0
