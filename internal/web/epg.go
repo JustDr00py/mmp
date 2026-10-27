@@ -3,6 +3,7 @@ package web
 import (
 	"cmp"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/source"
@@ -43,6 +45,7 @@ type epgData struct {
 	Extras      []extraRow
 	ExtraForm   extraForm
 	Flash       string
+	Share       *guideShare
 	Guide       []db.ChannelGuideStatusRow
 	Channels    guideChannelsData
 	Query       string
@@ -50,6 +53,19 @@ type epgData struct {
 	Offset      int
 	NextOffset  int
 	PrevOffset  int
+}
+
+// guideShare is the signed-in admin's guide links, plain and gzipped.
+type guideShare struct{ XML, Gz string }
+
+// guideShareFor is r's admin's guide links (nil without a stream token).
+func (ui *UI) guideShareFor(r *http.Request) *guideShare {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok || u.StreamToken == "" {
+		return nil
+	}
+	base := ui.BaseURL + "/epg/" + url.PathEscape(u.StreamToken)
+	return &guideShare{XML: base + ".xml", Gz: base + ".xml.gz"}
 }
 
 // GuidePriority is the priority the provider's guide ranks at: its own,
@@ -184,6 +200,7 @@ func (ui *UI) epgPageWith(w http.ResponseWriter, r *http.Request, status int, fo
 	form.Error, form.ProviderPriorities = formErr, ui.providerPriorities(r)
 	d.ExtraForm = form
 	d.Flash = epgFlashes[r.URL.Query().Get("msg")]
+	d.Share = ui.guideShareFor(r)
 	ui.render(w, r, status, "epg", "EPG", d)
 }
 

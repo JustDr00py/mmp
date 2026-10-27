@@ -1,6 +1,7 @@
 package output
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/xml"
 	"io"
@@ -161,20 +162,30 @@ func (h *Handlers) xmltvPHP(w http.ResponseWriter, r *http.Request) {
 		h.authFail(w, err)
 		return
 	}
-	h.serveGuide(w, r, u)
+	h.serveGuide(w, r, u, false)
 }
 
 // tokenGuide is /epg/{token}.xml.
 func (h *Handlers) tokenGuide(w http.ResponseWriter, r *http.Request) {
+	h.tokenGuideAs(w, r, false)
+}
+
+// tokenGuideGz is /epg/{token}.xml.gz: the same guide gzipped, a fraction
+// of the size, for players and tools that fetch .xml.gz guides.
+func (h *Handlers) tokenGuideGz(w http.ResponseWriter, r *http.Request) {
+	h.tokenGuideAs(w, r, true)
+}
+
+func (h *Handlers) tokenGuideAs(w http.ResponseWriter, r *http.Request, gz bool) {
 	u, err := h.authToken(r, chi.URLParam(r, "token"))
 	if err != nil {
 		h.authFail(w, err)
 		return
 	}
-	h.serveGuide(w, r, u)
+	h.serveGuide(w, r, u, gz)
 }
 
-func (h *Handlers) serveGuide(w http.ResponseWriter, r *http.Request, u db.User) {
+func (h *Handlers) serveGuide(w http.ResponseWriter, r *http.Request, u db.User, gz bool) {
 	chans, err := h.channelsFor(r.Context(), u)
 	if err != nil {
 		h.Log.Error("output: list channels", "user_id", u.ID, "err", err)
@@ -186,12 +197,21 @@ func (h *Handlers) serveGuide(w http.ResponseWriter, r *http.Request, u db.User)
 	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error) {
 		return h.Store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{TvgKeys: keys, Since: since, Until: until, Now: now})
 	}
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.Header().Set("Content-Disposition", `inline; filename="epg.xml"`)
+	var out io.Writer = w
+	if gz {
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", `attachment; filename="epg.xml.gz"`)
+		zw := gzip.NewWriter(w)
+		defer zw.Close()
+		out = zw
+	} else {
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.Header().Set("Content-Disposition", `inline; filename="epg.xml"`)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	// Headers are gone once the first byte is written, so a failure past
 	// this point can only cut the document short; log it.
-	if err := WriteXMLTV(r.Context(), w, chans, fetch, h.nameGuideFor(r.Context(), now), since, until); err != nil {
+	if err := WriteXMLTV(r.Context(), out, chans, fetch, h.nameGuideFor(r.Context(), now), since, until); err != nil {
 		h.Log.Warn("output: write guide", "user_id", u.ID, "err", err)
 	}
 }

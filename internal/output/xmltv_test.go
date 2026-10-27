@@ -2,8 +2,10 @@ package output
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -180,5 +182,29 @@ func TestGuideValidatesAgainstDTD(t *testing.T) {
 		if err != nil {
 			t.Errorf("%s does not validate: %v\n%s", p, err, out)
 		}
+	}
+}
+
+func TestTokenGuideGzip(t *testing.T) {
+	_, h := newGuideHandlers(t)
+	_, _, plain := get(t, h, "/epg/tok-alice.xml")
+	code, hdr, body := get(t, h, "/epg/tok-alice.xml.gz")
+	if code != 200 || hdr.Get("Content-Type") != "application/gzip" ||
+		!strings.Contains(hdr.Get("Content-Disposition"), `filename="epg.xml.gz"`) {
+		t.Fatalf("gz guide = %d %s %s", code, hdr.Get("Content-Type"), hdr.Get("Content-Disposition"))
+	}
+	zr, err := gzip.NewReader(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != plain {
+		t.Errorf("gz guide differs from plain\n got: %s\nwant: %s", got, plain)
+	}
+	if code, _, _ := get(t, h, "/epg/nope.xml.gz"); code != http.StatusUnauthorized {
+		t.Errorf("bad token = %d, want 401", code)
 	}
 }
