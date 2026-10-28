@@ -354,7 +354,7 @@ base_url: "https://tv.example.com"
 db:
   dsn: "postgres://mmp:secret@db:5432/mmp?sslmode=disable"
 proxy:
-  stall_timeout: 5s
+  stall_timeout: 20s          # above a bursty provider's gaps (default 12s)
   hls_max_height: 1080        # pick ≤1080p variants from HLS providers
 refresh:
   interval: 6h
@@ -642,7 +642,7 @@ uses one of their connections and one of the provider's.
 |---|---|
 | Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the **Events** page (open failures with their error, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
-| A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps. `eof` right after a switch can be the provider kicking a connection over its limit. `behind` means the provider sent the stream slower than it plays (the player would buffer); if a stream that plays fine trips it, raise `proxy.max_lag` |
+| A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps (with Docker Compose: `MMP_PROXY_STALL_TIMEOUT=20s` in `.env`). `eof` right after a switch can be the provider kicking a connection over its limit. `behind` means the provider sent the stream slower than it plays (the player would buffer); if a stream that plays fine trips it, raise `proxy.max_lag` |
 | Channel shows no guide | Guide or EPG page → *Only channels without a guide*; find the guide's channel id with *Find a guide channel* on the EPG page (or type a name in the channel's tvg-id) and set it; check the source downloaded |
 | "refresh refused: would disable …" | the provider returned far fewer streams than before (often temporary). Retry later, or use *Disable anyway* if the change is real |
 | Refresh fails with "connection refused" / timeout for a provider on the same machine | inside the container, `localhost` is the container itself: use the host's LAN IP in the provider URL |
