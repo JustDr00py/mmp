@@ -16,6 +16,11 @@ UPDATE epg_sources
 SET last_refreshed_at = now(), program_count = sqlc.arg('programs'), channel_count = sqlc.arg('channels')
 WHERE id = sqlc.arg('id');
 
+-- name: TryLockEpgSource :one
+-- Holds a guide source until the transaction ends, so two downloads of
+-- one guide never replace its programs at once; false while another holds it.
+SELECT pg_try_advisory_xact_lock(hashtext('epg_source'), sqlc.arg(id)::int4)::bool AS locked;
+
 -- name: ClearEpgSourcePrograms :execrows
 DELETE FROM epg_programs WHERE epg_source_id = $1;
 

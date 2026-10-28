@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -85,5 +86,45 @@ func TestExtraGuideSource(t *testing.T) {
 	}
 	if n, _ := q.DeleteExtraEpgSource(ctx, provSrc.ID); n != 0 {
 		t.Error("provider source deleted as an extra")
+	}
+}
+
+// TestGuideDownloadOnce: a guide downloading (on add) while another
+// download of it starts (the schedule, Refresh) skips the second instead
+// of inserting its programs twice.
+func TestGuideDownloadOnce(t *testing.T) {
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	started, release := make(chan struct{}), make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		io.WriteString(rw, `<?xml version="1.0"?><tv><programme start="20261027190000 +0000" stop="20261027220000 +0000" channel="nba.04">`)
+		rw.(http.Flusher).Flush()
+		select {
+		case started <- struct{}{}:
+			<-release // the first download stalls mid-guide
+		default:
+		}
+		io.WriteString(rw, `<title>Suns @ Lakers</title></programme></tv>`)
+	}))
+	t.Cleanup(srv.Close)
+	ref := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+	src, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "Big", Url: srv.URL + "/guide.xml", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := make(chan error, 1)
+	go func() { _, err := ref.RefreshEPGSource(ctx, src); first <- err }()
+	<-started
+	if _, err := ref.RefreshEPGSource(ctx, src); !errors.Is(err, ErrGuideBusy) {
+		t.Errorf("second download = %v, want ErrGuideBusy", err)
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatalf("first download: %v", err)
+	}
+	// Once it finishes, the guide downloads again.
+	if n, err := ref.RefreshEPGSource(ctx, src); err != nil || n != 1 {
+		t.Errorf("download after = %d %v", n, err)
 	}
 }

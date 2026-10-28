@@ -111,6 +111,9 @@ var ErrNoStreams = errors.New("provider returned no streams (existing streams ke
 // ErrGuideOff: the provider's guide is turned off, so it is not downloaded.
 var ErrGuideOff = errors.New("this provider's guide is turned off")
 
+// ErrGuideBusy: the guide is already downloading; this download is skipped.
+var ErrGuideBusy = errors.New("this guide is already downloading; try again when it finishes")
+
 // DisableRefusedError means a refresh would soft-disable more of the
 // provider's active streams than the configured threshold allows — almost
 // always a truncated provider answer (one category, a half-loaded panel).
@@ -517,6 +520,16 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	q := db.New(tx)
+
+	// A guide is downloaded on add, on the schedule and on demand: a second
+	// download while one runs would insert the same programs and fail.
+	locked, err := q.TryLockEpgSource(ctx, int32(sourceID))
+	if err != nil {
+		return 0, fmt.Errorf("refresh epg %s: lock: %w", label, err)
+	}
+	if !locked {
+		return 0, ErrGuideBusy
+	}
 
 	if _, err := q.ClearEpgSourcePrograms(ctx, sourceID); err != nil {
 		return 0, fmt.Errorf("refresh epg %s: clear: %w", label, err)

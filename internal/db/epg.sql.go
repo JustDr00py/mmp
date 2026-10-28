@@ -583,6 +583,19 @@ func (q *Queries) SetProviderGuidePriority(ctx context.Context, arg SetProviderG
 	return result.RowsAffected(), nil
 }
 
+const tryLockEpgSource = `-- name: TryLockEpgSource :one
+SELECT pg_try_advisory_xact_lock(hashtext('epg_source'), $1::int4)::bool AS locked
+`
+
+// Holds a guide source until the transaction ends, so two downloads of
+// one guide never replace its programs at once; false while another holds it.
+func (q *Queries) TryLockEpgSource(ctx context.Context, id int32) (bool, error) {
+	row := q.db.QueryRow(ctx, tryLockEpgSource, id)
+	var locked bool
+	err := row.Scan(&locked)
+	return locked, err
+}
+
 const updateExtraEpgSource = `-- name: UpdateExtraEpgSource :one
 UPDATE epg_sources SET name = $2, url = $3, priority = $4, enabled = $5
 WHERE id = $1 AND provider_id IS NULL
