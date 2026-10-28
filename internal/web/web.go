@@ -321,8 +321,9 @@ func New(d Deps) (*UI, error) {
 		"fps":        fps,
 		"upper":      strings.ToUpper,
 		"size":       humanSize,
-		"when":       func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
-		"clock":      func(t time.Time) string { return t.Local().Format("15:04") },
+		"when":       func(t time.Time) template.HTML { return localTime(t, "when", "2006-01-02 15:04") },
+		"clock":      func(t time.Time) template.HTML { return localTime(t, "clock", "15:04") },
+		"day":        func(t time.Time) template.HTML { return localTime(t, "day", "Monday 2 January") },
 		"preview":    func() bool { return ui.Preview != nil },
 		"guideModes": func() []struct{ Value, Label string } { return guideModes },
 	}
@@ -334,6 +335,14 @@ func New(d Deps) (*UI, error) {
 		ui.pages[page] = t
 	}
 	return ui, nil
+}
+
+// localTime renders t as a <time> in the server's zone, which app.js
+// rewrites in the browser's: the admin may be in another zone than the
+// server, and a guide in the server's would put every program hours off.
+func localTime(t time.Time, format, layout string) template.HTML {
+	return template.HTML(fmt.Sprintf(`<time datetime="%s" data-local="%s">%s</time>`,
+		t.UTC().Format(time.RFC3339), format, t.Local().Format(layout)))
 }
 
 // waitString renders a wait for humans: "45 seconds", "5 minutes".

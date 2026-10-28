@@ -23,14 +23,14 @@
   {{if .Earlier}}<a class="button secondary small" href="{{.Link .Earlier 0}}">← Earlier</a>{{else}}<span class="button secondary small" aria-disabled="true">← Earlier</span>{{end}}
   <a class="button secondary small" href="{{.Link 0 0}}">Now</a>
   {{if .Later}}<a class="button secondary small" href="{{.Link .Later 0}}">Later →</a>{{else}}<span class="button secondary small" aria-disabled="true">Later →</span>{{end}}
-  <strong>{{.Day}}</strong>
+  <strong>{{day .Start}}</strong>
 </div>
 {{if .Rows}}
 <div class="table-wrap guide-wrap">
 <div class="guide" role="table" aria-label="TV guide">
   <div class="guide-row guide-head" role="row">
     <div class="guide-ch" role="columnheader">Channel</div>
-    <div class="guide-track" role="columnheader">{{range .Slots}}<span class="guide-tick" data-left="{{printf "%.3f" .Left}}">{{.Label}}</span>{{end}}</div>
+    <div class="guide-track" role="columnheader">{{range .Slots}}<span class="guide-tick" data-left="{{printf "%.3f" .Left}}">{{clock .At}}</span>{{end}}</div>
   </div>
   <div class="guide-body">
   {{if .NowShown}}<div class="guide-overlay" aria-hidden="true"><span class="guide-now" data-left="{{printf "%.3f" .NowLeft}}"></span></div>{{end}}

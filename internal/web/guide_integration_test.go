@@ -45,6 +45,13 @@ func TestGuidePage(t *testing.T) {
 	if !strings.Contains(body, `<span class="gp-title">The News</span>`) || !strings.Contains(body, "<p>Headlines.</p>") {
 		t.Errorf("BBC One's program missing:\n%s", body)
 	}
+	// Times carry the instant, for the browser to show in its own zone.
+	if at := `<time datetime="` + now.Add(-10*time.Minute).Format(time.RFC3339) + `" data-local="clock">`; !strings.Contains(body, at) {
+		t.Errorf("program start not a localizable time %s:\n%s", at, body)
+	}
+	if !strings.Contains(body, `data-local="day">`) {
+		t.Error("day heading not a localizable time")
+	}
 	if strings.Contains(body, "Late Film") || strings.Contains(body, "Yesterday") {
 		t.Error("programs outside the window shown")
 	}

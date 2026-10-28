@@ -173,7 +173,21 @@
   // [data-left]: blocks placed along a track (the guide grid), in percent.
   const place = (root) => root.querySelectorAll('[data-left]').forEach((el) => { el.style.left = `${el.dataset.left}%`; });
   place(document);
-  document.addEventListener('htmx:load', (e) => { place(e.target); bars(e.target); });
+  // <time datetime data-local="clock|when|day">: the server writes times in
+  // its own zone; show them in the browser's.
+  const pad = (n) => String(n).padStart(2, '0');
+  const localFormats = {
+    clock: (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    when: (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${localFormats.clock(d)}`,
+    day: (d) => `${d.toLocaleDateString('en', { weekday: 'long' })} ${d.getDate()} ${d.toLocaleDateString('en', { month: 'long' })}`,
+  };
+  const localize = (root) => root.querySelectorAll('time[data-local]').forEach((el) => {
+    const d = new Date(el.dateTime);
+    const f = localFormats[el.dataset.local];
+    if (f && !Number.isNaN(d.getTime())) el.textContent = f(d);
+  });
+  localize(document);
+  document.addEventListener('htmx:load', (e) => { place(e.target); bars(e.target); localize(e.target); });
   document.querySelectorAll('[data-sse]').forEach((el) => {
     const state = document.querySelector(el.dataset.sseState);
     const es = new EventSource(el.dataset.sse);

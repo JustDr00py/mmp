@@ -53,8 +53,8 @@ type guideRow struct {
 
 // guideSlotLabel is a time-axis tick.
 type guideSlotLabel struct {
-	Label string
-	Left  float64
+	At   time.Time
+	Left float64
 }
 
 type guideData struct {
@@ -65,7 +65,6 @@ type guideData struct {
 	GroupID     int64
 	MissingOnly bool
 	Start       time.Time
-	Day         string
 	NowLeft     float64 // the now line; <0 or >100 when outside the window
 	Earlier     int64   // start of the earlier window, 0 when out of range
 	Later       int64
@@ -144,9 +143,8 @@ func (ui *UI) guidePage(w http.ResponseWriter, r *http.Request) {
 	}
 	pct := func(t time.Time) float64 { return 100 * float64(t.Sub(since)) / float64(guideSpan) }
 	d.NowLeft = pct(now)
-	d.Day = since.Local().Format("Monday 2 January")
 	for t := since; t.Before(until); t = t.Add(guideSlot) {
-		d.Slots = append(d.Slots, guideSlotLabel{Label: t.Local().Format("15:04"), Left: pct(t)})
+		d.Slots = append(d.Slots, guideSlotLabel{At: t, Left: pct(t)})
 	}
 
 	rows, err := ui.Store.ListEnabledChannels(ctx)
