@@ -67,7 +67,7 @@ func (m *Metrics) upstreamFailure(reason string) {
 // free-form error text must never become a label).
 func FailureCategory(reason string) string {
 	switch reason {
-	case Stalled.String(), LowBitrate.String(), CCBurst.String(), "eof":
+	case Stalled.String(), LowBitrate.String(), CCBurst.String(), Behind.String(), "eof":
 		return reason
 	case "ring closed":
 		return "ring_closed"

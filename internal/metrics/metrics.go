@@ -45,7 +45,7 @@ var (
 
 // failureReasons are always exported (at 0 until seen) so rates and alerts
 // work from the first scrape.
-var failureReasons = []string{"stalled", "low_bitrate", "cc_burst", "eof", "read_error", "ring_closed"}
+var failureReasons = []string{"stalled", "low_bitrate", "cc_burst", "behind", "eof", "read_error", "ring_closed"}
 
 type collector struct{ s Sources }
 
