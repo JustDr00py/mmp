@@ -11,7 +11,7 @@ import (
 
 func TestFailureCategory(t *testing.T) {
 	for in, want := range map[string]string{
-		"stalled": "stalled", "low_bitrate": "low_bitrate", "cc_burst": "cc_burst", "eof": "eof",
+		"stalled": "stalled", "low_bitrate": "low_bitrate", "cc_burst": "cc_burst", "behind": "behind", "eof": "eof",
 		"ring closed": "ring_closed", "read: connection reset by peer": "read_error", "": "read_error",
 	} {
 		if got := FailureCategory(in); got != want {

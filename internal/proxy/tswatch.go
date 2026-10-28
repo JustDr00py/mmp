@@ -26,6 +26,7 @@ const (
 	Stalled            // no aligned packets for StallTimeout (dead, or garbage only)
 	LowBitrate         // window bitrate below LowBitrateKbps
 	CCBurst            // continuity error rate above MaxCCErrorRate
+	Behind             // media time fell MaxLag behind the wall clock
 )
 
 func (v Verdict) String() string {
@@ -38,17 +39,23 @@ func (v Verdict) String() string {
 		return "low_bitrate"
 	case CCBurst:
 		return "cc_burst"
+	case Behind:
+		return "behind"
 	}
 	return "unknown"
 }
 
-// Thresholds configure Check. Zero LowBitrateKbps or MaxCCErrorRate
-// disables that check.
+// Thresholds configure Check. Zero LowBitrateKbps, MaxCCErrorRate or
+// MaxLag disables that check.
 type Thresholds struct {
 	StallTimeout   time.Duration
 	LowBitrateKbps int
 	MaxCCErrorRate float64
 	Window         time.Duration // bitrate/CC window, whole seconds; also the startup grace for those checks
+	// MaxLag is how far the stream's PTS may fall behind the wall clock: an
+	// upstream that delivers slower than real time stays "alive" but drains
+	// the player's buffer.
+	MaxLag time.Duration
 }
 
 // Stats are cumulative counters since the watcher was created.
@@ -80,6 +87,15 @@ type Watcher struct {
 	buckets    []bucket // one per second of the window, indexed by unix second
 	start      time.Time
 	lastPacket time.Time
+
+	// Real-time tracking on one PID's PTS: media is how much stream time
+	// arrived since wall0; lag is how far it trailed the clock at the last
+	// PTS (negative: ahead).
+	ptsPID  int
+	lastPTS int64 // furthest-forward PTS, -1 before the first
+	wall0   time.Time
+	media   time.Duration
+	lag     time.Duration
 }
 
 // NewWatcher starts a watcher at now; the stall timer runs from now.
@@ -90,6 +106,8 @@ func NewWatcher(th Thresholds, now time.Time) *Watcher {
 		buckets:    make([]bucket, int(th.Window/time.Second)),
 		start:      now,
 		lastPacket: now,
+		ptsPID:     -1,
+		lastPTS:    -1,
 	}
 	for i := range w.cc {
 		w.cc[i] = -1
@@ -206,6 +224,9 @@ func (w *Watcher) account(now time.Time, pkt []byte) {
 	if afc&0x1 == 0 {
 		return // no payload: the counter does not advance
 	}
+	if pkt[1]&0x40 != 0 && pid != 0 && w.th.MaxLag > 0 {
+		w.trackPTS(now, int(pid), pkt, afc)
+	}
 	last := w.cc[pid]
 	w.cc[pid] = cc
 	// First sight, the next value, or a single duplicate are all valid.
@@ -214,6 +235,40 @@ func (w *Watcher) account(now time.Time, pkt []byte) {
 	}
 	w.stats.CCErrors++
 	b.ccErrors++
+}
+
+// trackPTS follows the first PID to carry a PTS and updates the lag
+// against the wall clock. Callers hold w.mu.
+func (w *Watcher) trackPTS(now time.Time, pid int, pkt []byte, afc byte) {
+	if w.ptsPID >= 0 && pid != w.ptsPID {
+		return
+	}
+	off := 4
+	if afc&0x2 != 0 {
+		off += 1 + int(pkt[4])
+	}
+	if off >= TSPacketSize {
+		return
+	}
+	pts := parsePTS(pkt[off:])
+	if pts < 0 {
+		return
+	}
+	w.ptsPID = pid
+	if d, fwd := ptsDelta(w.lastPTS, pts); fwd {
+		w.lastPTS = pts
+		w.media += d
+	} else if w.lastPTS < 0 || ptsJump(w.lastPTS, pts) {
+		// First PTS or a timestamp break: measure afresh from here.
+		w.lastPTS, w.wall0, w.media = pts, now, 0
+	}
+	w.lag = now.Sub(w.wall0) - w.media
+	// Credit for running ahead (a burst the player buffers) is capped, so
+	// an early burst cannot hide a later slowdown for long.
+	if w.lag < -w.th.MaxLag {
+		w.wall0 = w.wall0.Add(w.lag + w.th.MaxLag)
+		w.lag = -w.th.MaxLag
+	}
 }
 
 // bucket returns the window bucket for now, recycling a stale slot.
@@ -271,6 +326,11 @@ func (w *Watcher) Check(now time.Time) Verdict {
 	defer w.mu.Unlock()
 	if w.th.StallTimeout > 0 && now.Sub(w.lastPacket) >= w.th.StallTimeout {
 		return Stalled
+	}
+	// Lag is measured as PTS arrives, so a gap alone is left to the stall
+	// check; this catches data that keeps coming, just too slowly.
+	if w.th.MaxLag > 0 && w.lag > w.th.MaxLag {
+		return Behind
 	}
 	if now.Sub(w.start) < w.th.Window {
 		return Healthy

@@ -283,3 +283,120 @@ func TestWatcherConcurrentFeedCheck(t *testing.T) {
 		t.Errorf("stats = %+v", s)
 	}
 }
+
+// pesPkt is a PES-start packet on pid carrying pts (90 kHz ticks).
+func pesPkt(pid uint16, cc uint8, pts int64) []byte {
+	b := tsPkt(pid, cc)
+	b[1] |= 0x40 // payload_unit_start
+	copy(b[4:], []byte{0, 0, 1, 0xE0, 0, 0, 0x80, 0x80, 5})
+	b[13] = 0x21 | byte(pts>>29)&0x0E
+	b[14] = byte(pts >> 22)
+	b[15] = byte(pts>>14) | 1
+	b[16] = byte(pts >> 7)
+	b[17] = byte(pts<<1) | 1
+	return b
+}
+
+func TestWatcherBehind(t *testing.T) {
+	const pid = 0x100
+	th := Thresholds{StallTimeout: 12 * time.Second, Window: 15 * time.Second, MaxLag: 8 * time.Second}
+	// run feeds one PES per wall second for secs seconds, each adding speed
+	// seconds of media, and returns the first non-Healthy verdict and when.
+	run := func(t *testing.T, startPTS int64, speed float64, secs int, gaps map[int]bool) (Verdict, int) {
+		t.Helper()
+		w := NewWatcher(th, t0)
+		pts := float64(startPTS)
+		var out []byte
+		for i := range secs {
+			now := t0.Add(time.Duration(i) * time.Second)
+			if !gaps[i] {
+				p := int64(pts) % pts33
+				out = w.Feed(now, out[:0], append(pesPkt(pid, uint8(i), p), tsPkt(pid, uint8(i)+1)...))
+			}
+			pts += speed * 90000
+			if v := w.Check(now); v != Healthy {
+				return v, i
+			}
+		}
+		return Healthy, secs
+	}
+
+	if v, _ := run(t, 0, 1, 120, nil); v != Healthy {
+		t.Errorf("real time: verdict %v, want healthy", v)
+	}
+	// Half speed loses 0.5s a second: 8s behind after ~16s.
+	if v, at := run(t, 0, 0.5, 120, nil); v != Behind || at < 15 || at > 19 {
+		t.Errorf("half speed: verdict %v at %ds, want behind at ~16s", v, at)
+	}
+	// Bursty: nothing for 5 of every 6 seconds, then 6s of media at once.
+	{
+		w := NewWatcher(th, t0)
+		var out []byte
+		var pts int64
+		for i := range 120 {
+			now := t0.Add(time.Duration(i) * time.Second)
+			if i%6 == 0 {
+				for k := range 6 {
+					out = w.Feed(now, out[:0], pesPkt(pid, uint8(k), pts))
+					pts += 90000
+				}
+				out = w.Feed(now, out[:0], tsPkt(pid, 6))
+			}
+			if v := w.Check(now); v != Healthy {
+				t.Fatalf("bursty: verdict %v at %ds, want healthy", v, i)
+			}
+		}
+	}
+	// A long early burst earns at most MaxLag of credit: going half speed
+	// after it still trips.
+	{
+		w := NewWatcher(th, t0)
+		var out []byte
+		var pts int64
+		for k := range 60 { // a minute of media on connect
+			out = w.Feed(t0, out[:0], pesPkt(pid, uint8(k), pts))
+			pts += 90000
+		}
+		tripped := -1
+		for i := 1; i < 120 && tripped < 0; i++ {
+			now := t0.Add(time.Duration(i) * time.Second)
+			out = w.Feed(now, out[:0], pesPkt(pid, uint8(i), pts))
+			pts += 45000
+			if w.Check(now) == Behind {
+				tripped = i
+			}
+		}
+		if tripped < 0 || tripped > 40 {
+			t.Errorf("after a burst: tripped at %ds, want within ~32s", tripped)
+		}
+	}
+	// PTS wraps at 2^33 without a false trip.
+	if v, _ := run(t, pts33-30*90000, 1, 90, nil); v != Healthy {
+		t.Errorf("wrap: verdict %v, want healthy", v)
+	}
+	// A timestamp break (upstream restart) starts the measurement afresh.
+	{
+		w := NewWatcher(th, t0)
+		var out []byte
+		for i := range 60 {
+			now := t0.Add(time.Duration(i) * time.Second)
+			pts := int64(i) * 90000
+			if i >= 30 {
+				pts = 5_000_000_000 + int64(i-30)*90000
+			}
+			out = w.Feed(now, out[:0], pesPkt(pid, uint8(i), pts))
+			if v := w.Check(now); v != Healthy {
+				t.Fatalf("break: verdict %v at %ds, want healthy", v, i)
+			}
+		}
+	}
+	// A gap alone is the stall check's call, not lag's.
+	if v, _ := run(t, 0, 1, 9, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}); v != Healthy {
+		t.Errorf("short gap: verdict %v, want healthy", v)
+	}
+	// Disabled.
+	th.MaxLag = 0
+	if v, _ := run(t, 0, 0.5, 120, nil); v != Healthy {
+		t.Errorf("disabled: verdict %v, want healthy", v)
+	}
+}

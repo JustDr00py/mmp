@@ -71,6 +71,7 @@ type Config struct {
 		BufferSizeMB   int      `yaml:"buffer_size_mb"`    // ring buffer per session
 		LowBitrateKbps int      `yaml:"low_bitrate_kbps"`  // 0 disables the low-bitrate check
 		MaxCCErrorRate float64  `yaml:"max_cc_error_rate"` // TS continuity-error fraction per window
+		MaxLag         Duration `yaml:"max_lag"`           // fail over this far behind real time; 0 disables
 		// HealthWindow is the span the bitrate and continuity checks look
 		// at. Many providers deliver in multi-second bursts, so it must be
 		// longer than their gaps; stall_timeout is used if it is longer.
@@ -186,6 +187,8 @@ func Defaults() Config {
 	c.Proxy.BufferSizeMB = 32
 	c.Proxy.LowBitrateKbps = 20
 	c.Proxy.MaxCCErrorRate = 0.05
+	// About what a player buffers: more lag than this means it rebuffers.
+	c.Proxy.MaxLag = Duration{8 * time.Second}
 	c.Refresh.Interval = Duration{6 * time.Hour}
 	c.Refresh.EPGInterval = Duration{12 * time.Hour}
 	c.Refresh.MaxDisablePct = 80
@@ -332,6 +335,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		dur("MMP_HTTP_SHUTDOWN_TIMEOUT", &c.HTTP.ShutdownTimeout),
 		dur("MMP_PROXY_STALL_TIMEOUT", &c.Proxy.StallTimeout),
 		dur("MMP_PROXY_HEALTH_WINDOW", &c.Proxy.HealthWindow),
+		dur("MMP_PROXY_MAX_LAG", &c.Proxy.MaxLag),
 		dur("MMP_PROXY_CONNECT_TIMEOUT", &c.Proxy.ConnectTimeout),
 		dur("MMP_PROXY_IDLE_GRACE", &c.Proxy.IdleGrace),
 		dur("MMP_PROXY_MAX_RETRY_WINDOW", &c.Proxy.MaxRetryWindow),
@@ -455,6 +459,9 @@ func (c *Config) Validate() error {
 	}
 	if p.HealthWindow.Duration <= 0 {
 		return errors.New("config: proxy.health_window must be > 0")
+	}
+	if p.MaxLag.Duration < 0 {
+		return errors.New("config: proxy.max_lag must be >= 0")
 	}
 	if p.BufferSizeMB < 1 {
 		return errors.New("config: proxy.buffer_size_mb must be >= 1")

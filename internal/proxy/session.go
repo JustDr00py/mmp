@@ -559,6 +559,8 @@ func (s *Session) describeFailure(reason string) string {
 		return fmt.Sprintf("bitrate under %d kb/s", t.LowBitrateKbps)
 	case reason == CCBurst.String():
 		return "corrupted stream (too many continuity errors)"
+	case reason == Behind.String():
+		return "fell " + shortDur(t.MaxLag) + " behind real time (provider too slow)"
 	case reason == "eof":
 		return "the provider ended the stream"
 	case strings.HasPrefix(reason, "read: "):
