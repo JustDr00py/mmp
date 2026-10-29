@@ -255,14 +255,19 @@ func avoidBackbones(cands []Candidate, avoid map[string]time.Time, now time.Time
 	return append(out, back...), jumped
 }
 
-// reconnectable reports whether an upstream that ended for reason is worth
-// reopening before failing over: the provider closed or lost a connection
-// that had been playing well, which providers do now and then. A stall or
-// a bad picture is the stream's own problem, and reopening it would only
-// delay the failover.
+// reconnectable reports whether an upstream that ended for reason lost its
+// connection: the provider closed or dropped it, which providers do now and
+// then. Reopening costs nothing, so such a stream is reopened every time.
 func reconnectable(reason string) bool {
 	return reason == "eof" || strings.HasPrefix(reason, "read: ")
 }
+
+// verdictRetry is how often a stream that played well and was then judged
+// unhealthy (stalled, fell behind, bad picture) is reopened before failing
+// over. Such a failure usually means a bad connection or a slow edge server,
+// which a fresh connection fixes; one that keeps coming back is the feed,
+// and each retry costs the viewer another detection delay.
+const verdictRetry = 5 * time.Minute
 
 func (s *Session) setState(state string, c *Candidate) {
 	s.mu.Lock()
@@ -294,13 +299,14 @@ func (s *Session) Run(ctx context.Context) error {
 	defer s.cfg.Ring.Close()
 	defer s.setState("closed", nil)
 
-	failingSince := time.Now()      // nothing is playing yet
-	var lastFailed int64            // stream that failed most recently, for the failover event
-	var failedWhy string            // why lastFailed failed, in words
-	var lastProblem string          // the latest failure of any kind, for the exhausted event
-	spliced := false                // true once any upstream has fed the ring
-	var reconnect int64             // stream to reopen first, cooldown or not (once)
-	avoid := map[string]time.Time{} // backbones whose streams failed while playing
+	failingSince := time.Now()       // nothing is playing yet
+	var lastFailed int64             // stream that failed most recently, for the failover event
+	var failedWhy string             // why lastFailed failed, in words
+	var lastProblem string           // the latest failure of any kind, for the exhausted event
+	spliced := false                 // true once any upstream has fed the ring
+	var reconnect int64              // stream to reopen first, cooldown or not (once)
+	avoid := map[string]time.Time{}  // backbones whose streams failed while playing
+	retried := map[int64]time.Time{} // when each stream was last reopened after a verdict
 
 	for {
 		if ctx.Err() != nil {
@@ -385,10 +391,14 @@ func (s *Session) Run(ctx context.Context) error {
 				// the reconnect below, which still comes first).
 				avoid[c.Backbone] = time.Now().Add(backboneAvoid)
 			}
-			if res.stable && reconnectable(res.reason) {
-				// Reopen it before trying another source. If that fails,
-				// the failover event names this drop.
-				s.log.Info("session: upstream dropped, reconnecting", "stream_id", c.StreamID,
+			drop := reconnectable(res.reason)
+			if res.stable && (drop || time.Since(retried[c.StreamID]) >= verdictRetry) {
+				// It played well: reopen it before trying another source.
+				// If that fails, the failover event names this failure.
+				if !drop {
+					retried[c.StreamID] = time.Now()
+				}
+				s.log.Info("session: upstream failed, retrying same stream", "stream_id", c.StreamID,
 					"provider_id", c.ProviderID, "reason", res.reason)
 				reconnect = c.StreamID
 				lastFailed, failedWhy = c.StreamID, s.describeFailure(res.reason)

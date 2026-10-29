@@ -56,7 +56,8 @@ func tagOf(p []byte) byte {
 }
 
 // fakeProvider serves a live TS tagged with tag. mode: "ok" streams until
-// the client leaves, "stall" sends n packets then goes silent, "eof" sends n
+// the client leaves, "stall" sends n packets then goes silent, "stall-once"
+// does that once and then streams normally, "eof" sends n
 // packets then ends, "eof-then-503" does that once and then refuses, "503"
 // refuses, "429" refuses for lack of connections.
 type fakeProvider struct {
@@ -96,9 +97,10 @@ func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
 				cc[2]++
 			}
 			for _, p := range group {
-				if (mode == "stall" || mode == "eof" || mode == "eof-then-503") && sent >= n {
+				stall := mode == "stall" || (mode == "stall-once" && hit == 1)
+				if (stall || mode == "eof" || mode == "eof-then-503") && sent >= n {
 					w.(http.Flusher).Flush()
-					if mode == "stall" {
+					if stall {
 						<-r.Context().Done()
 					}
 					return
@@ -640,6 +642,55 @@ func TestSessionReconnectFailsOver(t *testing.T) {
 	}
 	ev := h.eventsOf(EventFailover)
 	if len(ev) != 1 || ev[0].FromStreamID != 1 || ev[0].ToStreamID != 2 || ev[0].Message != "the provider ended the stream" {
+		t.Errorf("failover events = %+v", ev)
+	}
+}
+
+// TestSessionRetriesStalledStream: a stream that played well and then
+// stalled is reopened before any other source is tried, without a cooldown
+// or a failover.
+func TestSessionRetriesStalledStream(t *testing.T) {
+	a := newFakeProvider(t, 'A', "stall-once", 3000)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, func(cfg *SessionConfig) { cfg.StableAfter = 100 * time.Millisecond })
+	pkts, err := h.watch(t, 10*time.Second, func(p [][]byte) bool { return a.hits.Load() >= 2 && countTag(p, 'A') >= 4000 })
+	if err != nil {
+		t.Fatalf("viewer stream broke: %v", err)
+	}
+	if n := countTag(pkts, 'B'); n != 0 || b.hits.Load() != 0 {
+		t.Errorf("failed over to B (%d packets, %d requests) instead of retrying A", n, b.hits.Load())
+	}
+	if st := h.sess.Status(); st.Failovers != 0 || st.StreamID != 1 {
+		t.Errorf("status = %+v, want stream 1 with no failovers", st)
+	}
+	if h.cool.Active(1, time.Now()) {
+		t.Error("the retry cooled stream 1 down")
+	}
+	if ev := h.eventsOf(EventFailover); len(ev) != 0 {
+		t.Errorf("a retry logged failovers: %+v", ev)
+	}
+}
+
+// TestSessionStallsAgainFailsOver: a stream that stalls again soon after
+// its retry fails over, naming the stall, instead of being retried forever.
+func TestSessionStallsAgainFailsOver(t *testing.T) {
+	a := newFakeProvider(t, 'A', "stall", 3000)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, MaxConnections: 1, URL: b.URL + "/2.ts"},
+	}, func(cfg *SessionConfig) { cfg.StableAfter = 100 * time.Millisecond })
+	if _, err := h.watch(t, 10*time.Second, func(p [][]byte) bool { return countTag(p, 'B') >= 100 }); err != nil {
+		t.Fatalf("no B after A stalled twice: %v", err)
+	}
+	if n := a.hits.Load(); n != 2 {
+		t.Errorf("A requests = %d, want 2 (play, one retry)", n)
+	}
+	ev := h.eventsOf(EventFailover)
+	if len(ev) != 1 || ev[0].FromStreamID != 1 || ev[0].ToStreamID != 2 || !strings.HasPrefix(ev[0].Message, "no data for ") {
 		t.Errorf("failover events = %+v", ev)
 	}
 }
