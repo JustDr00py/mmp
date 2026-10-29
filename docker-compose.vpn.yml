@@ -127,6 +127,9 @@ services:
       # How long an HLS player may go without requesting before it counts
       # as gone (frees its connection slot and the provider connection).
       MMP_HLS_IDLE_TIMEOUT: ${MMP_HLS_IDLE_TIMEOUT:-30s}
+      # No stream data for this long → fail over. Providers that send in
+      # bursts need it above their gaps, or working streams keep failing over.
+      MMP_PROXY_STALL_TIMEOUT: ${MMP_PROXY_STALL_TIMEOUT:-12s}
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
