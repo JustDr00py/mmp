@@ -238,7 +238,9 @@ them. On **Groups**, create, rename, reorder (sort order = order in the player) 
 one asks whether its channels stay, without a group, or go with it), or press **Use provider groups** to put
 every channel without a group into one named after its provider group. On **Channels**, tick channels and
 **Move selected to…** a group, no group, or their provider group, or **Delete selected**; the **No group**
-filter finds the uncategorized ones.
+filter finds the uncategorized ones. **Sort A–Z** puts everything the list is filtered to in alphabetical order,
+on all its pages (`ESPN 2` before `ESPN 10`); the channels swap the numbers they hold, so filter to a group to
+sort just that group.
 
 ![Groups: the categories players show, with their sort order and channel counts](docs/screenshots/groups.png)
 

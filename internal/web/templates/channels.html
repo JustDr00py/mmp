@@ -33,7 +33,10 @@
 <form method="post" action="/admin/channels/group">
 <input type="hidden" name="q" value="{{.Query}}"><input type="hidden" name="group" value="{{.GroupID}}"><input type="hidden" name="bouquet" value="{{.BouquetID}}"><input type="hidden" name="offset" value="{{.Offset}}">
 <p class="hint">Drag rows (or use the arrows) to change the order customers see. The channels on this page swap their numbers between
-  them, so filter to a group to arrange it without moving others.</p>
+  them, so filter to a group to arrange it without moving others.
+  <button type="submit" class="small secondary" formaction="/admin/channels/sort-names" formnovalidate
+    title="Ignores the ticked boxes: sorts everything the list is filtered to, on all its pages"
+    data-confirm="Sort every channel in this list from A to Z, on all its pages? They swap the numbers they hold, so the order customers see changes, and the current order cannot be restored.">Sort A–Z</button></p>
 <div class="row bulk">
   <label class="check small"><input type="checkbox" data-check-all="channel"> all on this page</label>
   <select name="to" aria-label="Move selected channels to" required>

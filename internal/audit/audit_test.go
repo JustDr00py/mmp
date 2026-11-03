@@ -24,6 +24,7 @@ func TestDescribe(t *testing.T) {
 		{"POST", "/admin/users/3/token", "rotated the stream token of", "user", "3"},
 		{"POST", "/admin/groups/fill", "filled channel groups", "channel group", ""},
 		{"POST", "/admin/channels/order", "reordered", "channel", ""},
+		{"POST", "/admin/channels/sort-names", "sorted by name", "channel", ""},
 		{"POST", "/admin/groups/order", "reordered", "channel group", ""},
 		{"POST", "/admin/providers/bulk", "changed several", "provider", ""},
 		{"POST", "/admin/channels/delete", "deleted several", "channel", ""},
