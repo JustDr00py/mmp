@@ -397,6 +397,64 @@ func TestChannelsReorder(t *testing.T) {
 	}
 }
 
+func TestChannelsSortNames(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	sports, _ := q.CreateChannelGroup(ctx, db.CreateChannelGroupParams{Name: "Sports"})
+	num := func(n int32) *int32 { return &n }
+	ids := map[string]int64{}
+	for _, c := range []struct {
+		name string
+		n    *int32
+		g    *int64
+	}{
+		{"ESPN 10", num(201), &sports.ID}, {"abc", num(202), &sports.ID}, {"ESPN 2", num(205), &sports.ID},
+		{"Zed", nil, &sports.ID}, {"Athens", num(101), nil},
+	} {
+		ch, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: c.name, Number: c.n, GroupID: c.g})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[c.name] = ch.ID
+	}
+	check := func(want map[string]int32) {
+		t.Helper()
+		for name, n := range want {
+			if c, _ := q.GetChannel(ctx, ids[name]); c.Number == nil || *c.Number != n {
+				t.Errorf("%s = %v, want %d", name, c.Number, n)
+			}
+		}
+	}
+
+	// One group: its channels swap numbers, the numberless one gets the next
+	// free number, and the channel outside the filter stays put. The ticked
+	// box is ignored.
+	f := url.Values{"group": {strconv.FormatInt(sports.ID, 10)}, "offset": {"100"}, "channel": {strconv.FormatInt(ids["abc"], 10)}}
+	resp, _ := b.post("/admin/channels/sort-names", f, b.base)
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusSeeOther || !strings.Contains(loc, "group=") || !strings.Contains(loc, "n=4") || strings.Contains(loc, "offset") {
+		t.Fatalf("sort = %d %s", resp.StatusCode, loc)
+	}
+	check(map[string]int32{"abc": 201, "ESPN 2": 202, "ESPN 10": 205, "Zed": 206, "Athens": 101})
+
+	// No filter: the whole lineup.
+	if resp, _ := b.post("/admin/channels/sort-names", url.Values{}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("sort all = %d", resp.StatusCode)
+	}
+	check(map[string]int32{"abc": 101, "Athens": 201, "ESPN 2": 202, "ESPN 10": 205, "Zed": 206})
+
+	// Nothing matches: nothing to do.
+	if resp, _ := b.post("/admin/channels/sort-names", url.Values{"q": {"no such channel"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("empty sort = %d", resp.StatusCode)
+	}
+
+	// The list offers the button and reports what it did.
+	resp, body := b.get(loc)
+	if resp.StatusCode != 200 || !strings.Contains(body, "/admin/channels/sort-names") || !strings.Contains(body, "Sorted 4 channels from A to Z.") {
+		t.Errorf("page = %d:\n%s", resp.StatusCode, body)
+	}
+}
+
 func TestChannelGroupsOrder(t *testing.T) {
 	b, q := pgUI(t)
 	ctx := context.Background()

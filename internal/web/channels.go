@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"errors"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -11,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
@@ -29,6 +33,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 	r.Post("/channels/group", ui.channelsSetGroup)
 	r.Post("/channels/delete", ui.channelsDelete)
 	r.Post("/channels/sort-streams", ui.channelsSortStreams)
+	r.Post("/channels/sort-names", ui.channelsSortNames)
 	r.Post("/channels/order", ui.channelsReorder)
 	r.Route("/channels/{id}", func(r chi.Router) {
 		r.Get("/", ui.channelPage)
@@ -71,12 +76,10 @@ var channelFlashes = map[string]string{
 	"unlinked": "Suggestion unlinked: its streams left this channel, and new ones like them no longer join it.",
 }
 
-func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	offset := max(atoi(r.URL.Query().Get("offset")), 0)
-	gid, _ := strconv.ParseInt(r.URL.Query().Get("group"), 10, 64)
-	bid, _ := strconv.ParseInt(r.URL.Query().Get("bouquet"), 10, 64)
-	params := db.ListChannelsParams{Limit: channelsPerPage + 1, Offset: int32(offset)}
+// channelsFilter is the Channels page's search and filters as a query, with
+// no limit set: gid and bid are an id, 0 for any, or -1 for none.
+func channelsFilter(q string, gid, bid int64) db.ListChannelsParams {
+	var params db.ListChannelsParams
 	if q != "" {
 		pat := "%" + likeEscape(q) + "%"
 		params.Search = &pat
@@ -95,6 +98,16 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		none := int64(0)
 		params.BouquetID = &none
 	}
+	return params
+}
+
+func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	offset := max(atoi(r.URL.Query().Get("offset")), 0)
+	gid, _ := strconv.ParseInt(r.URL.Query().Get("group"), 10, 64)
+	bid, _ := strconv.ParseInt(r.URL.Query().Get("bouquet"), 10, 64)
+	params := channelsFilter(q, gid, bid)
+	params.Limit, params.Offset = channelsPerPage+1, int32(offset)
 	ctx := r.Context()
 	chans, err := ui.Store.ListChannels(ctx, params)
 	if err != nil {
@@ -143,6 +156,8 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Deleted " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + "."
 	case "sorted-n":
 		d.Flash = "Sorted the failover lists of " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " by provider priority."
+	case "sorted-names":
+		d.Flash = "Sorted " + plural(int64(atoi(q.Get("n"))), "channel", "channels") + " from A to Z."
 	}
 	if len(chans) > channelsPerPage {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
@@ -838,38 +853,7 @@ func (ui *UI) channelsReorder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "list the channels once each, in their new order", http.StatusBadRequest)
 		return
 	}
-	err := ui.inTx(r.Context(), func(q Store) error {
-		cur, err := q.ChannelNumbersByIDs(r.Context(), ids)
-		if err != nil {
-			return err
-		}
-		if len(cur) != len(ids) {
-			return errReorderStale
-		}
-		var nums []int32
-		missing := 0
-		for _, c := range cur {
-			if c.Number != nil {
-				nums = append(nums, *c.Number)
-			} else {
-				missing++
-			}
-		}
-		slices.Sort(nums)
-		if missing > 0 {
-			next, err := q.NextChannelNumber(r.Context())
-			if err != nil {
-				return err
-			}
-			for i := range int32(missing) {
-				nums = append(nums, next+i)
-			}
-		}
-		if err := q.ClearChannelNumbers(r.Context(), ids); err != nil {
-			return err
-		}
-		return q.SetChannelNumbers(r.Context(), db.SetChannelNumbersParams{Ids: ids, Numbers: nums})
-	})
+	err := ui.inTx(r.Context(), func(q Store) error { return renumberChannels(r.Context(), q, ids) })
 	switch {
 	case errors.Is(err, errReorderStale):
 		http.Error(w, "a channel in the list was deleted; reload the page", http.StatusConflict)
@@ -891,6 +875,93 @@ func (ui *UI) channelsReorder(w http.ResponseWriter, r *http.Request) {
 	}
 	r.URL.RawQuery = back.Encode() // the list as it was filtered, renumbered
 	ui.channelsPage(w, r)
+}
+
+// renumberChannels gives the channels, in the listed order, the numbers they
+// already hold, lowest first; those without one get new ones after the
+// highest.
+func renumberChannels(ctx context.Context, q Store, ids []int64) error {
+	cur, err := q.ChannelNumbersByIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	if len(cur) != len(ids) {
+		return errReorderStale
+	}
+	var nums []int32
+	missing := 0
+	for _, c := range cur {
+		if c.Number != nil {
+			nums = append(nums, *c.Number)
+		} else {
+			missing++
+		}
+	}
+	slices.Sort(nums)
+	if missing > 0 {
+		next, err := q.NextChannelNumber(ctx)
+		if err != nil {
+			return err
+		}
+		for i := range int32(missing) {
+			nums = append(nums, next+i)
+		}
+	}
+	if err := q.ClearChannelNumbers(ctx, ids); err != nil {
+		return err
+	}
+	return q.SetChannelNumbers(ctx, db.SetChannelNumbersParams{Ids: ids, Numbers: nums})
+}
+
+// sortChannelsByName puts channels in reading order: ignoring case, with
+// numbers by value (ESPN 2 before ESPN 10) and accented letters beside their
+// plain ones. Channels whose names tie keep their order.
+func sortChannelsByName(chans []db.Channel) {
+	c := collate.New(language.Und, collate.IgnoreCase, collate.Numeric)
+	slices.SortStableFunc(chans, func(a, b db.Channel) int { return c.CompareString(a.Name, b.Name) })
+}
+
+// channelsSortNames renumbers every channel the list is filtered to, on all
+// its pages, into alphabetical order. As with dragging, they swap the numbers
+// they already hold, so channels outside the filter stay where they are.
+func (ui *UI) channelsSortNames(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	back := channelsBack(r)
+	back.Del("offset") // A comes first
+	gid, _ := strconv.ParseInt(r.PostForm.Get("group"), 10, 64)
+	bid, _ := strconv.ParseInt(r.PostForm.Get("bouquet"), 10, 64)
+	params := channelsFilter(strings.TrimSpace(r.PostForm.Get("q")), gid, bid)
+	params.Limit = math.MaxInt32
+	var n int
+	err := ui.inTx(r.Context(), func(q Store) error {
+		chans, err := q.ListChannels(r.Context(), params)
+		if err != nil || len(chans) == 0 {
+			return err
+		}
+		sortChannelsByName(chans)
+		ids := make([]int64, len(chans))
+		for i, c := range chans {
+			ids[i] = c.ID
+		}
+		n = len(ids)
+		return renumberChannels(r.Context(), q, ids)
+	})
+	switch {
+	case errors.Is(err, errReorderStale):
+		http.Error(w, "a channel in the list was deleted; reload the page", http.StatusConflict)
+		return
+	case err != nil:
+		ui.fail(w, "sort channels", err)
+		return
+	}
+	ui.Log.Info("web: channels sorted by name", "channels", n)
+	back.Set("msg", "sorted-names")
+	back.Set("n", strconv.Itoa(n))
+	ui.redirect(w, r, Prefix+"/channels?"+back.Encode())
 }
 
 func uniqueIDs(ids []int64) []int64 {

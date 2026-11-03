@@ -185,6 +185,7 @@ var verbs = map[string]string{
 // on a single row ("order" of a channel's streams vs. of all channels).
 var pageVerbs = map[string]string{
 	"channels/order": "reordered", "groups/order": "reordered", "providers/bulk": "changed several", "channels/delete": "deleted several",
+	"channels/sort-names": "sorted by name",
 }
 
 // Description is what Describe makes of a request.
