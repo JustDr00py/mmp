@@ -10,11 +10,35 @@
 {{if not $d.Library}}
 <div class="card empty"><p>The logo library has not been downloaded yet.</p><p class="muted">Download it on the <a href="/admin/logos">Logos</a> page first.</p></div>
 {{else}}
-<p class="sub">{{if $d.All}}All channels. <a href="/admin/logos/suggest">Hide the {{$d.Skipped}} with a library logo</a>{{else}}Channels without a library logo{{if $d.Skipped}} ({{$d.Skipped}} already have one: <a href="/admin/logos/suggest?all=1">show all</a>){{end}}{{end}}
+<form method="get" action="/admin/logos/suggest" class="match-filters" role="search">
+  <label class="grow">Channel name<input type="search" name="q" value="{{$d.Query}}" placeholder="Search channels"></label>
+  <label>Group<select name="group">
+    <option value="0">All groups</option>
+    {{range $d.Groups}}<option value="{{.ID}}"{{if eq .ID $d.GroupID}} selected{{end}}>{{.Name}}</option>{{end}}
+    <option value="-1"{{if eq $d.GroupID -1}} selected{{end}}>No group (Uncategorized)</option>
+  </select></label>
+  <label>Current logo<select name="have">
+    <option value=""{{if eq $d.Have ""}} selected{{end}}>None from the library</option>
+    <option value="none"{{if eq $d.Have "none"}} selected{{end}}>No logo at all</option>
+    <option value="all"{{if eq $d.Have "all"}} selected{{end}}>Any (all channels)</option>
+  </select></label>
+  <label>Best fit<select name="fit">
+    <option value=""{{if eq $d.Fit ""}} selected{{end}}>Any</option>
+    <option value="sure"{{if eq $d.Fit "sure"}} selected{{end}}>Near-certain (90%+)</option>
+    <option value="check"{{if eq $d.Fit "check"}} selected{{end}}>To check (under 90%)</option>
+    <option value="none"{{if eq $d.Fit "none"}} selected{{end}}>No suggestion</option>
+  </select></label>
+  <button type="submit" class="secondary">Filter</button>
+  {{if or $d.Filtered $d.Have}}<a class="small" href="/admin/logos/suggest">Clear</a>{{end}}
+</form>
+<p class="sub">{{len $d.Rows}} of {{$d.Total}} channels shown{{if and (eq $d.Have "") $d.Skipped}} ({{$d.Skipped}} with a library logo hidden){{end}}
   · {{$d.Confident}} near-certain.</p>
 {{if $d.Rows}}
 <form method="post" action="/admin/logos/apply">
-  {{if $d.All}}<input type="hidden" name="all" value="1">{{end}}
+  {{with $d.Query}}<input type="hidden" name="q" value="{{.}}">{{end}}
+  {{with $d.GroupID}}<input type="hidden" name="group" value="{{.}}">{{end}}
+  {{with $d.Have}}<input type="hidden" name="have" value="{{.}}">{{end}}
+  {{with $d.Fit}}<input type="hidden" name="fit" value="{{.}}">{{end}}
   <div class="row sticky-actions"><button type="submit">Apply selected logos</button></div>
   <div class="table-wrap"><table class="stack logo-suggest">
     <thead><tr><th>Channel</th><th>Logo</th></tr></thead>
@@ -34,6 +58,7 @@
   </table></div>
   <div class="row"><button type="submit">Apply selected logos</button></div>
 </form>
-{{else}}<div class="card empty"><p>Every channel has a logo from the library.</p></div>{{end}}
+{{else if $d.Filtered}}<div class="card empty"><p>No channel matches this filter.</p><p class="muted"><a href="/admin/logos/suggest">Clear the filter</a></p></div>
+{{else}}<div class="card empty"><p>{{if eq $d.Have "none"}}Every channel has a logo.{{else}}Every channel has a logo from the library.{{end}}</p></div>{{end}}
 {{end}}
 {{end}}

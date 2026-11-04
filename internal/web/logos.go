@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -207,12 +208,93 @@ type logoSuggestion struct {
 }
 
 type logoSuggestData struct {
-	Rows      []logoSuggestion
-	All       bool // channels that already have a library logo too
+	Rows []logoSuggestion
+	logoSuggestFilter
+	Groups    []db.ChannelGroup
+	Total     int // channels the current-logo filter lets through
 	Confident int
 	Skipped   int // channels hidden because they have a library logo
 	Library   int
 	Flash     string
+}
+
+// logoSuggestFilter narrows the bulk page. Have is which current logos
+// show: "" none from the library (the default), "none" no logo at all,
+// "all" every channel. Fit is how good the best suggestion is: "sure"
+// near-certain, "check" a suggestion to look at, "none" no suggestion.
+type logoSuggestFilter struct {
+	Query   string
+	GroupID int64 // 0 any, -1 no group
+	Have    string
+	Fit     string
+}
+
+func logoSuggestFilterOf(v url.Values) logoSuggestFilter {
+	f := logoSuggestFilter{Query: strings.TrimSpace(v.Get("q")), Have: v.Get("have"), Fit: v.Get("fit")}
+	f.GroupID, _ = strconv.ParseInt(v.Get("group"), 10, 64)
+	if v.Get("all") == "1" { // the old "show all" link
+		f.Have = "all"
+	}
+	if f.Have != "none" && f.Have != "all" {
+		f.Have = ""
+	}
+	if f.Fit != "sure" && f.Fit != "check" && f.Fit != "none" {
+		f.Fit = ""
+	}
+	return f
+}
+
+// Values is the filter as query parameters, defaults left out.
+func (f logoSuggestFilter) Values() url.Values {
+	v := url.Values{}
+	for k, s := range map[string]string{"q": f.Query, "have": f.Have, "fit": f.Fit} {
+		if s != "" {
+			v.Set(k, s)
+		}
+	}
+	if f.GroupID != 0 {
+		v.Set("group", strconv.FormatInt(f.GroupID, 10))
+	}
+	return v
+}
+
+// Filtered reports whether anything beyond the current-logo filter is set.
+func (f logoSuggestFilter) Filtered() bool { return f.Query != "" || f.GroupID != 0 || f.Fit != "" }
+
+// keeps reports whether the filter lets a channel through, before its
+// suggestions are known.
+func (f logoSuggestFilter) keeps(c db.Channel) bool {
+	switch {
+	case f.GroupID > 0 && (c.GroupID == nil || *c.GroupID != f.GroupID):
+		return false
+	case f.GroupID == -1 && c.GroupID != nil:
+		return false
+	case f.Have == "none" && c.LogoUrl != "":
+		return false
+	}
+	if f.Query == "" {
+		return true
+	}
+	name := strings.ToLower(c.Name)
+	for _, w := range strings.Fields(strings.ToLower(f.Query)) {
+		if !strings.Contains(name, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// fits reports whether a channel's suggestions pass the fit filter.
+func (f logoSuggestFilter) fits(hits []logos.Hit) bool {
+	switch f.Fit {
+	case "sure":
+		return len(hits) > 0 && hits[0].Confident()
+	case "check":
+		return len(hits) > 0 && !hits[0].Confident()
+	case "none":
+		return len(hits) == 0
+	}
+	return true
 }
 
 // logosSuggest is the bulk page: a suggested logo for every channel that
@@ -227,7 +309,11 @@ func (ui *UI) logosSuggest(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "list channels", err)
 		return
 	}
-	d := logoSuggestData{All: r.URL.Query().Get("all") == "1"}
+	d := logoSuggestData{logoSuggestFilter: logoSuggestFilterOf(r.URL.Query())}
+	if d.Groups, err = ui.Store.ListChannelGroups(r.Context()); err != nil {
+		ui.fail(w, "list groups", err)
+		return
+	}
 	d.Library, _ = ui.Logos.Counts()
 	if n := r.URL.Query().Get("applied"); n != "" {
 		d.Flash = "Logos set on " + n + " channels."
@@ -238,11 +324,18 @@ func (ui *UI) logosSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 	prefer := ui.Logos.PreferredCountry(names)
 	for _, c := range chans {
-		if _, ours := ui.Logos.PathOf(c.LogoUrl); ours && !d.All {
+		if _, ours := ui.Logos.PathOf(c.LogoUrl); ours && d.Have == "" {
 			d.Skipped++
 			continue
 		}
+		d.Total++
+		if !d.keeps(c) {
+			continue
+		}
 		row := logoSuggestion{Channel: c, Hits: ui.Logos.Suggest(c.Name, prefer, 4)}
+		if !d.fits(row.Hits) {
+			continue
+		}
 		if len(row.Hits) > 0 && row.Hits[0].Confident() && row.Hits[0].URL != c.LogoUrl {
 			row.Pick = row.Hits[0].Path
 			d.Confident++
@@ -283,9 +376,8 @@ func (ui *UI) logosApply(w http.ResponseWriter, r *http.Request) {
 		n++
 	}
 	ui.Log.Info("web: channel logos set", "channels", n)
-	target := Prefix + "/logos/suggest?applied=" + strconv.Itoa(n)
-	if r.PostForm.Get("all") == "1" {
-		target += "&all=1"
-	}
+	v := logoSuggestFilterOf(r.PostForm).Values()
+	v.Set("applied", strconv.Itoa(n))
+	target := Prefix + "/logos/suggest?" + v.Encode()
 	ui.redirect(w, r, target)
 }
