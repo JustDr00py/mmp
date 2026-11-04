@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -101,12 +102,39 @@ func TestLogosPages(t *testing.T) {
 	// Bulk suggestions: the confident ones selected, library logos left out.
 	_, body = b.get("/admin/logos/suggest")
 	hgtvPick := `name="logo_` + strconv.FormatInt(hgtv.ID, 10) + `" value="library/countries/united-states/hgtv-us.png" checked`
-	if !strings.Contains(body, hgtvPick) || !strings.Contains(body, "1 already have one") || strings.Contains(body, ">ZDF<") ||
+	if !strings.Contains(body, hgtvPick) || !strings.Contains(body, "3 of 3 channels shown (1 with a library logo hidden)") || strings.Contains(body, ">ZDF<") ||
 		!strings.Contains(body, `name="logo_`+strconv.FormatInt(odd.ID, 10)+`" value="" checked`) {
 		t.Fatalf("suggest page:\n%s", body)
 	}
 	if _, body = b.get("/admin/logos/suggest?all=1"); !strings.Contains(body, ">ZDF<") {
 		t.Errorf("suggest all lacks ZDF")
+	}
+	if _, body = b.get("/admin/logos/suggest?have=all"); !strings.Contains(body, ">ZDF<") || !strings.Contains(body, "4 of 4 channels shown") {
+		t.Errorf("suggest have=all lacks ZDF")
+	}
+	// Filters: name words, current logo, best fit.
+	for query, want := range map[string][]string{
+		"q=usa+west":        {">USA TNT West<"},
+		"have=none":         {">USA TNT West<", ">Something Unknown<"},
+		"fit=none":          {">Something Unknown<"},
+		"fit=sure&have=all": {">USA HGTV East<", ">USA TNT West<", ">ZDF<"},
+		"q=nothing":         {"No channel matches this filter."},
+	} {
+		_, body := b.get("/admin/logos/suggest?" + query)
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Errorf("suggest?%s lacks %s", query, w)
+			}
+		}
+		for _, name := range []string{">USA HGTV East<", ">USA TNT West<", ">Something Unknown<", ">ZDF<"} {
+			if !slices.Contains(want, name) && strings.Contains(body, name) {
+				t.Errorf("suggest?%s shows %s", query, name)
+			}
+		}
+	}
+	// Applying keeps the filter.
+	if resp, _ := b.post("/admin/logos/apply", url.Values{"q": {"usa"}, "fit": {"sure"}}, b.base); resp.Header.Get("Location") != "/admin/logos/suggest?applied=0&fit=sure&q=usa" {
+		t.Errorf("filtered apply = %s", resp.Header.Get("Location"))
 	}
 	form := url.Values{
 		"logo_" + strconv.FormatInt(hgtv.ID, 10): {"library/countries/united-states/hgtv-us.png"},
