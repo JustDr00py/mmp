@@ -238,9 +238,18 @@ func TestHLSOutputSlotLifecycle(t *testing.T) {
 		t.Errorf("TS after the lease expired = %d", code)
 	}
 	stop()
+	// The server frees the slot once it sees the disconnect, not on stop.
+	for deadline := time.Now().Add(3 * time.Second); hs.Access.ActiveConnections(1) != 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("TS slot not freed: slots %d", hs.Access.ActiveConnections(1))
+		}
+	}
 	// And at the limit, a new HLS start is refused.
-	_, stop = play(t, srv.URL, "/live/alice/alice-pw1/10.ts")
+	code, stop = play(t, srv.URL, "/live/alice/alice-pw1/10.ts")
 	defer stop()
+	if code != 200 {
+		t.Fatalf("second TS = %d, want 200", code)
+	}
 	if resp, _ := httpGet(t, noRedirect, srv.URL+"/live/alice/alice-pw1/10.m3u8"); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("HLS at the limit = %d, want 403", resp.StatusCode)
 	}
