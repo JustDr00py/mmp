@@ -166,6 +166,57 @@
     field.focus();
   });
 
+  // [data-no-enter]: Enter in this field does not submit its form (a
+  // search box inside another form).
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.closest?.('[data-no-enter]')) e.preventDefault();
+  });
+
+  // Logo picker in the channel form: [data-logo-pick="url"] tiles fill
+  // #logo_url (and its [data-logo-preview]); [data-logo-upload] uploads the
+  // chosen file and picks it.
+  const logoPreview = () => {
+    const field = document.getElementById('logo_url');
+    const img = document.querySelector('[data-logo-preview]');
+    if (!field || !img) return;
+    if (field.value) {
+      img.src = field.value;
+      img.hidden = false;
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+    }
+    document.querySelectorAll('[data-logo-pick]').forEach((b) => {
+      b.classList.toggle('picked', b.dataset.logoPick === field.value);
+    });
+  };
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-logo-pick]');
+    const field = document.getElementById('logo_url');
+    if (!btn || !field) return;
+    field.value = btn.dataset.logoPick;
+    logoPreview();
+  });
+  document.addEventListener('input', (e) => { if (e.target.id === 'logo_url') logoPreview(); });
+  document.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'logo-hits') logoPreview(); });
+  document.addEventListener('change', async (e) => {
+    const input = e.target.closest?.('[data-logo-upload]');
+    const hits = document.getElementById('logo-hits');
+    if (!input || !input.files.length || !hits) return;
+    const body = new FormData();
+    body.append('file', input.files[0]);
+    body.append('name', document.getElementById('channel_name')?.value || '');
+    input.value = '';
+    hits.textContent = 'Uploading…';
+    try {
+      const resp = await fetch('/admin/logos/upload?picker=1', { method: 'POST', body, credentials: 'same-origin' });
+      hits.innerHTML = await resp.text();
+      hits.querySelector('[data-logo-pick]')?.click();
+    } catch {
+      hits.textContent = 'The upload failed; try again.';
+    }
+  });
+
   // <div data-sse="/url" data-sse-state="#el">: the server re-renders the
   // block and sends it as a "live" event; the browser reconnects on its own.
   const bars = (root) => root.querySelectorAll('[data-pct]').forEach((el) => { el.style.width = `${el.dataset.pct}%`; });

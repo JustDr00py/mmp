@@ -1,0 +1,55 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Logos</h1>
+    <p class="lede">Channel logos that MMP serves to players itself, from a copy of the
+      <a href="https://github.com/tv-logo/tv-logos" target="_blank" rel="noopener">tv-logos</a> collection and from logos you upload.
+      Pick one in a channel's settings, or set many at once from the suggestions.</p></div>
+  <a class="button" href="/admin/logos/suggest">Suggest logos for channels</a>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<div class="split">
+<section>
+  <h2>Library</h2>
+  <div class="card">
+    {{if $d.State.Running}}<p><span class="pill warn">downloading</span> Started {{when $d.State.Tried}}. This takes a few minutes; reload to check.</p>
+    {{else if $d.Library}}<p><strong>{{$d.Library}}</strong> logos{{if not $d.State.Updated.IsZero}}, downloaded {{when $d.State.Updated}}{{end}}.</p>
+    {{else}}<p>The library has not been downloaded yet. It is about 250 MB.</p>{{end}}
+    {{with $d.State.Error}}<p class="errmsg">The last update failed: {{.}}</p>{{end}}
+    <form method="post" action="/admin/logos/update" class="row">
+      <button type="submit"{{if $d.State.Running}} disabled{{end}}>{{if $d.Library}}Update now{{else}}Download library{{end}}</button>
+      <span class="hint">{{if $d.Interval}}Once downloaded, it updates on its own every {{$d.Interval}}.{{else}}It updates only when you press the button.{{end}}
+        Logos you picked keep working; a logo removed upstream disappears with the next update.</span>
+    </form>
+  </div>
+
+  <h2>Search</h2>
+  <form method="get" action="/admin/logos" class="row">
+    <input type="search" name="q" value="{{$d.Query}}" placeholder="ktla, cw 5, hbo, united-kingdom…" aria-label="Search logos">
+    <button type="submit" class="secondary">Search</button>
+  </form>
+  {{if $d.Query}}{{template "logo-hits" $d.Results}}{{end}}
+</section>
+
+<section>
+  <h2>Your logos</h2>
+  <form class="card form" method="post" action="/admin/logos/upload" enctype="multipart/form-data">
+    <label>Image (PNG, JPEG, GIF, WebP or SVG, up to 5 MB)<input type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg" required></label>
+    <label>Name<input name="name" placeholder="e.g. KTLA 5 (blank: the file's name)">
+      <span class="hint">becomes the file name, and what searches and suggestions match</span></label>
+    <div class="row"><button type="submit" class="secondary">Upload</button></div>
+  </form>
+  {{if $d.Uploaded}}
+  <ul class="logo-grid">{{range $d.Uploaded}}
+    <li><a class="logo-tile" href="{{.URL}}" target="_blank" rel="noopener" title="{{.Name}}">
+        <span class="logo-img"><img src="{{.URL}}" alt="" loading="lazy"></span>
+        <span class="logo-name">{{.Name}}</span></a>
+      <form method="post" action="/admin/logos/uploads/{{.Name}}/delete" data-confirm="Delete {{.Name}}? Channels using it lose their logo.">
+        <button type="submit" class="small secondary">Delete</button></form></li>{{end}}
+  </ul>
+  {{else}}<p class="sub">No uploaded logos yet.</p>{{end}}
+</section>
+</div>
+{{end}}

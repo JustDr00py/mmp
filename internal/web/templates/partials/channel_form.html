@@ -3,7 +3,7 @@
   {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
   <div class="grid3">
     <label>Number<input name="number" type="number" min="1" max="99999" value="{{.Number}}"></label>
-    <label class="span2">Name<input name="name" value="{{.Name}}" required></label>
+    <label class="span2">Name<input id="channel_name" name="name" value="{{.Name}}" required></label>
   </div>
   <div class="grid2">
     <label>Group
@@ -24,9 +24,23 @@
     <label>tvg-id<input id="tvg_id" name="tvg_id" value="{{.TvgID}}" placeholder="links the guide (XMLTV channel id)" autocomplete="off"
         hx-get="/admin/epg/channels/suggest" hx-trigger="input changed delay:300ms" hx-target="#tvg-suggest" hx-sync="this:replace">
       <span class="hint">type a name (e.g. hbo west) to pick from your guides · <a href="/admin/epg#guide-ids">search guides</a></span></label>
-    <label>Logo URL<input name="logo_url" type="url" value="{{.Logo}}"></label>
+    <label>Logo URL<span class="logo-field"><img class="logo-preview" data-logo-preview{{with .Logo}} src="{{.}}"{{else}} hidden{{end}} alt="" referrerpolicy="no-referrer"><input id="logo_url" name="logo_url" type="url" value="{{.Logo}}"></span>
+      {{if .LogoLibrary}}<span class="hint">pick one from the library below, or paste any image URL</span>{{end}}</label>
   </div>
   <div id="tvg-suggest" aria-live="polite"></div>
+  {{if .LogoLibrary}}
+  <fieldset class="logo-picker">
+    <legend>Logo library</legend>
+    <div class="row">
+      <input type="search" name="q" data-no-enter placeholder="search logos: ktla, cw 5, hbo…" autocomplete="off" aria-label="Search logos"
+        hx-get="/admin/logos/pick" hx-trigger="input changed delay:300ms, search" hx-target="#logo-hits" hx-sync="this:replace" hx-include="#channel_name">
+      <button type="button" class="small secondary" hx-get="/admin/logos/pick" hx-include="#channel_name" hx-target="#logo-hits">Suggest from name</button>
+      <label class="button small secondary">Upload…<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg" data-logo-upload hidden></label>
+    </div>
+    <div id="logo-hits" aria-live="polite" hx-get="/admin/logos/pick" hx-trigger="load" hx-include="#channel_name"><p class="sub">Loading suggestions…</p></div>
+    <p class="hint">Uploads are saved under the channel's name and can be managed on the <a href="/admin/logos">Logos</a> page.</p>
+  </fieldset>
+  {{end}}
   <label>Guide
     <select name="guide_mode">
       <option value="">— the group's setting —</option>

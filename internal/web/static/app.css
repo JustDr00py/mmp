@@ -557,3 +557,33 @@ button.gp.cut-stop { border-top-right-radius: 0; border-bottom-right-radius: 0; 
 /* Guide id suggestions under a channel's tvg-id field. */
 ul.tvg-picks { margin: -.25rem 0 .75rem; }
 ul.tvg-picks button.link { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; text-align: left; width: 100%; }
+
+/* Logos: picker grid (channel form, Logos page) and bulk suggestions. */
+.logo-field { display: flex; align-items: center; gap: .5rem; }
+.logo-field input { flex: 1; min-width: 0; }
+.logo-preview { width: 40px; height: 32px; object-fit: contain; flex: none; border-radius: 5px; background: var(--card-2); border: 1px solid var(--line); }
+.logo-preview[hidden] { display: none; }
+fieldset.logo-picker { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .75rem .9rem; margin: 0 0 1rem; min-width: 0; }
+fieldset.logo-picker legend { padding: 0 .35rem; font-weight: 600; }
+fieldset.logo-picker .row { flex-wrap: wrap; }
+fieldset.logo-picker input[type=search] { flex: 1; min-width: 12rem; }
+ul.logo-grid { list-style: none; margin: .75rem 0; padding: 0; display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+ul.logo-grid li { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.logo-tile { display: flex; flex-direction: column; align-items: center; gap: .3rem; width: 100%; padding: .55rem; text-align: center;
+  background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; text-decoration: none; font: inherit; }
+.logo-tile:hover { border-color: var(--accent); background: var(--card); color: var(--fg); }
+.logo-tile.picked { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.logo-img { display: flex; align-items: center; justify-content: center; width: 100%; height: 56px; border-radius: 5px;
+  background: repeating-conic-gradient(var(--card-2) 0 25%, var(--line) 0 50%) 0 0 / 12px 12px; }
+.logo-img img { max-width: 92%; max-height: 50px; object-fit: contain; }
+.logo-name { font-size: .78rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-tile .sub { font-size: .72rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-choices { display: flex; flex-wrap: wrap; gap: .5rem; }
+.logo-choice { display: flex; flex-direction: column; align-items: center; gap: .25rem; width: 120px; padding: .45rem; margin: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; font-weight: normal; }
+.logo-choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.logo-choice input { margin: 0; }
+.logo-choice .sub { font-size: .72rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-suggest td { vertical-align: top; }
+.sticky-actions { position: sticky; top: 0; z-index: 5; padding: .5rem 0; background: var(--bg); }
+@media (max-width: 760px) { .sticky-actions { top: 54px; } .logo-choice { width: calc(50% - .25rem); } }

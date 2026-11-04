@@ -23,9 +23,11 @@ LABEL org.opencontainers.image.source="https://github.com/JustDr00py/mmp" \
       org.opencontainers.image.description="MMP: self-hosted IPTV multiplexer with automatic failover" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apk add --no-cache ca-certificates tzdata \
- && mkdir -p /var/lib/mmp/backups && chown -R nobody:nobody /var/lib/mmp && chmod 700 /var/lib/mmp/backups
-# Backups go here; mount a volume on it to keep them (see docker-compose.yml).
-ENV MMP_BACKUP_DIR=/var/lib/mmp/backups
+ && mkdir -p /var/lib/mmp/backups /var/lib/mmp/logos && chown -R nobody:nobody /var/lib/mmp && chmod 700 /var/lib/mmp/backups
+# Backups and the logo library go here; mount volumes on them to keep them
+# (see docker-compose.yml).
+ENV MMP_BACKUP_DIR=/var/lib/mmp/backups \
+    MMP_LOGOS_DIR=/var/lib/mmp/logos
 COPY --from=build /out/mmp /usr/local/bin/mmp
 USER nobody:nobody
 EXPOSE 8080

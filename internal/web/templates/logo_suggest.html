@@ -1,0 +1,39 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>Logo suggestions</h1>
+    <p class="lede">The library logos that best fit each channel's name. Near-certain matches (90% and up) are selected;
+      check the rest, pick another or keep the current logo, then apply.</p></div>
+  <a class="button secondary" href="/admin/logos">Logos</a>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{if not $d.Library}}
+<div class="card empty"><p>The logo library has not been downloaded yet.</p><p class="muted">Download it on the <a href="/admin/logos">Logos</a> page first.</p></div>
+{{else}}
+<p class="sub">{{if $d.All}}All channels. <a href="/admin/logos/suggest">Hide the {{$d.Skipped}} with a library logo</a>{{else}}Channels without a library logo{{if $d.Skipped}} ({{$d.Skipped}} already have one: <a href="/admin/logos/suggest?all=1">show all</a>){{end}}{{end}}
+  · {{$d.Confident}} near-certain.</p>
+{{if $d.Rows}}
+<form method="post" action="/admin/logos/apply">
+  {{if $d.All}}<input type="hidden" name="all" value="1">{{end}}
+  <div class="row sticky-actions"><button type="submit">Apply selected logos</button></div>
+  <div class="table-wrap"><table class="stack logo-suggest">
+    <thead><tr><th>Channel</th><th>Logo</th></tr></thead>
+    <tbody>{{range $d.Rows}}{{$row := .}}
+    <tr>
+      <td class="cell-title"><a href="/admin/channels/{{.Channel.ID}}">{{.Channel.Name}}</a></td>
+      <td><div class="logo-choices">
+        <label class="logo-choice"><input type="radio" name="logo_{{.Channel.ID}}" value=""{{if not .Pick}} checked{{end}}>
+          <span class="logo-img">{{with .Channel.LogoUrl}}<img src="{{.}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="sub">none</span>{{end}}</span>
+          <span class="sub">keep current</span></label>
+        {{range .Hits}}<label class="logo-choice" title="{{.Folder}}/{{.Name}}"><input type="radio" name="logo_{{$row.Channel.ID}}" value="{{.Path}}"{{if eq .Path $row.Pick}} checked{{end}}>
+          <span class="logo-img"><img src="{{.URL}}" alt="" loading="lazy"></span>
+          <span class="sub">{{.Name}} · {{.Percent}}%</span></label>{{end}}
+        {{if not .Hits}}<span class="sub">no suggestion: pick one in the <a href="/admin/channels/{{.Channel.ID}}">channel's settings</a></span>{{end}}
+      </div></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  <div class="row"><button type="submit">Apply selected logos</button></div>
+</form>
+{{else}}<div class="card empty"><p>Every channel has a logo from the library.</p></div>{{end}}
+{{end}}
+{{end}}

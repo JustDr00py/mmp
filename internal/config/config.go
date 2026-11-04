@@ -134,6 +134,16 @@ type Config struct {
 	Backup struct {
 		Dir string `yaml:"dir"`
 	} `yaml:"backup"`
+	// Logos is the channel logo library MMP serves at /logos/.
+	Logos struct {
+		Dir string `yaml:"dir"` // the downloaded collection and uploads
+		// ArchiveURL is the .tar.gz the collection downloads from (a fork
+		// of tv-logo/tv-logos, say).
+		ArchiveURL string `yaml:"archive_url"`
+		// UpdateInterval re-downloads the collection this often once it
+		// has been downloaded; 0 updates only when asked.
+		UpdateInterval Duration `yaml:"update_interval"`
+	} `yaml:"logos"`
 	// Metrics is the Prometheus endpoint (/metrics).
 	Metrics struct {
 		Enabled bool   `yaml:"enabled"`
@@ -198,6 +208,9 @@ func Defaults() Config {
 	c.Match.AutoGroup = "source"
 	c.VOD.InfoTTL = Duration{24 * time.Hour}
 	c.Backup.Dir = "backups"
+	c.Logos.Dir = "logos"
+	c.Logos.ArchiveURL = "https://codeload.github.com/tv-logo/tv-logos/tar.gz/refs/heads/main"
+	c.Logos.UpdateInterval = Duration{7 * 24 * time.Hour}
 	c.VOD.EpisodeTTL = Duration{6 * time.Hour}
 	c.Metrics.Enabled = true
 	c.HLS.Enabled = true
@@ -315,6 +328,8 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_ADMIN_USERNAME", &c.Admin.Username)
 	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
 	str("MMP_BACKUP_DIR", &c.Backup.Dir)
+	str("MMP_LOGOS_DIR", &c.Logos.Dir)
+	str("MMP_LOGOS_ARCHIVE_URL", &c.Logos.ArchiveURL)
 	list := func(key string, dst *[]string) {
 		if v, ok := getenv(key); ok {
 			*dst = nil
@@ -357,6 +372,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 		boolv("MMP_MATCH_AUTO", &c.Match.Auto),
 		boolv("MMP_MATCH_AUTO_NEW_CHANNELS", &c.Match.AutoNewChannels),
 		dur("MMP_VOD_INFO_TTL", &c.VOD.InfoTTL),
+		dur("MMP_LOGOS_UPDATE_INTERVAL", &c.Logos.UpdateInterval),
 		dur("MMP_VOD_EPISODE_TTL", &c.VOD.EpisodeTTL),
 		boolv("MMP_METRICS_ENABLED", &c.Metrics.Enabled),
 		boolv("MMP_HLS_ENABLED", &c.HLS.Enabled),

@@ -29,6 +29,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/db"
 	eventlog "github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/health"
+	"github.com/JustDr00py/mmp/internal/logos"
 	"github.com/JustDr00py/mmp/internal/metrics"
 	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/netguard"
@@ -242,8 +243,17 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		return err
 	}
 	go backups.Scheduler.Run(ctx)
+	// Channel logos: served to players at /logos/, managed in the admin UI.
+	logoLib, err := logos.Open(cfg.Logos.Dir, cfg.Logos.ArchiveURL, cfg.BaseURL, netguard.Client(), log)
+	if err != nil {
+		log.Warn("logo library unavailable", "err", err)
+		logoLib = nil
+	} else {
+		srv.Mux().Handle(logos.URLPrefix+"*", logoLib.Handler())
+		go logoLib.RunSchedule(ctx, cfg.Logos.UpdateInterval.Duration)
+	}
 	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
-		Backups: backups, Restart: func() { restartSelf(log) },
+		Backups: backups, Logos: logoLib, LogoUpdateInterval: cfg.Logos.UpdateInterval.Duration, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
 		LoginLimit: loginLimit, Audit: auditLog, RootAPI: outputs.RootAPI,

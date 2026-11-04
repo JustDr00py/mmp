@@ -1,0 +1,10 @@
+{{define "logo-hits"}}
+{{if .Hits}}<ul class="logo-grid">{{range .Hits}}
+  <li>{{if $.Pick}}<button type="button" class="logo-tile" data-logo-pick="{{.URL}}" title="{{.Folder}}/{{.Name}}">{{else}}<a class="logo-tile" href="{{.URL}}" target="_blank" rel="noopener" title="{{.Folder}}/{{.Name}}">{{end}}
+    <span class="logo-img"><img src="{{.URL}}" alt="" loading="lazy"></span>
+    <span class="logo-name">{{.Name}}</span>
+    <span class="sub">{{if .Uploaded}}uploaded{{else}}{{.Folder}}{{end}}{{if .Score}} · {{.Percent}}%{{end}}</span>
+  {{if $.Pick}}</button>{{else}}</a>{{end}}</li>{{end}}
+</ul>
+{{else}}<p class="sub">{{.Empty}}</p>{{end}}
+{{end}}
