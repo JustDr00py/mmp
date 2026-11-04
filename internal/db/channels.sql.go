@@ -745,6 +745,20 @@ func (q *Queries) SetChannelGuideMode(ctx context.Context, arg SetChannelGuideMo
 	return err
 }
 
+const setChannelLogo = `-- name: SetChannelLogo :exec
+UPDATE channels SET logo_url = $2, updated_at = now() WHERE id = $1
+`
+
+type SetChannelLogoParams struct {
+	ID      int64  `json:"id"`
+	LogoUrl string `json:"logo_url"`
+}
+
+func (q *Queries) SetChannelLogo(ctx context.Context, arg SetChannelLogoParams) error {
+	_, err := q.db.Exec(ctx, setChannelLogo, arg.ID, arg.LogoUrl)
+	return err
+}
+
 const setChannelNumbers = `-- name: SetChannelNumbers :exec
 UPDATE channels SET number = ($1::int[])[array_position($2::bigint[], id)], updated_at = now()
 WHERE id = ANY($2::bigint[])

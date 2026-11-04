@@ -77,6 +77,9 @@ UPDATE channels SET
 WHERE id = $1
 RETURNING *;
 
+-- name: SetChannelLogo :exec
+UPDATE channels SET logo_url = $2, updated_at = now() WHERE id = $1;
+
 -- name: RenameChannel :exec
 UPDATE channels SET name = $2, updated_at = now() WHERE id = $1;
 

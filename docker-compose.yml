@@ -69,6 +69,8 @@ services:
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
+      # The channel logo library (Channels → Logos) and your uploaded logos.
+      - logos:/var/lib/mmp/logos
     # MMP_HTTP_BIND=127.0.0.1 publishes MMP to this host only (behind a
     # reverse proxy here); blank publishes it on every interface.
     ports:
@@ -93,3 +95,4 @@ networks:
 volumes:
   pgdata:
   backups:
+  logos:

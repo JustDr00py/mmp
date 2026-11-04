@@ -312,9 +312,11 @@ type channelForm struct {
 	Error                     string
 	Groups                    []db.ChannelGroup
 	Profiles                  []db.StreamProfile
+	LogoLibrary               bool // show the logo picker
 }
 
 func (ui *UI) withChoices(r *http.Request, f *channelForm) error {
+	f.LogoLibrary = ui.Logos != nil
 	var err error
 	if f.Groups, err = ui.Store.ListChannelGroups(r.Context()); err != nil {
 		return err

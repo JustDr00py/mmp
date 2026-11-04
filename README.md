@@ -18,7 +18,7 @@ stalls, errors or degrades, MMP switches to the next one **without dropping the 
 ![Dashboard: a card per live channel with its stream, media details, bitrate and viewers](docs/screenshots/dashboard.png)
 
 **Contents:** [Quick start](#quick-start-docker) · [From zero to playback](#from-zero-to-playback) ·
-[Running from source](#running-from-source) · [Configuration](#configuration) ·
+[Running from source](#running-from-source) · [Configuration](#configuration) · [Channel logos](#channel-logos) ·
 [Customer URLs](#customer-urls) · [Admin API](#admin-api) · [Monitoring](#monitoring) ·
 [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
@@ -465,6 +465,14 @@ because each probe uses one of the provider's connections.
 | `vod.info_ttl` | `MMP_VOD_INFO_TTL` | `24h` | re-fetch a movie's details from the panel after this |
 | `vod.episode_ttl` | `MMP_VOD_EPISODE_TTL` | `6h` | re-fetch a series' episode list after this |
 
+### Logos
+
+| Key | Env | Default | Meaning |
+|---|---|---|---|
+| `logos.dir` | `MMP_LOGOS_DIR` | `logos` (Docker: `/var/lib/mmp/logos`) | the downloaded logo library and uploaded logos |
+| `logos.archive_url` | `MMP_LOGOS_ARCHIVE_URL` | tv-logo/tv-logos `main` | `.tar.gz` the library downloads from; point it at your fork's `https://codeload.github.com/<you>/tv-logos/tar.gz/refs/heads/main` to use it instead |
+| `logos.update_interval` | `MMP_LOGOS_UPDATE_INTERVAL` | `168h` | re-download the library this often once it has been downloaded; `0` only when you press **Update now** |
+
 ### Security and monitoring
 
 | Key | Env | Default | Meaning |
@@ -508,6 +516,24 @@ docker compose start mmp
 ```
 
 To copy backups off the server: `docker compose cp mmp:/var/lib/mmp/backups ./backups`.
+
+## Channel logos
+
+MMP serves channel logos to players itself, at `<MMP_BASE_URL>/logos/…`, from two places:
+
+- **The library**: a copy of the community [tv-logos](https://github.com/tv-logo/tv-logos) collection
+  (about 11,000 logos, 250 MB). Download it from **Logos** in the sidebar; it updates itself weekly after
+  that. Updates replace the copy whole, so don't edit files in it: upload your own instead.
+- **Your uploads**: PNG, JPEG, GIF, WebP or SVG files, from the **Logos** page or straight from a channel's
+  settings. They are kept apart from the library, so updates never touch them.
+
+In a channel's settings, the logo picker suggests logos that fit the channel's name; type to search the
+library and uploads, or click **Upload…**. **Suggest logos for channels** (on the Logos page) does the
+whole lineup at once: near-certain matches are pre-selected, so you only review the rest and apply.
+
+In Docker the logos live in the `logos` volume (`/var/lib/mmp/logos`). Backups do not include them:
+the library downloads again, and to keep your uploads copy them off the server with
+`docker compose cp mmp:/var/lib/mmp/logos/uploads ./logo-uploads`.
 
 ## Customer URLs
 

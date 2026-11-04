@@ -27,6 +27,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/logos"
 	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
@@ -86,6 +87,7 @@ type Store interface {
 	GetChannel(ctx context.Context, id int64) (db.Channel, error)
 	CreateChannel(ctx context.Context, arg db.CreateChannelParams) (db.Channel, error)
 	UpdateChannel(ctx context.Context, arg db.UpdateChannelParams) (db.Channel, error)
+	SetChannelLogo(ctx context.Context, arg db.SetChannelLogoParams) error
 	SetChannelGuideMode(ctx context.Context, arg db.SetChannelGuideModeParams) error
 	DeleteChannel(ctx context.Context, id int64) error
 	DeleteChannels(ctx context.Context, channelIds []int64) (int64, error)
@@ -234,6 +236,11 @@ type Deps struct {
 	Audit *audit.Recorder
 	// Backups is the backup service; nil hides the page.
 	Backups *backup.Service
+	// Logos is the channel logo library; nil hides the page and picker.
+	Logos *logos.Library
+	// LogoUpdateInterval is how often the logo library re-downloads
+	// (shown on the Logos page); 0 means never on its own.
+	LogoUpdateInterval time.Duration
 	// Restart restarts MMP after a restore (nil: no restart).
 	Restart func()
 	// Preview powers the pop-up player on the match and channel lists;
@@ -272,6 +279,7 @@ var nav = []navItem{
 	{Prefix + "/epg", "EPG", "epg", ""},
 	{Prefix + "/match", "Match", "match", "Lineup"},
 	{Prefix + "/channels", "Channels", "tv", ""},
+	{Prefix + "/logos", "Logos", "image", ""},
 	{Prefix + "/groups", "Groups", "folder", ""},
 	{Prefix + "/bouquets", "Bouquets", "stack", ""},
 	{Prefix + "/vod", "Movies & Series", "film", ""},
@@ -283,7 +291,7 @@ var nav = []navItem{
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone", "logos", "logo_suggest"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -413,6 +421,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountProfiles(r)
 			ui.mountVOD(r)
 			ui.mountBackups(r)
+			ui.mountLogos(r)
 			ui.mountLive(r)
 			ui.mountPreview(r)
 		})

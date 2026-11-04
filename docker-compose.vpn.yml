@@ -133,6 +133,8 @@ services:
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
+      # The channel logo library (Channels → Logos) and your uploaded logos.
+      - logos:/var/lib/mmp/logos
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
       interval: 10s
@@ -150,3 +152,4 @@ networks:
 volumes:
   pgdata:
   backups:
+  logos:
