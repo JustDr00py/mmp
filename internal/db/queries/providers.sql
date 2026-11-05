@@ -4,9 +4,9 @@
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
     max_connections, user_agent, refresh_interval_secs, priority, enabled,
-    refresh_max_disable_pct, backbone, group_filter
+    refresh_max_disable_pct, backbone, group_filter, vpn_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 ) RETURNING *;
 
 -- name: GetProvider :one
@@ -16,7 +16,7 @@ SELECT * FROM providers WHERE id = $1;
 UPDATE providers SET
     name = $2, type = $3, url = $4, username = $5, password = $6, epg_url = $7,
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
-    priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, updated_at = now()
+    priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, vpn_url = $15, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -59,3 +59,7 @@ WHERE id = ANY(sqlc.arg('ids')::bigint[]);
 
 -- name: GetProvidersByIDs :many
 SELECT * FROM providers WHERE id = ANY(sqlc.arg('ids')::bigint[]) ORDER BY priority, name;
+
+-- name: ListProvidersWithVPNURL :many
+-- Providers with a VPN address (refreshed when MMP starts or stops using it).
+SELECT * FROM providers WHERE vpn_url <> '' AND enabled ORDER BY priority, name;

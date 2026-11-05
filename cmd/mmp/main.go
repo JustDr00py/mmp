@@ -256,6 +256,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	// Gluetun (docker-compose.vpn.yml): Settings → VPN, and the location
 	// chosen there is set again whenever gluetun loses it.
 	var vpn *web.VPN
+	source.SetBehindVPN(cfg.Gluetun.URL != "") // providers' VPN URLs apply
 	if gc := cfg.Gluetun; gc.URL != "" {
 		client := &gluetun.Client{BaseURL: gc.URL, APIKey: gc.APIKey}
 		keeper := &gluetun.Keeper{Client: client, Store: queries, Log: log}
@@ -286,6 +287,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	}
 
 	// Background workers.
+	go refresher.RefreshOnVPNChange(ctx)
 	go func() {
 		if err := refresher.Start(ctx, time.Minute, cfg.Refresh.EPGInterval.Duration); err != nil {
 			log.Error("refresher stopped", "err", err)

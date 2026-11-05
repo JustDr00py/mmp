@@ -104,6 +104,12 @@ database (backups include it) and set again whenever gluetun restarts, in place 
 `GLUETUN_API_KEY`, and reads gluetun's server list from the shared `gluetun` volume for the country and
 city lists.
 
+Some providers refuse VPN addresses on their regular URL and give VPN users their own address. Put it in
+the provider's **VPN URL** field: MMP uses it instead of the URL whenever it runs behind gluetun (refreshing,
+guides, movies and series), and the regular URL otherwise. Saving a new one refreshes the provider, and
+switching between `docker-compose.yml` and `docker-compose.vpn.yml` refreshes every provider that has one,
+so its stream addresses follow.
+
 Upgrading from a version without this page: add `GLUETUN_API_KEY` to `.env`, then
 `docker compose -f docker-compose.vpn.yml up -d --force-recreate gluetun mmp`.
 

@@ -323,7 +323,7 @@ func (h *hostPacer) wait(ctx context.Context, rawURL string) error {
 func (r *Refresher) check(ctx context.Context, p db.Provider) error {
 	switch p.Type {
 	case "xtream":
-		client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+		client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 		if err != nil {
 			return err
 		}
@@ -332,18 +332,18 @@ func (r *Refresher) check(ctx context.Context, p db.Provider) error {
 		}
 		return nil
 	case "m3u":
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, ProviderURL(p), nil)
 		if err != nil {
-			return fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url))
+			return fmt.Errorf("download playlist %s: invalid url", redact.URL(ProviderURL(p)))
 		}
 		req.Header.Set("User-Agent", userAgentOr(p.UserAgent))
 		resp, err := r.hc.Do(req)
 		if err != nil {
-			return fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
+			return fmt.Errorf("download playlist %s: %w", redact.URL(ProviderURL(p)), redact.Err(err))
 		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("download playlist %s: status %d", redact.URL(p.Url), resp.StatusCode)
+			return fmt.Errorf("download playlist %s: status %d", redact.URL(ProviderURL(p)), resp.StatusCode)
 		}
 		return nil
 	default:
@@ -398,7 +398,7 @@ func (r *Refresher) fetchEntries(ctx context.Context, p db.Provider) ([]streamEn
 }
 
 func (r *Refresher) fetchXtream(ctx context.Context, p db.Provider) ([]streamEntry, error) {
-	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -435,18 +435,18 @@ func (r *Refresher) fetchXtream(ctx context.Context, p db.Provider) ([]streamEnt
 }
 
 func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ProviderURL(p), nil)
 	if err != nil {
-		return nil, fmt.Errorf("download playlist %s: invalid url", redact.URL(p.Url)) // err echoes the raw URL
+		return nil, fmt.Errorf("download playlist %s: invalid url", redact.URL(ProviderURL(p))) // err echoes the raw URL
 	}
 	req.Header.Set("User-Agent", userAgentOr(p.UserAgent))
 	resp, err := r.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download playlist %s: %w", redact.URL(p.Url), redact.Err(err))
+		return nil, fmt.Errorf("download playlist %s: %w", redact.URL(ProviderURL(p)), redact.Err(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download playlist %s: status %d", redact.URL(p.Url), resp.StatusCode)
+		return nil, fmt.Errorf("download playlist %s: status %d", redact.URL(ProviderURL(p)), resp.StatusCode)
 	}
 
 	var out []streamEntry
@@ -465,7 +465,7 @@ func (r *Refresher) fetchM3U(ctx context.Context, p db.Provider) ([]streamEntry,
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("parse playlist %s: %w", redact.URL(p.Url), err)
+		return nil, fmt.Errorf("parse playlist %s: %w", redact.URL(ProviderURL(p)), err)
 	}
 	return out, nil
 }
@@ -479,7 +479,7 @@ func (r *Refresher) RefreshEPG(ctx context.Context, p db.Provider) (int, error) 
 	}
 	xmltvURL := p.EpgUrl
 	if p.Type == "xtream" && xmltvURL == "" {
-		client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+		client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 		if err != nil {
 			return 0, err
 		}
@@ -732,7 +732,7 @@ func (r *Refresher) refreshDue(ctx context.Context, epgInterval time.Duration) {
 	}
 	pacer := hostPacer{gap: sameHostGap}
 	for _, p := range due {
-		if pacer.wait(ctx, p.Url) != nil {
+		if pacer.wait(ctx, ProviderURL(p)) != nil {
 			return
 		}
 		if err := r.CheckProvider(ctx, p); err != nil && ctx.Err() == nil {

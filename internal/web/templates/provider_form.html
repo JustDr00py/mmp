@@ -26,6 +26,9 @@
   </div>
   <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
     <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
+  <label>VPN URL <span class="muted">(optional)</span><input name="vpn_url" type="url" value="{{$f.VPNURL}}" placeholder="the address this provider gives VPN users">
+    <span class="hint">Some providers refuse VPN addresses on their regular URL and give VPN users another one. MMP uses this one
+      instead of URL while it runs behind the VPN{{if $f.BehindVPN}} (it does now){{else}} (it does not now){{end}}; blank always uses URL.</span></label>
   <div class="grid2">
     <label>Username<input name="username" value="{{$f.Username}}" autocomplete="off"></label>
     <label>Password<input name="password" type="password" autocomplete="new-password"
