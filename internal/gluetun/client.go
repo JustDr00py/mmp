@@ -25,7 +25,11 @@ type Client struct {
 	// APIKey is sent as X-API-Key (gluetun's apikey role). Changing the
 	// location needs it; gluetun refuses settings requests without a role.
 	APIKey string
-	HTTP   *http.Client // nil: a client with a 45s timeout
+	// HealthURL is gluetun's health server (http://127.0.0.1:9999 by
+	// default in gluetun): 200 while the tunnel passes traffic. Blank:
+	// unknown, Healthy reports true.
+	HealthURL string
+	HTTP      *http.Client // nil: a client with a 45s timeout
 }
 
 // ErrUnauthorized means gluetun refused the API key (or none was set).
@@ -131,6 +135,36 @@ func (c *Client) Status(ctx context.Context) (string, error) {
 	}
 	err := c.do(ctx, http.MethodGet, "/v1/vpn/status", nil, &s)
 	return s.Status, err
+}
+
+// Transitional reports whether the tunnel is between states (starting or
+// stopping). Gluetun hangs on settings changes made then, and can get
+// stuck stopping for good.
+func Transitional(status string) bool { return status == "starting" || status == "stopping" }
+
+// Healthy asks gluetun's health server whether traffic gets through the
+// tunnel. False while gluetun is still trying servers after a change (its
+// "running" status does not say so).
+func (c *Client) Healthy(ctx context.Context) (bool, error) {
+	if c.HealthURL == "" {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.HealthURL, nil)
+	if err != nil {
+		return false, err
+	}
+	hc := c.HTTP
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("gluetun health: %w", err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK, nil
 }
 
 // Settings reads the VPN type, provider and server location gluetun runs

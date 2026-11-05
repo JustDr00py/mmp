@@ -142,6 +142,9 @@ type Config struct {
 		APIKey string `yaml:"api_key"` // gluetun's apikey role (X-API-Key)
 		// ServersFile is gluetun's servers.json, for the location lists.
 		ServersFile string `yaml:"servers_file"`
+		// HealthURL is gluetun's health server: location changes wait
+		// while it reports the tunnel down (gluetun still trying servers).
+		HealthURL string `yaml:"health_url"`
 	} `yaml:"gluetun"`
 	// Logos is the channel logo library MMP serves at /logos/.
 	Logos struct {
@@ -341,6 +344,7 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_GLUETUN_URL", &c.Gluetun.URL)
 	str("MMP_GLUETUN_API_KEY", &c.Gluetun.APIKey)
 	str("MMP_GLUETUN_SERVERS_FILE", &c.Gluetun.ServersFile)
+	str("MMP_GLUETUN_HEALTH_URL", &c.Gluetun.HealthURL)
 	str("MMP_LOGOS_ARCHIVE_URL", &c.Logos.ArchiveURL)
 	list := func(key string, dst *[]string) {
 		if v, ok := getenv(key); ok {

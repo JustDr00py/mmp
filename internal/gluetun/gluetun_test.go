@@ -92,8 +92,9 @@ func TestServerList(t *testing.T) {
 type fakeGluetun struct {
 	mu   sync.Mutex
 	loc  Location
-	puts []string
-	key  string
+	puts   []string
+	key    string
+	status string // "" = running
 }
 
 func (f *fakeGluetun) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +126,11 @@ func (f *fakeGluetun) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /v1/publicip/ip":
 		io.WriteString(w, `{"public_ip":"1.2.3.4","country":"Netherlands","city":"Amsterdam"}`)
 	case "GET /v1/vpn/status":
-		io.WriteString(w, `{"status":"running"}`)
+		st := f.status
+		if st == "" {
+			st = "running"
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": st})
 	case "PUT /v1/vpn/status":
 		f.puts = append(f.puts, "status")
 		io.WriteString(w, `{"outcome":"ok"}`)
@@ -185,6 +190,11 @@ func TestKeeper(t *testing.T) {
 		t.Fatalf("Sync = %v, %v", applied, err)
 	}
 	f.loc = Location{Countries: []string{"Netherlands"}, Hostnames: []string{"nl1"}} // restarted with .env
+	f.status = "stopping" // mid-change: leave gluetun alone until it settles
+	if applied, err := k.Sync(ctx); err != nil || applied {
+		t.Fatalf("Sync while stopping = %v, %v", applied, err)
+	}
+	f.status = ""
 	if applied, err := k.Sync(ctx); err != nil || !applied || !f.loc.Equal(want) {
 		t.Fatalf("Sync after restart = %v, %v, %+v", applied, err, f.loc)
 	}
@@ -199,6 +209,25 @@ func TestKeeper(t *testing.T) {
 	f.loc = Location{Countries: []string{"Sweden"}}
 	if applied, _ := k.Sync(ctx); applied {
 		t.Fatal("Sync must leave gluetun alone once .env is in charge")
+	}
+
+	healthy := true
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !healthy {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer hs.Close()
+	if ok, err := (&Client{}).Healthy(ctx); !ok || err != nil {
+		t.Errorf("no health URL: %v, %v", ok, err)
+	}
+	hc := &Client{HealthURL: hs.URL}
+	if ok, err := hc.Healthy(ctx); !ok || err != nil {
+		t.Errorf("healthy: %v, %v", ok, err)
+	}
+	healthy = false
+	if ok, err := hc.Healthy(ctx); ok || err != nil {
+		t.Errorf("unhealthy: %v, %v", ok, err)
 	}
 
 	n := len(f.puts)

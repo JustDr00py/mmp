@@ -76,6 +76,11 @@ services:
       # Networks mmp may reach outside the tunnel: the private network with
       # postgres (required), plus e.g. your LAN for a provider hosted there.
       FIREWALL_OUTBOUND_SUBNETS: ${VPN_OUTBOUND_SUBNETS:-172.29.0.0/24}
+      # Refresh the provider's server list daily. Gluetun's built-in list
+      # goes stale: most servers in it get retired, and a location change
+      # then tries dead ones (no handshake answer) for minutes, or forever.
+      UPDATER_PERIOD: ${VPN_UPDATER_PERIOD:-24h}
+      UPDATER_VPN_SERVICE_PROVIDERS: ${VPN_SERVICE_PROVIDER}
       # The control server (Settings → VPN in MMP) answers only this key, and
       # does not log each of the page's status checks.
       HTTP_CONTROL_SERVER_LOG: "off"
@@ -145,6 +150,9 @@ services:
       MMP_GLUETUN_URL: http://127.0.0.1:8000
       MMP_GLUETUN_API_KEY: ${GLUETUN_API_KEY:?set GLUETUN_API_KEY in .env (see .env.example)}
       MMP_GLUETUN_SERVERS_FILE: /var/lib/mmp/gluetun/servers.json
+      # Gluetun's health server: location changes wait while it still
+      # looks for a working server (changing then can wedge gluetun).
+      MMP_GLUETUN_HEALTH_URL: http://127.0.0.1:9999
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups

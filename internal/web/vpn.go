@@ -80,6 +80,9 @@ type vpnData struct {
 	// what was just submitted).
 	Country, City, Region string
 	Flash, Error          string
+	// Force: gluetun was still connecting; the form offers to change
+	// the location anyway (a location that never connects needs it).
+	Force bool
 }
 
 // cityGroup is one country's cities, for an <optgroup>.
@@ -253,6 +256,10 @@ func (ui *UI) vpnLocation(w http.ResponseWriter, r *http.Request) {
 			*p.dst = []string{p.v}
 		}
 	}
+	if msg, forceable := ui.vpnBusy(r.Context()); msg != "" && (!forceable || f.Get("force") != "1") {
+		ui.vpnBusyError(w, r, msg, forceable, true)
+		return
+	}
 	outcome, err := ui.VPN.Keeper.Set(r.Context(), loc)
 	if err != nil {
 		ui.Log.Warn("web: vpn location refused", "location", loc.String(), "err", err)
@@ -261,6 +268,43 @@ func (ui *UI) vpnLocation(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: vpn location changed", "location", loc.String(), "gluetun", outcome)
 	ui.redirect(w, r, Prefix+"/vpn?msg=location")
+}
+
+// vpnBusy says why gluetun should not get a new location now ("" when
+// it can). Mid-change (starting, stopping) it would hang or wedge gluetun;
+// while gluetun is still trying servers (running but unhealthy) a change
+// can wedge it too, but it may never connect, so that one can be forced.
+func (ui *UI) vpnBusy(ctx context.Context) (msg string, forceable bool) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	st, err := ui.VPN.Client.Status(ctx)
+	if err != nil {
+		return "", false // the change itself reports gluetun's error
+	}
+	if gluetun.Transitional(st) {
+		return "Gluetun is " + st + " the tunnel. Try again in a few seconds. If it stays " + st +
+			", recreate it: docker compose -f docker-compose.vpn.yml up -d --force-recreate gluetun mmp", false
+	}
+	if ok, err := ui.VPN.Client.Healthy(ctx); err == nil && !ok {
+		return "Gluetun is still looking for a server that answers (its health check fails). " +
+			"Changing the location now can leave it stuck, so wait a moment, or change it anyway.", true
+	}
+	return "", false
+}
+
+func (ui *UI) vpnBusyError(w http.ResponseWriter, r *http.Request, msg string, forceable, keepForm bool) {
+	ui.Log.Info("web: vpn change held back", "reason", msg)
+	d, err := ui.vpnData(r)
+	if err != nil {
+		ui.fail(w, "vpn", err)
+		return
+	}
+	if keepForm {
+		f := r.PostForm
+		d.Country, d.City, d.Region = f.Get("country"), f.Get("city"), f.Get("region")
+	}
+	d.Error, d.Force = msg, forceable
+	ui.render(w, r, http.StatusConflict, "vpn", "VPN", d)
 }
 
 // cityCountry finds city in the choices (in country, when one is given)
@@ -282,6 +326,12 @@ func (ui *UI) vpnReconnect(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Reconnecting is the way out of a failing location, so only a
+	// change already under way stops it.
+	if msg, forceable := ui.vpnBusy(r.Context()); msg != "" && !forceable {
+		ui.vpnBusyError(w, r, msg, false, false)
+		return
+	}
 	if err := ui.VPN.Client.Reconnect(r.Context()); err != nil {
 		ui.vpnError(w, r, "Reconnecting failed: "+err.Error(), false)
 		return
@@ -293,6 +343,14 @@ func (ui *UI) vpnReconnect(w http.ResponseWriter, r *http.Request) {
 func (ui *UI) vpnDefault(w http.ResponseWriter, r *http.Request) {
 	if ui.VPN == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	if msg, forceable := ui.vpnBusy(r.Context()); msg != "" && (!forceable || r.PostForm.Get("force") != "1") {
+		ui.vpnBusyError(w, r, msg, forceable, false)
 		return
 	}
 	outcome, err := ui.VPN.Keeper.UseDefault(r.Context())

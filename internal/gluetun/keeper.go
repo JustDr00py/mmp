@@ -121,6 +121,10 @@ func (k *Keeper) Sync(ctx context.Context) (bool, error) {
 	if err != nil || !s.Active {
 		return false, err
 	}
+	// Mid-change, a new location can wedge gluetun: check next time.
+	if st, err := k.Client.Status(ctx); err != nil || Transitional(st) {
+		return false, err
+	}
 	cur, err := k.Client.Settings(ctx)
 	if err != nil {
 		return false, err

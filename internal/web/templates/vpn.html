@@ -58,7 +58,8 @@
     </div>
     <span class="hint">Pick a location near your providers' servers for the fastest streams. Gluetun picks a server there, and another one when you press Reconnect.</span>
     {{end}}
-    <div class="row"><button type="submit">Change location</button></div>
+    <div class="row">{{if $d.Force}}<input type="hidden" name="force" value="1"><button type="submit">Change anyway</button>
+      {{else}}<button type="submit">Change location</button>{{end}}</div>
     <div class="sub">
       {{if $d.Saved.Active}}Chosen here: <strong>{{$d.Saved.Location}}</strong>. MMP sets it again whenever gluetun restarts, so
         <span class="mono">SERVER_COUNTRIES</span> and <span class="mono">SERVER_CITIES</span> in .env are not used.
@@ -68,7 +69,8 @@
   {{if $d.Saved.Active}}
   <form method="post" action="/admin/vpn/default" class="row vpn-default"
     data-confirm="Go back to the location in .env? Streams pause for a few seconds while gluetun reconnects.">
-    <button type="submit" class="secondary small">Use the .env location</button>
+    {{if $d.Force}}<input type="hidden" name="force" value="1">{{end}}
+    <button type="submit" class="secondary small">Use the .env location{{if $d.Force}} anyway{{end}}</button>
     <span class="hint">{{with $d.Saved.Default}}Back to {{.}}.{{end}}</span>
   </form>
   {{end}}
