@@ -164,7 +164,7 @@ var resources = map[string]string{
 	"providers": "provider", "channels": "channel", "groups": "channel group", "channel-groups": "channel group",
 	"bouquets": "bouquet", "users": "user", "profiles": "stream profile", "stream-profiles": "stream profile",
 	"sources": "guide source", "rules": "match rule", "backups": "backup", "viewers": "viewer",
-	"tokens": "API token", "settings": "settings", "vod-categories": "movie category",
+	"tokens": "API token", "settings": "settings", "vod-categories": "movie category", "vpn": "VPN",
 }
 
 // verbs describe the URL word after a target.
@@ -185,7 +185,8 @@ var verbs = map[string]string{
 // on a single row ("order" of a channel's streams vs. of all channels).
 var pageVerbs = map[string]string{
 	"channels/order": "reordered", "groups/order": "reordered", "providers/bulk": "changed several", "channels/delete": "deleted several",
-	"channels/sort-names": "sorted by name",
+	"channels/sort-names": "sorted by name", "vpn/location": "changed the location of", "vpn/reconnect": "reconnected",
+	"vpn/default": "reset to .env the location of",
 }
 
 // Description is what Describe makes of a request.

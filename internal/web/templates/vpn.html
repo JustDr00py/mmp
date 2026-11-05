@@ -1,0 +1,97 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <div><h1>VPN</h1>
+    <p class="lede">MMP reaches your providers (playlists, streams, guides, movies) through gluetun{{with $d.Settings.Provider}}
+      with <strong>{{.}}</strong>{{with $d.TypeLabel}} over {{.}}{{end}}{{end}}. If the tunnel goes down, gluetun blocks MMP's internet until it is back.
+      Players on your network still connect to MMP directly.</p></div>
+  <form method="post" action="/admin/vpn/reconnect" data-confirm="Reconnect the VPN? Streams pause for a few seconds.">
+    <button type="submit" class="secondary">Reconnect</button></form>
+</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<div class="split">
+<section>
+  <h2>Connection</h2>
+  {{template "vpn-status" $d.Status}}
+</section>
+
+<section>
+  <h2>Location</h2>
+  {{if $d.Status.NoKey}}
+  <div class="card">
+    <p>Changing the location needs gluetun's API key, and gluetun refused MMP's.</p>
+    <p class="muted">Set <span class="mono">GLUETUN_API_KEY</span> in <span class="mono">.env</span> (any long random text, e.g. from
+      <span class="mono">openssl rand -hex 24</span>), then recreate both containers:
+      <span class="mono">docker compose -f docker-compose.vpn.yml up -d --force-recreate gluetun mmp</span>.</p>
+  </div>
+  {{else if not $d.Settings.Provider}}
+  <div class="card"><p class="muted">The location can be changed once gluetun answers.</p></div>
+  {{else}}
+  <form class="card form" method="post" action="/admin/vpn/location"
+    data-confirm="Move the VPN to this location? Streams pause for a few seconds while gluetun reconnects.">
+    {{if $d.Choices.Empty}}
+    <div class="grid2">
+      <label>Country<input name="country" value="{{$d.Country}}" placeholder="any" autocomplete="off"></label>
+      <label>City<input name="city" value="{{$d.City}}" placeholder="any" autocomplete="off"></label>
+    </div>
+    <span class="hint">Spell them as gluetun does (its wiki lists them per provider). To pick from lists instead, share gluetun's
+      <span class="mono">/gluetun</span> folder with MMP as docker-compose.vpn.yml does.</span>
+    {{else}}
+    <div class="grid2">
+      {{if $d.Choices.Countries}}<label>Country
+        <select name="country" id="vpn-country" data-narrows="#vpn-city">
+          <option value="">Any country</option>
+          {{range $d.Choices.Countries}}<option value="{{.Name}}"{{if eq .Name $d.Country}} selected{{end}}>{{with .Flag}}{{.}} {{end}}{{.Name}}</option>{{end}}
+        </select></label>{{end}}
+      {{if $d.Choices.Regions}}<label>Region
+        <select name="region">
+          <option value="">Any region</option>
+          {{range $d.Choices.Regions}}<option{{if eq . $d.Region}} selected{{end}}>{{.}}</option>{{end}}
+        </select></label>{{end}}
+      {{if $d.Choices.Cities}}<label>City
+        <select name="city" id="vpn-city">
+          <option value="">Any city</option>
+          {{range $d.CityGroups}}<optgroup label="{{.Country}}">{{range .Cities}}<option value="{{.Name}}"{{if eq .Name $d.City}} selected{{end}}>{{.Name}}</option>{{end}}</optgroup>{{end}}
+        </select></label>{{end}}
+    </div>
+    <span class="hint">Pick a location near your providers' servers for the fastest streams. Gluetun picks a server there, and another one when you press Reconnect.</span>
+    {{end}}
+    <div class="row"><button type="submit">Change location</button></div>
+    <div class="sub">
+      {{if $d.Saved.Active}}Chosen here: <strong>{{$d.Saved.Location}}</strong>. MMP sets it again whenever gluetun restarts, so
+        <span class="mono">SERVER_COUNTRIES</span> and <span class="mono">SERVER_CITIES</span> in .env are not used.
+      {{else}}Set by .env: <strong>{{$d.Settings.Location}}</strong>. A location chosen here replaces it, also after restarts.{{end}}
+    </div>
+  </form>
+  {{if $d.Saved.Active}}
+  <form method="post" action="/admin/vpn/default" class="row vpn-default"
+    data-confirm="Go back to the location in .env? Streams pause for a few seconds while gluetun reconnects.">
+    <button type="submit" class="secondary small">Use the .env location</button>
+    <span class="hint">{{with $d.Saved.Default}}Back to {{.}}.{{end}}</span>
+  </form>
+  {{end}}
+  {{end}}
+</section>
+</div>
+{{end}}
+
+{{define "vpn-status"}}
+<div id="vpn-status" class="card vpn-status" hx-get="/admin/vpn/status" hx-trigger="every 5s" hx-swap="outerHTML">
+  {{if .IP.IP}}
+  <div class="vpn-ip">
+    <span class="vpn-flag" aria-hidden="true">{{with .IP.Flag}}{{.}}{{else}}🌐{{end}}</span>
+    <div>
+      <div class="vpn-addr mono">{{.IP.IP}}</div>
+      {{with .IP.Place}}<div>{{.}}</div>{{end}}
+      {{with .IP.Organization}}<div class="sub">{{.}}</div>{{end}}
+    </div>
+  </div>
+  <p class="hint">The address and place your providers see.</p>
+  {{else if not .Err}}<p class="muted">Looking up the public IP…</p>{{end}}
+  {{if .State}}<div class="row"><span class="pill {{.StateClass}}">{{.StateLabel}}</span>
+    {{with .Location}}<span class="sub">Server choice: {{.}}</span>{{end}}</div>{{end}}
+  {{with .Err}}<p class="errmsg">Gluetun: {{.}}</p>{{end}}
+</div>
+{{end}}

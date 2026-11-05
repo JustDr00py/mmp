@@ -28,6 +28,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/config"
 	"github.com/JustDr00py/mmp/internal/db"
 	eventlog "github.com/JustDr00py/mmp/internal/events"
+	"github.com/JustDr00py/mmp/internal/gluetun"
 	"github.com/JustDr00py/mmp/internal/health"
 	"github.com/JustDr00py/mmp/internal/logos"
 	"github.com/JustDr00py/mmp/internal/metrics"
@@ -252,7 +253,16 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		srv.Mux().Handle(logos.URLPrefix+"*", logoLib.Handler())
 		go logoLib.RunSchedule(ctx, cfg.Logos.UpdateInterval.Duration)
 	}
-	ui, err := web.New(web.Deps{Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
+	// Gluetun (docker-compose.vpn.yml): Settings → VPN, and the location
+	// chosen there is set again whenever gluetun loses it.
+	var vpn *web.VPN
+	if gc := cfg.Gluetun; gc.URL != "" {
+		client := &gluetun.Client{BaseURL: gc.URL, APIKey: gc.APIKey}
+		keeper := &gluetun.Keeper{Client: client, Store: queries, Log: log}
+		vpn = &web.VPN{Client: client, Keeper: keeper, Servers: &gluetun.ServerList{Path: gc.ServersFile}}
+		go keeper.Run(ctx)
+	}
+	ui, err := web.New(web.Deps{VPN: vpn, Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
 		Backups: backups, Logos: logoLib, LogoUpdateInterval: cfg.Logos.UpdateInterval.Duration, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,

@@ -587,3 +587,10 @@ ul.logo-grid li { display: flex; flex-direction: column; gap: .35rem; min-width:
 .logo-suggest td { vertical-align: top; }
 .sticky-actions { position: sticky; top: 0; z-index: 5; padding: .5rem 0; background: var(--bg); }
 @media (max-width: 760px) { .sticky-actions { top: 54px; } .logo-choice { width: calc(50% - .25rem); } }
+
+/* VPN page */
+.vpn-status { display: grid; gap: .75rem; }
+.vpn-ip { display: flex; align-items: center; gap: 1rem; }
+.vpn-flag { font-size: 2.8rem; line-height: 1; }
+.vpn-addr { font-size: 1.35rem; font-weight: 700; overflow-wrap: anywhere; }
+.vpn-default { margin-top: .75rem; }
