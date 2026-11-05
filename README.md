@@ -313,7 +313,10 @@ ffprobe "http://<host>:8080/live/<username>/<password>/<channel-id>.ts"
 ```
 
 Watch it on the **Dashboard**: the channel appears with the provider it plays from. If you stop that
-provider, the dashboard shows the failover while the player keeps playing.
+provider, the dashboard shows the failover while the player keeps playing. The new stream starts at
+its first keyframe, so players get a clean picture straight away, even when the new source has another
+resolution (1080p to 720p, say). If a player still freezes on such a change, its decoder cannot switch
+resolution mid-stream (some Kodi setups and low-end Android/Fire TV boxes).
 
 ### Movies and series (optional, Xtream providers)
 
@@ -691,7 +694,7 @@ uses one of their connections and one of the provider's.
 |---|---|
 | Playlist loads, channels don't play | `base_url`; the channel has streams (Channels page shows *none*); the **Events** page (open failures with their error, *down*) |
 | "connection limit reached" (HTTP 403) | the customer's *Max connections*. Closed players free their slot within seconds (HLS: `hls.idle_timeout`) |
-| A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps (with Docker Compose: `MMP_PROXY_STALL_TIMEOUT=20s` in `.env`). `eof` right after a switch can be the provider kicking a connection over its limit. `behind` means the provider sent the stream slower than it plays (the player would buffer); if a stream that plays fine trips it, raise `proxy.max_lag` |
+| A channel keeps switching providers / the picture keeps going blank | Dashboard events show why. `stalled` or `low_bitrate` on streams that play fine elsewhere usually means the provider sends in bursts: raise `proxy.stall_timeout` (and `proxy.health_window`) above its gaps (with Docker Compose: `MMP_PROXY_STALL_TIMEOUT=20s` in `.env`). `eof` right after a switch can be the provider kicking a connection over its limit. `behind` means the stream arrived slower than it plays (the player would buffer); the event says how much video arrived in how long and at what bitrate. When sources on two backbones fall behind within 10 minutes, the cause is the network or the channel's own source (busy CDNs during big live events), so MMP stops switching and reopens the current stream at the live edge instead (a `slow` event). If a stream that plays fine trips it, raise `proxy.max_lag` |
 | Channel shows no guide | Guide or EPG page → *Only channels without a guide*; find the guide's channel id with *Find a guide channel* on the EPG page (or type a name in the channel's tvg-id) and set it; check the source downloaded |
 | "refresh refused: would disable …" | the provider returned far fewer streams than before (often temporary). Retry later, or use *Disable anyway* if the change is real |
 | Refresh fails with "connection refused" / timeout for a provider on the same machine | inside the container, `localhost` is the container itself: use the host's LAN IP in the provider URL |

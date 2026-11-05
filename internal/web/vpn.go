@@ -29,7 +29,7 @@ func (ui *UI) mountVPN(r chi.Router) {
 	r.Post("/vpn/default", ui.vpnDefault)
 }
 
-// vpnStatus is the live part of the page (refreshed every few seconds).
+// vpnStatus is the live part of the page (refreshed every 10 seconds).
 type vpnStatus struct {
 	IP       gluetun.PublicIP
 	State    string // running, starting, stopped, crashed…

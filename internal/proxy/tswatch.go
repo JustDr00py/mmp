@@ -346,6 +346,21 @@ func (w *Watcher) Check(now time.Time) Verdict {
 	return Healthy
 }
 
+// LagDetail is the real-time measurement a Behind verdict judged on: Media
+// of stream time arrived in Wall of clock time, at Kbps (the window's
+// average bitrate).
+type LagDetail struct {
+	Media, Wall time.Duration
+	Kbps        float64
+}
+
+// Lag returns the current real-time measurement at now.
+func (w *Watcher) Lag(now time.Time) LagDetail {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return LagDetail{Media: w.media, Wall: w.media + w.lag, Kbps: w.bitrate(now)}
+}
+
 // PID returns a TS packet's 13-bit packet identifier.
 func PID(pkt []byte) uint16 {
 	return uint16(pkt[1]&0x1F)<<8 | uint16(pkt[2])

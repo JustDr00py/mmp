@@ -328,6 +328,20 @@ func TestWatcherBehind(t *testing.T) {
 	if v, at := run(t, 0, 0.5, 120, nil); v != Behind || at < 15 || at > 19 {
 		t.Errorf("half speed: verdict %v at %ds, want behind at ~16s", v, at)
 	}
+	// The measurement behind the verdict: half as much video as clock time.
+	{
+		w := NewWatcher(th, t0)
+		var out []byte
+		var now time.Time
+		for i := range 20 {
+			now = t0.Add(time.Duration(i) * time.Second)
+			out = w.Feed(now, out[:0], pesPkt(pid, uint8(i), int64(i)*45000))
+		}
+		// (Packets are judged when the next one confirms them: a step late.)
+		if l := w.Lag(now); l.Wall < 15*time.Second || (l.Wall-2*l.Media).Abs() > 1500*time.Millisecond || l.Kbps <= 0 {
+			t.Errorf("Lag = %+v, want about half as much media as wall time", l)
+		}
+	}
 	// Bursty: nothing for 5 of every 6 seconds, then 6s of media at once.
 	{
 		w := NewWatcher(th, t0)
