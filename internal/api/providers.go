@@ -17,10 +17,12 @@ import (
 // providerJSON is the wire form of a provider. The password is never
 // serialized: an absent password on update means "keep the current one".
 type providerJSON struct {
-	ID                  int64  `json:"id"`
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	URL                 string `json:"url"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	URL  string `json:"url"`
+	// VPNURL replaces URL while MMP runs behind the VPN; "" = none.
+	VPNURL              string `json:"vpn_url,omitempty"`
 	Username            string `json:"username,omitempty"`
 	EPGURL              string `json:"epg_url,omitempty"`
 	MaxConnections      int32  `json:"max_connections"`
@@ -44,7 +46,7 @@ type providerJSON struct {
 
 func toJSON(p db.Provider) providerJSON {
 	return providerJSON{
-		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username,
+		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, VPNURL: p.VpnUrl, Username: p.Username,
 		EPGURL: p.EpgUrl, MaxConnections: p.MaxConnections, UserAgent: p.UserAgent,
 		RefreshIntervalSecs: p.RefreshIntervalSecs, Priority: p.Priority, Enabled: p.Enabled,
 		RefreshMaxDisablePct: p.RefreshMaxDisablePct,
@@ -55,17 +57,19 @@ func toJSON(p db.Provider) providerJSON {
 
 // providerInput is the accepted create/update body.
 type providerInput struct {
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	URL                 string `json:"url"`
-	Username            string `json:"username"`
-	Password            string `json:"password"`
-	EPGURL              string `json:"epg_url"`
-	MaxConnections      *int32 `json:"max_connections"`
-	UserAgent           string `json:"user_agent"`
-	RefreshIntervalSecs *int32 `json:"refresh_interval_secs"`
-	Priority            *int32 `json:"priority"`
-	Enabled             *bool  `json:"enabled"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	URL  string `json:"url"`
+	// Absent keeps the current VPN URL (none for new providers); "" clears it.
+	VPNURL              *string `json:"vpn_url"`
+	Username            string  `json:"username"`
+	Password            string  `json:"password"`
+	EPGURL              string  `json:"epg_url"`
+	MaxConnections      *int32  `json:"max_connections"`
+	UserAgent           string  `json:"user_agent"`
+	RefreshIntervalSecs *int32  `json:"refresh_interval_secs"`
+	Priority            *int32  `json:"priority"`
+	Enabled             *bool   `json:"enabled"`
 	// 0-100; absent (or null) = the global default threshold.
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	// Absent keeps the current setting (off for new providers).
@@ -86,6 +90,11 @@ func (in *providerInput) validate() error {
 	}
 	if err := source.ValidateRefreshMaxDisablePct(in.RefreshMaxDisablePct); err != nil {
 		return err
+	}
+	if in.VPNURL != nil {
+		if err := source.ValidateVPNURL(*in.VPNURL); err != nil {
+			return err
+		}
 	}
 	return source.ValidateProvider(in.Name, in.Type, in.URL, in.EPGURL,
 		defInt32(in.MaxConnections, 0), defInt32(in.RefreshIntervalSecs, 1))
@@ -112,6 +121,13 @@ func (env *Env) backbone(ctx context.Context, in *string, def string) (label str
 func defInt32(p *int32, def int32) int32 {
 	if p != nil {
 		return *p
+	}
+	return def
+}
+
+func defString(p *string, def string) string {
+	if p != nil {
+		return strings.TrimSpace(*p)
 	}
 	return def
 }
@@ -175,7 +191,7 @@ func (env *Env) createProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := env.Store.CreateProvider(r.Context(), db.CreateProviderParams{
-		Name: in.Name, Type: in.Type, Url: in.URL,
+		Name: in.Name, Type: in.Type, Url: in.URL, VpnUrl: defString(in.VPNURL, ""),
 		Username: in.Username, Password: in.Password, EpgUrl: in.EPGURL,
 		MaxConnections:       defInt32(in.MaxConnections, 1),
 		UserAgent:            in.UserAgent,
@@ -276,7 +292,7 @@ func (env *Env) updateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := env.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
 		ID:   id,
-		Name: in.Name, Type: in.Type, Url: in.URL,
+		Name: in.Name, Type: in.Type, Url: in.URL, VpnUrl: defString(in.VPNURL, current.VpnUrl),
 		Username: in.Username, Password: password, EpgUrl: in.EPGURL,
 		MaxConnections:       defInt32(in.MaxConnections, current.MaxConnections),
 		UserAgent:            in.UserAgent,

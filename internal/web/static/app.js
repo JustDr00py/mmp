@@ -166,6 +166,23 @@
     field.focus();
   });
 
+  // <select data-narrows="#other">: #other offers only the <optgroup>
+  // labelled with this select's value (all of them for an empty value).
+  // Picking an option in #other while this is empty sets this to its group.
+  const narrow = (sel) => {
+    const other = document.querySelector(sel.dataset.narrows);
+    if (!other) return;
+    other.querySelectorAll('optgroup').forEach((g) => { g.disabled = g.hidden = !!sel.value && g.label !== sel.value; });
+    if (other.selectedOptions[0]?.parentElement.disabled) other.value = '';
+  };
+  document.querySelectorAll('select[data-narrows]').forEach(narrow);
+  document.addEventListener('change', (e) => {
+    if (e.target.matches?.('select[data-narrows]')) { narrow(e.target); return; }
+    const by = e.target.id && document.querySelector(`select[data-narrows="#${CSS.escape(e.target.id)}"]`);
+    const group = e.target.selectedOptions?.[0]?.parentElement;
+    if (by && !by.value && group?.tagName === 'OPTGROUP') { by.value = group.label; narrow(by); }
+  });
+
   // [data-no-enter]: Enter in this field does not submit its form (a
   // search box inside another form).
   document.addEventListener('keydown', (e) => {

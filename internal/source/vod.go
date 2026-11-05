@@ -33,7 +33,7 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 		return res, ErrVODUnsupported
 	}
 	r.log.Info("refreshing vod", "provider_id", p.ID, "force", force)
-	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
 		return res, fmt.Errorf("refresh vod %d: %w", p.ID, err)
 	}
@@ -244,7 +244,7 @@ func (r *Refresher) fetchEpisodes(ctx context.Context, p db.Provider, s db.Serie
 	if p.Type != "xtream" {
 		return nil, ErrVODUnsupported
 	}
-	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (r *Refresher) MovieInfo(ctx context.Context, itemID int64, ttl time.Durati
 	if p.Type != "xtream" {
 		return item.Info, nil
 	}
-	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
 		return item.Info, err
 	}

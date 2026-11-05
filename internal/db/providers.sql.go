@@ -51,10 +51,10 @@ const createProvider = `-- name: CreateProvider :one
 INSERT INTO providers (
     name, type, url, username, password, epg_url,
     max_connections, user_agent, refresh_interval_secs, priority, enabled,
-    refresh_max_disable_pct, backbone, group_filter
+    refresh_max_disable_pct, backbone, group_filter, vpn_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url
 `
 
 type CreateProviderParams struct {
@@ -72,6 +72,7 @@ type CreateProviderParams struct {
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	Backbone             string `json:"backbone"`
 	GroupFilter          bool   `json:"group_filter"`
+	VpnUrl               string `json:"vpn_url"`
 }
 
 // Providers: basic CRUD used by the admin API and the refresher.
@@ -91,6 +92,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		arg.RefreshMaxDisablePct,
 		arg.Backbone,
 		arg.GroupFilter,
+		arg.VpnUrl,
 	)
 	var i Provider
 	err := row.Scan(
@@ -118,6 +120,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.FailingSince,
 		&i.CheckedAt,
 		&i.EpgEnabled,
+		&i.VpnUrl,
 	)
 	return i, err
 }
@@ -132,7 +135,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -163,12 +166,13 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.FailingSince,
 		&i.CheckedAt,
 		&i.EpgEnabled,
+		&i.VpnUrl,
 	)
 	return i, err
 }
 
 const getProvidersByIDs = `-- name: GetProvidersByIDs :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
 `
 
 func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provider, error) {
@@ -205,6 +209,7 @@ func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provide
 			&i.FailingSince,
 			&i.CheckedAt,
 			&i.EpgEnabled,
+			&i.VpnUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -248,7 +253,7 @@ func (q *Queries) ListBackbones(ctx context.Context) ([]ListBackbonesRow, error)
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -285,6 +290,58 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.FailingSince,
 			&i.CheckedAt,
 			&i.EpgEnabled,
+			&i.VpnUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProvidersWithVPNURL = `-- name: ListProvidersWithVPNURL :many
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url FROM providers WHERE vpn_url <> '' AND enabled ORDER BY priority, name
+`
+
+// Providers with a VPN address (refreshed when MMP starts or stops using it).
+func (q *Queries) ListProvidersWithVPNURL(ctx context.Context) ([]Provider, error) {
+	rows, err := q.db.Query(ctx, listProvidersWithVPNURL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Provider
+	for rows.Next() {
+		var i Provider
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Type,
+			&i.Url,
+			&i.Username,
+			&i.Password,
+			&i.EpgUrl,
+			&i.MaxConnections,
+			&i.UserAgent,
+			&i.RefreshIntervalSecs,
+			&i.Priority,
+			&i.Enabled,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRefreshedAt,
+			&i.RefreshMaxDisablePct,
+			&i.VodEnabled,
+			&i.VodRefreshedAt,
+			&i.GroupFilter,
+			&i.Backbone,
+			&i.LastError,
+			&i.FailingSince,
+			&i.CheckedAt,
+			&i.EpgEnabled,
+			&i.VpnUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -368,9 +425,9 @@ const updateProvider = `-- name: UpdateProvider :one
 UPDATE providers SET
     name = $2, type = $3, url = $4, username = $5, password = $6, epg_url = $7,
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
-    priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, updated_at = now()
+    priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, vpn_url = $15, updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url
 `
 
 type UpdateProviderParams struct {
@@ -388,6 +445,7 @@ type UpdateProviderParams struct {
 	Enabled              bool   `json:"enabled"`
 	RefreshMaxDisablePct *int32 `json:"refresh_max_disable_pct"`
 	Backbone             string `json:"backbone"`
+	VpnUrl               string `json:"vpn_url"`
 }
 
 func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) (Provider, error) {
@@ -406,6 +464,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		arg.Enabled,
 		arg.RefreshMaxDisablePct,
 		arg.Backbone,
+		arg.VpnUrl,
 	)
 	var i Provider
 	err := row.Scan(
@@ -433,6 +492,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.FailingSince,
 		&i.CheckedAt,
 		&i.EpgEnabled,
+		&i.VpnUrl,
 	)
 	return i, err
 }

@@ -81,7 +81,8 @@ movies, guides) sent through a VPN by [gluetun](https://github.com/qdm12/gluetun
 network still connect to MMP directly.
 
 1. Fill in the **VPN** section of `.env` (see `.env.example`): your provider, WireGuard key and address or
-   OpenVPN login, and optionally a server country or city near your IPTV providers.
+   OpenVPN login, a `GLUETUN_API_KEY` (`openssl rand -hex 24`), and optionally a server country or city
+   near your IPTV providers.
 2. Use this file **instead of** `docker-compose.yml` (stop the other stack first; the database is kept):
 
    ```sh
@@ -94,6 +95,23 @@ reaches your providers unprotected; streams fail over or wait meanwhile. Check t
 `docker compose -f docker-compose.vpn.yml logs gluetun`. After recreating gluetun, also recreate mmp
 (`... up -d --force-recreate mmp`), since it lives in gluetun's network. Rootless Podman may need
 `WIREGUARD_IMPLEMENTATION=userspace`.
+
+**Settings → VPN** in the admin UI shows the public IP your providers see (with its country's flag) and
+whether the tunnel is up, and moves the VPN to another country or city, or reconnects it for a different
+server. Streams pause for a few seconds while gluetun reconnects. A location chosen there is kept in MMP's
+database (backups include it) and set again whenever gluetun restarts, in place of `SERVER_COUNTRIES` and
+`SERVER_CITIES`; **Use the .env location** hands it back. The page talks to gluetun's control server with
+`GLUETUN_API_KEY`, and reads gluetun's server list from the shared `gluetun` volume for the country and
+city lists.
+
+Some providers refuse VPN addresses on their regular URL and give VPN users their own address. Put it in
+the provider's **VPN URL** field: MMP uses it instead of the URL whenever it runs behind gluetun (refreshing,
+guides, movies and series), and the regular URL otherwise. Saving a new one refreshes the provider, and
+switching between `docker-compose.yml` and `docker-compose.vpn.yml` refreshes every provider that has one,
+so its stream addresses follow.
+
+Upgrading from a version without this page: add `GLUETUN_API_KEY` to `.env`, then
+`docker compose -f docker-compose.vpn.yml up -d --force-recreate gluetun mmp`.
 
 ### Upgrading
 
@@ -469,6 +487,9 @@ because each probe uses one of the provider's connections.
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
+| `gluetun.url` | `MMP_GLUETUN_URL` | — (VPN compose file: `http://127.0.0.1:8000`) | gluetun's control server; set, the admin UI gets **Settings → VPN** |
+| `gluetun.api_key` | `MMP_GLUETUN_API_KEY` | — | gluetun's API key (`X-API-Key`), needed to change the location |
+| `gluetun.servers_file` | `MMP_GLUETUN_SERVERS_FILE` | — (VPN compose file: `/var/lib/mmp/gluetun/servers.json`) | gluetun's `servers.json`, for the country and city lists; without it they are typed in |
 | `logos.dir` | `MMP_LOGOS_DIR` | `logos` (Docker: `/var/lib/mmp/logos`) | the downloaded logo library and uploaded logos |
 | `logos.archive_url` | `MMP_LOGOS_ARCHIVE_URL` | tv-logo/tv-logos `main` | `.tar.gz` the library downloads from; point it at your fork's `https://codeload.github.com/<you>/tv-logos/tar.gz/refs/heads/main` to use it instead |
 | `logos.update_interval` | `MMP_LOGOS_UPDATE_INTERVAL` | `168h` | re-download the library this often once it has been downloaded; `0` only when you press **Update now** |

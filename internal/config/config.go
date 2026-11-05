@@ -134,6 +134,15 @@ type Config struct {
 	Backup struct {
 		Dir string `yaml:"dir"`
 	} `yaml:"backup"`
+	// Gluetun is the VPN container MMP runs behind (docker-compose.vpn.yml).
+	// With a URL, Settings → VPN shows the public IP and changes the
+	// server location.
+	Gluetun struct {
+		URL    string `yaml:"url"`     // control server, e.g. http://127.0.0.1:8000
+		APIKey string `yaml:"api_key"` // gluetun's apikey role (X-API-Key)
+		// ServersFile is gluetun's servers.json, for the location lists.
+		ServersFile string `yaml:"servers_file"`
+	} `yaml:"gluetun"`
 	// Logos is the channel logo library MMP serves at /logos/.
 	Logos struct {
 		Dir string `yaml:"dir"` // the downloaded collection and uploads
@@ -329,6 +338,9 @@ func (c *Config) applyEnv(getenv envLookup) error {
 	str("MMP_ADMIN_PASSWORD", &c.Admin.Password)
 	str("MMP_BACKUP_DIR", &c.Backup.Dir)
 	str("MMP_LOGOS_DIR", &c.Logos.Dir)
+	str("MMP_GLUETUN_URL", &c.Gluetun.URL)
+	str("MMP_GLUETUN_API_KEY", &c.Gluetun.APIKey)
+	str("MMP_GLUETUN_SERVERS_FILE", &c.Gluetun.ServersFile)
 	str("MMP_LOGOS_ARCHIVE_URL", &c.Logos.ArchiveURL)
 	list := func(key string, dst *[]string) {
 		if v, ok := getenv(key); ok {
@@ -435,6 +447,11 @@ func (c *Config) Validate() error {
 	}
 	if strings.HasSuffix(c.BaseURL, "/") {
 		return fmt.Errorf("config: base_url %q must not end with /", c.BaseURL)
+	}
+	if g := c.Gluetun.URL; g != "" {
+		if u, err := url.Parse(g); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("config: gluetun.url %q must be an http:// URL", g)
+		}
 	}
 	if c.DB.DSN == "" {
 		return errors.New("config: db.dsn is empty")

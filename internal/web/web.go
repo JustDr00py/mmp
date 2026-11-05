@@ -236,6 +236,8 @@ type Deps struct {
 	Audit *audit.Recorder
 	// Backups is the backup service; nil hides the page.
 	Backups *backup.Service
+	// VPN is gluetun, when MMP runs behind it; nil hides the page.
+	VPN *VPN
 	// Logos is the channel logo library; nil hides the page and picker.
 	Logos *logos.Library
 	// LogoUpdateInterval is how often the logo library re-downloads
@@ -285,13 +287,28 @@ var nav = []navItem{
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
 	{Prefix + "/settings", "Settings", "gear", "Settings"},
+	{Prefix + "/vpn", "VPN", "globe", ""},
 	{Prefix + "/profiles", "Profiles", "sliders", ""},
 	{Prefix + "/backups", "Backups", "archive", ""},
 	{Prefix + "/audit", "Audit log", "eye", ""},
 }
 
+// nav is the sidebar without the pages this setup lacks.
+func (ui *UI) nav() []navItem {
+	if ui.VPN != nil {
+		return nav
+	}
+	out := make([]navItem, 0, len(nav))
+	for _, n := range nav {
+		if n.Path != Prefix+"/vpn" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone", "logos", "logo_suggest"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone", "logos", "logo_suggest", "vpn"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
@@ -411,6 +428,7 @@ func (ui *UI) Mount(r chi.Router) {
 			ui.mountChannels(r)
 			ui.mountChannelGroups(r)
 			ui.mountSettings(r)
+			ui.mountVPN(r)
 			ui.mountEvents(r)
 			ui.mountAudit(r)
 			ui.mountMatch(r)
@@ -461,7 +479,7 @@ func (ui *UI) fragment(w http.ResponseWriter, r *http.Request, page, name string
 }
 
 func (ui *UI) renderTemplate(w http.ResponseWriter, r *http.Request, status int, page, name, title string, data any) {
-	pd := pageData{Title: title, Nav: nav, Active: activeNav(r.URL.Path), Version: ui.Version, Data: data}
+	pd := pageData{Title: title, Nav: ui.nav(), Active: activeNav(r.URL.Path), Version: ui.Version, Data: data}
 	if u, ok := auth.UserFrom(r.Context()); ok {
 		pd.User = &u
 	}

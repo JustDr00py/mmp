@@ -32,6 +32,14 @@ func ValidateProvider(name, typ, rawURL, epgURL string, maxConns, refreshSecs in
 	return nil
 }
 
+// ValidateVPNURL checks a provider's VPN URL (blank: none).
+func ValidateVPNURL(raw string) error {
+	if raw != "" && !absHTTP(raw) {
+		return errors.New("vpn_url must be an absolute http(s) URL")
+	}
+	return nil
+}
+
 func absHTTP(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""

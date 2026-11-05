@@ -168,6 +168,7 @@ type Provider struct {
 	FailingSince         *time.Time `json:"failing_since"`
 	CheckedAt            *time.Time `json:"checked_at"`
 	EpgEnabled           bool       `json:"epg_enabled"`
+	VpnUrl               string     `json:"vpn_url"`
 }
 
 type ProviderGroup struct {

@@ -19,6 +19,10 @@
 #   firewall lets through (FIREWALL_OUTBOUND_SUBNETS).
 # - If gluetun is recreated, recreate mmp too (it lives in gluetun's network):
 #   `... up -d --force-recreate mmp`.
+# - The admin UI's Settings → VPN shows the public IP and changes the server
+#   location through gluetun's control server (127.0.0.1:8000 in the shared
+#   network), which takes GLUETUN_API_KEY. MMP also reads gluetun's server
+#   list from the shared gluetun volume to offer countries and cities.
 
 services:
   postgres:
@@ -72,7 +76,12 @@ services:
       # Networks mmp may reach outside the tunnel: the private network with
       # postgres (required), plus e.g. your LAN for a provider hosted there.
       FIREWALL_OUTBOUND_SUBNETS: ${VPN_OUTBOUND_SUBNETS:-172.29.0.0/24}
+      # The control server (Settings → VPN in MMP) answers only this key.
+      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"apikey","apikey":"${GLUETUN_API_KEY:?set GLUETUN_API_KEY in .env (see .env.example)}"}'
       TZ: ${TZ:-UTC}
+    # servers.json (gluetun's server list, also read by MMP) and gluetun's state.
+    volumes:
+      - gluetun:/gluetun
     healthcheck:
       test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
       interval: 10s
@@ -130,11 +139,16 @@ services:
       # No stream data for this long → fail over. Providers that send in
       # bursts need it above their gaps, or working streams keep failing over.
       MMP_PROXY_STALL_TIMEOUT: ${MMP_PROXY_STALL_TIMEOUT:-12s}
+      # Settings → VPN: gluetun's control server and its server list.
+      MMP_GLUETUN_URL: http://127.0.0.1:8000
+      MMP_GLUETUN_API_KEY: ${GLUETUN_API_KEY:?set GLUETUN_API_KEY in .env (see .env.example)}
+      MMP_GLUETUN_SERVERS_FILE: /var/lib/mmp/gluetun/servers.json
     # Backups made from the admin UI (Settings → Backups) live here.
     volumes:
       - backups:/var/lib/mmp/backups
       # The channel logo library (Channels → Logos) and your uploaded logos.
       - logos:/var/lib/mmp/logos
+      - gluetun:/var/lib/mmp/gluetun:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
       interval: 10s
@@ -153,3 +167,4 @@ volumes:
   pgdata:
   backups:
   logos:
+  gluetun:

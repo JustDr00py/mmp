@@ -17,6 +17,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/netguard"
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
+	"github.com/JustDr00py/mmp/internal/source"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
 
@@ -151,7 +152,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	}
 	defer release()
 
-	client, err := xtream.New(p.Url, p.Username, p.Password, p.UserAgent)
+	client, err := xtream.New(source.ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
 		h.Log.Error("output: vod provider url", "provider_id", p.ID, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)

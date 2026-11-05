@@ -210,6 +210,7 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 type providerForm struct {
 	ID                                int64
 	Name, Type, URL, Username, EPGURL string
+	VPNURL                            string // used instead of URL behind the VPN
 	UserAgent, Backbone               string
 	Backbones                         []db.ListBackbonesRow // the picker's choices
 	NewBackbone                       bool                  // Backbone is not one of them
@@ -233,7 +234,7 @@ type providerForm struct {
 
 func formFromProvider(p db.Provider) providerForm {
 	f := providerForm{
-		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, Username: p.Username, EPGURL: p.EpgUrl,
+		ID: p.ID, Name: p.Name, Type: p.Type, URL: p.Url, VPNURL: p.VpnUrl, Username: p.Username, EPGURL: p.EpgUrl,
 		UserAgent: p.UserAgent, Backbone: p.Backbone, MaxConnections: strconv.Itoa(int(p.MaxConnections)),
 		RefreshMinutes: strconv.Itoa(int(p.RefreshIntervalSecs / 60)), Priority: strconv.Itoa(int(p.Priority)),
 		Enabled: p.Enabled, HasPassword: p.Password != "", VODEnabled: p.VodEnabled, GuideEnabled: p.EpgEnabled,
@@ -243,6 +244,9 @@ func formFromProvider(p db.Provider) providerForm {
 	}
 	return f
 }
+
+// BehindVPN reports whether MMP uses VPN URLs now (for the form's hint).
+func (providerForm) BehindVPN() bool { return source.BehindVPN() }
 
 // defaultRefreshMinutes is refresh.interval in whole minutes (at least 1).
 func (ui *UI) defaultRefreshMinutes() int {
@@ -255,6 +259,7 @@ func (ui *UI) defaultRefreshMinutes() int {
 // parsed is a validated form.
 type parsedProvider struct {
 	name, typ, url, username, password, epgURL, userAgent, backbone string
+	vpnURL                                                          string
 	maxConns, refreshSecs, priority                                 int32
 	maxDisablePct                                                   *int32
 	enabled                                                         bool
@@ -268,7 +273,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 	f := r.PostForm
 	trim := func(k string) string { return strings.TrimSpace(f.Get(k)) }
 	form := providerForm{
-		Name: trim("name"), Type: trim("type"), URL: trim("url"), Username: trim("username"),
+		Name: trim("name"), Type: trim("type"), URL: trim("url"), VPNURL: trim("vpn_url"), Username: trim("username"),
 		EPGURL: trim("epg_url"), UserAgent: trim("user_agent"), MaxConnections: trim("max_connections"),
 		RefreshMinutes: trim("refresh_minutes"), Priority: trim("priority"), MaxDisablePct: trim("max_disable_pct"),
 		Enabled: f.Get("enabled") == "on", VODEnabled: f.Get("vod_enabled") == "on",
@@ -287,7 +292,7 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 		}
 		return int32(n), nil
 	}
-	p := parsedProvider{name: form.Name, typ: form.Type, url: form.URL, username: form.Username,
+	p := parsedProvider{name: form.Name, typ: form.Type, url: form.URL, vpnURL: form.VPNURL, username: form.Username,
 		password: f.Get("password"), epgURL: form.EPGURL, userAgent: form.UserAgent, backbone: form.Backbone, enabled: form.Enabled}
 	if berr != nil {
 		return form, p, berr
@@ -318,12 +323,15 @@ func parseProviderForm(w http.ResponseWriter, r *http.Request, defaultMinutes in
 	if err := source.ValidateProvider(p.name, p.typ, p.url, p.epgURL, p.maxConns, p.refreshSecs); err != nil {
 		return form, p, errors.New(humanize(err.Error()))
 	}
+	if err := source.ValidateVPNURL(p.vpnURL); err != nil {
+		return form, p, errors.New(humanize(err.Error()))
+	}
 	return form, p, nil
 }
 
 // humanize turns the shared validator's API wording into form wording.
 func humanize(msg string) string {
-	r := strings.NewReplacer("epg_url", "EPG URL", "url", "URL", "max_connections", "Max connections",
+	r := strings.NewReplacer("epg_url", "EPG URL", "vpn_url", "VPN URL", "url", "URL", "max_connections", "Max connections",
 		"refresh_interval_secs must be > 0", "Refresh interval must be at least 1 minute", `"m3u" or "xtream"`, "M3U or Xtream")
 	msg = r.Replace(msg)
 	return strings.ToUpper(msg[:1]) + msg[1:] + "."
@@ -414,7 +422,7 @@ func (ui *UI) providerCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := ui.Store.CreateProvider(r.Context(), db.CreateProviderParams{
-		Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password, EpgUrl: p.epgURL,
+		Name: p.name, Type: p.typ, Url: p.url, VpnUrl: p.vpnURL, Username: p.username, Password: p.password, EpgUrl: p.epgURL,
 		MaxConnections: p.maxConns, UserAgent: p.userAgent, RefreshIntervalSecs: p.refreshSecs,
 		Priority: p.priority, Enabled: p.enabled, RefreshMaxDisablePct: p.maxDisablePct, Backbone: p.backbone,
 		// None of its groups until they are chosen, so the first refresh
@@ -505,14 +513,21 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	if p.maxDisablePct == nil {
 		p.maxDisablePct = cur.RefreshMaxDisablePct // blank keeps the stored override
 	}
-	if _, err := ui.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
-		ID: cur.ID, Name: p.name, Type: p.typ, Url: p.url, Username: p.username, Password: p.password,
+	updated, err := ui.Store.UpdateProvider(r.Context(), db.UpdateProviderParams{
+		ID: cur.ID, Name: p.name, Type: p.typ, Url: p.url, VpnUrl: p.vpnURL, Username: p.username, Password: p.password,
 		EpgUrl: p.epgURL, MaxConnections: p.maxConns, UserAgent: p.userAgent,
 		RefreshIntervalSecs: p.refreshSecs, Priority: p.priority, Enabled: p.enabled,
 		RefreshMaxDisablePct: p.maxDisablePct, Backbone: p.backbone,
-	}); err != nil {
+	})
+	if err != nil {
 		ui.fail(w, "update provider", err)
 		return
+	}
+	// A new address MMP uses (the VPN URL added or changed, say): refresh
+	// in the background, so the stored stream addresses move to it now
+	// rather than at the next scheduled refresh.
+	if source.ProviderURL(updated) != source.ProviderURL(cur) && updated.Enabled {
+		go ui.refreshInBackground(updated)
 	}
 	// Movies & series only exist on Xtream panels.
 	if vod := form.VODEnabled && p.typ == "xtream"; vod != cur.VodEnabled {
@@ -539,6 +554,19 @@ func (ui *UI) providerUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: provider updated", "provider_id", cur.ID)
 	ui.redirect(w, r, Prefix+"/providers?msg=saved")
+}
+
+// refreshInBackground refreshes p after the response has gone out.
+func (ui *UI) refreshInBackground(p db.Provider) {
+	ctx := ui.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+	if _, err := ui.Refresh.RefreshProvider(ctx, p, false); err != nil {
+		ui.Log.Warn("web: refresh after address change", "provider_id", p.ID, "err", err)
+	}
 }
 
 func (ui *UI) providerDelete(w http.ResponseWriter, r *http.Request) {
