@@ -78,7 +78,7 @@
 {{end}}
 
 {{define "vpn-status"}}
-<div id="vpn-status" class="card vpn-status" hx-get="/admin/vpn/status" hx-trigger="every 5s" hx-swap="outerHTML">
+<div id="vpn-status" class="card vpn-status" hx-get="/admin/vpn/status" hx-trigger="every 10s" hx-swap="outerHTML">
   {{if .IP.IP}}
   <div class="vpn-ip">
     <span class="vpn-flag" aria-hidden="true">{{with .IP.Flag}}{{.}}{{else}}🌐{{end}}</span>

@@ -13,7 +13,8 @@ import (
 )
 
 // The events page lists what happened to channels' upstreams: failovers,
-// admin switches, streams that would not open and channels that went down.
+// admin switches, streams that would not open, channels that went down and
+// channels whose every source fell behind real time.
 
 const eventsPerPage = 50
 
@@ -23,6 +24,7 @@ var eventTypes = []struct{ Value, Label string }{
 	{"switch", "Switches by an admin"},
 	{"open_failed", "Streams that would not open"},
 	{"exhausted", "Channels that went down"},
+	{"slow", "Every source behind real time"},
 }
 
 func (ui *UI) mountEvents(r chi.Router) {

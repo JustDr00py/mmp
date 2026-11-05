@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ const (
 	EventFailover   = "failover"    // a playing upstream failed and another took over
 	EventExhausted  = "exhausted"   // no candidate worked within the retry window
 	EventSwitch     = "switch"      // an admin moved the channel to another stream
+	EventSlow       = "slow"        // several sources fell behind real time: kept the stream
 )
 
 // reasonSwitched ends an upstream that an admin switched away from: not a
@@ -255,6 +257,52 @@ func avoidBackbones(cands []Candidate, avoid map[string]time.Time, now time.Time
 	return append(out, back...), jumped
 }
 
+// lagWideWindow: when sources on two backbones (or providers) fall behind
+// real time within it, the lag is not one provider's fault.
+const lagWideWindow = 10 * time.Minute
+
+// lagTracker remembers which sources fell behind real time lately, to tell
+// a slow provider (fail over) from a slow network or channel source (every
+// source behind: failing over only adds gaps).
+type lagTracker struct {
+	at        map[string]time.Time // source → when it last fell behind
+	announced time.Time            // the last EventSlow
+}
+
+// lagSource names a candidate's source: its backbone, else its provider.
+func lagSource(c Candidate) string {
+	if c.Backbone != "" {
+		return c.Backbone
+	}
+	return "provider #" + strconv.FormatInt(c.ProviderID, 10)
+}
+
+// note records that c fell behind at now and returns the other sources
+// that fell behind within lagWideWindow.
+func (t *lagTracker) note(c Candidate, now time.Time) []string {
+	src := lagSource(c)
+	var others []string
+	for s, at := range t.at {
+		switch {
+		case now.Sub(at) >= lagWideWindow:
+			delete(t.at, s)
+		case s != src:
+			others = append(others, s)
+		}
+	}
+	t.at[src] = now
+	slices.Sort(others)
+	return others
+}
+
+// lagAttrs are log fields for a real-time measurement (none without one).
+func lagAttrs(l *LagDetail) []any {
+	if l == nil {
+		return nil
+	}
+	return []any{"media", l.Media.Round(100 * time.Millisecond), "wall", l.Wall.Round(100 * time.Millisecond), "kbps", int(l.Kbps)}
+}
+
 // reconnectable reports whether an upstream that ended for reason lost its
 // connection: the provider closed or dropped it, which providers do now and
 // then. Reopening costs nothing, so such a stream is reopened every time.
@@ -307,6 +355,7 @@ func (s *Session) Run(ctx context.Context) error {
 	var reconnect int64              // stream to reopen first, cooldown or not (once)
 	avoid := map[string]time.Time{}  // backbones whose streams failed while playing
 	retried := map[int64]time.Time{} // when each stream was last reopened after a verdict
+	lagged := &lagTracker{at: map[string]time.Time{}}
 
 	for {
 		if ctx.Err() != nil {
@@ -386,6 +435,26 @@ func (s *Session) Run(ctx context.Context) error {
 				break
 			}
 			s.cfg.Metrics.upstreamFailure(res.reason)
+			if res.reason == Behind.String() {
+				if others := lagged.note(c, time.Now()); len(others) > 0 {
+					// Other sources fell behind too: the network or the
+					// event's source is slow, not this provider, and
+					// switching would only add gaps. Reopen it (back at the
+					// live edge) without blaming it.
+					why := s.describeResult(res)
+					s.log.Info("session: other sources fell behind too, reopening the same stream", append([]any{"stream_id", c.StreamID,
+						"provider_id", c.ProviderID, "also_behind", strings.Join(others, ", ")}, lagAttrs(res.lag)...)...)
+					if now := time.Now(); now.Sub(lagged.announced) >= lagWideWindow {
+						lagged.announced = now
+						s.emit(Event{Type: EventSlow, ProviderID: c.ProviderID, FromStreamID: c.StreamID, ToStreamID: c.StreamID,
+							Message: why + "; " + strings.Join(others, ", ") + " fell behind too, so the network or the channel's source is slow, not one provider: staying on this stream"})
+					}
+					reconnect = c.StreamID
+					lastFailed, failedWhy, lastProblem = c.StreamID, why, why
+					played = true
+					break
+				}
+			}
 			if c.Backbone != "" {
 				// Its siblings on the backbone go last for a while (after
 				// the reconnect below, which still comes first).
@@ -398,10 +467,10 @@ func (s *Session) Run(ctx context.Context) error {
 				if !drop {
 					retried[c.StreamID] = time.Now()
 				}
-				s.log.Info("session: upstream failed, retrying same stream", "stream_id", c.StreamID,
-					"provider_id", c.ProviderID, "reason", res.reason)
+				s.log.Info("session: upstream failed, retrying same stream", append([]any{"stream_id", c.StreamID,
+					"provider_id", c.ProviderID, "reason", res.reason}, lagAttrs(res.lag)...)...)
 				reconnect = c.StreamID
-				lastFailed, failedWhy = c.StreamID, s.describeFailure(res.reason)
+				lastFailed, failedWhy = c.StreamID, s.describeResult(res)
 				lastProblem = failedWhy
 				played = true
 				break
@@ -412,9 +481,9 @@ func (s *Session) Run(ctx context.Context) error {
 			} else {
 				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeOpenFailed)
 			}
-			s.log.Warn("session: upstream failed", "stream_id", c.StreamID, "provider_id", c.ProviderID,
-				"reason", res.reason, "cooldown", d)
-			lastFailed, failedWhy = c.StreamID, s.describeFailure(res.reason)
+			s.log.Warn("session: upstream failed", append([]any{"stream_id", c.StreamID, "provider_id", c.ProviderID,
+				"reason", res.reason, "cooldown", d}, lagAttrs(res.lag)...)...)
+			lastFailed, failedWhy = c.StreamID, s.describeResult(res)
 			lastProblem = failedWhy
 			s.mu.Lock()
 			s.status.Failovers++
@@ -446,9 +515,10 @@ func (s *Session) Run(ctx context.Context) error {
 }
 
 type streamResult struct {
-	delivered bool   // at least one packet reached the ring
-	stable    bool   // it played well for StableAfter
-	reason    string // why the upstream ended
+	delivered bool       // at least one packet reached the ring
+	stable    bool       // it played well for StableAfter
+	reason    string     // why the upstream ended
+	lag       *LagDetail // the measurement, when it fell behind real time
 }
 
 // stream pumps one upstream into the ring until it fails or ctx ends. A
@@ -458,6 +528,7 @@ type streamResult struct {
 func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spliced bool, failedID int64, failedWhy string, manual bool) streamResult {
 	w := NewWatcher(s.cfg.Thresholds, time.Now())
 	var verdict atomic.Int32
+	var lag atomic.Pointer[LagDetail]
 	var switched atomic.Bool
 	done := make(chan struct{})
 	defer close(done)
@@ -481,6 +552,10 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 				return
 			case now := <-t.C:
 				if v := w.Check(now); v != Healthy {
+					if v == Behind {
+						d := w.Lag(now)
+						lag.Store(&d)
+					}
 					verdict.Store(int32(v))
 					rc.Close()
 					return
@@ -548,7 +623,7 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			case switched.Load():
 				res.reason = reasonSwitched
 			case v != Healthy:
-				res.reason = v.String()
+				res.reason, res.lag = v.String(), lag.Load()
 			case errors.Is(err, io.EOF):
 				res.reason = "eof"
 			default:
@@ -557,6 +632,16 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 			return res
 		}
 	}
+}
+
+// describeResult puts why an upstream ended in words for events, with the
+// numbers when it fell behind real time.
+func (s *Session) describeResult(res streamResult) string {
+	if l := res.lag; l != nil && res.reason == Behind.String() && l.Wall > 0 {
+		return fmt.Sprintf("fell %s behind real time: %s of video arrived in %s, at %.1f Mbit/s (provider or network too slow)",
+			shortDur(s.cfg.Thresholds.MaxLag), shortDur(l.Media), shortDur(l.Wall), l.Kbps/1000)
+	}
+	return s.describeFailure(res.reason)
 }
 
 // describeFailure puts a stream's failure reason in words for events.
@@ -613,25 +698,44 @@ func (s *Session) probeMedia(ctx context.Context, streamID int64, sample []byte)
 // for a PAT; a provider that never sends one is passed through as is.
 const maxPATWait = 2 << 20
 
+// maxKeyframeWait bounds how much of a switched-to upstream is discarded
+// while waiting for its first video keyframe (a few seconds of HD); a
+// stream without keyframe markers is then passed through as is.
+const maxKeyframeWait = 3 << 20
+
+// noPMTWait: a switched-to upstream whose PMT is not found (or not
+// readable) this far past its PAT is passed through without waiting for a
+// keyframe; PMTs come several times a second.
+const noPMTWait = 256 << 10
+
 // splicer makes upstream switches clean for decoders: output (re)starts at a
-// PAT, and after a switch the first adaptation-field packet of each PID gets
+// PAT. After a switch it starts at the new upstream's first video keyframe,
+// preceded by its PAT and PMT, so the decoder never gets frames it cannot
+// decode and learns a new resolution (1080 → 720) from the keyframe's
+// parameters at once; the first adaptation-field packet of each PID gets
 // discontinuity_indicator so clocks reset. Packets without an adaptation
 // field cannot be flagged without re-packetizing; decoders tolerate their
 // continuity-counter jump.
 type splicer struct {
 	waitPAT bool
+	waitKey bool        // after a switch: hold back until the first keyframe
+	keys    *keyTracker // finds it, with the PAT+PMT in force there
 	markDis bool
 	marked  map[uint16]bool
-	dropped int
+	dropped int // bytes discarded so far
+	held    int // of which while waiting for the keyframe
 }
 
 func newSplicer(afterSwitch bool) *splicer {
-	return &splicer{waitPAT: true, markDis: afterSwitch, marked: map[uint16]bool{}}
+	return &splicer{waitPAT: true, waitKey: afterSwitch, keys: newKeyTracker(), markDis: afterSwitch, marked: map[uint16]bool{}}
 }
 
 // process filters aligned packets in place and returns the kept ones.
 func (sp *splicer) process(pkts []byte) []byte {
 	out := pkts[:0]
+	if sp.waitKey { // the tables go in ahead of the keyframe: no filtering in place
+		out = make([]byte, 0, len(pkts)+2*TSPacketSize)
+	}
 	for i := 0; i+TSPacketSize <= len(pkts); i += TSPacketSize {
 		p := pkts[i : i+TSPacketSize]
 		pid := PID(p)
@@ -643,11 +747,36 @@ func (sp *splicer) process(pkts []byte) []byte {
 			}
 			sp.waitPAT = false
 		}
-		if sp.markDis && !sp.marked[pid] && p[3]&0x20 != 0 && p[4] > 0 {
-			p[5] |= 0x80
-			sp.marked[pid] = true
+		if sp.waitKey {
+			idx, prefix := sp.keys.scan(p)
+			switch {
+			case idx == 0: // a keyframe: start here, tables first
+				sp.waitKey = false
+				for j := 0; j+TSPacketSize <= len(prefix); j += TSPacketSize {
+					out = sp.emit(out, prefix[j:j+TSPacketSize])
+				}
+			case sp.keys.pmt != nil && sp.keys.videoPID < 0, // no video to wait for
+				sp.keys.pmt == nil && sp.held >= noPMTWait, // no readable PMT
+				sp.held >= maxKeyframeWait:                 // no keyframes found
+				sp.waitKey = false
+			default:
+				sp.dropped += TSPacketSize
+				sp.held += TSPacketSize
+				continue
+			}
 		}
-		out = append(out, p...)
+		out = sp.emit(out, p)
 	}
 	return out
+}
+
+// emit appends one packet, flagging the first adaptation field per PID
+// after a switch.
+func (sp *splicer) emit(out, p []byte) []byte {
+	if sp.markDis && !sp.marked[PID(p)] && p[3]&0x20 != 0 && p[4] > 0 {
+		p = append([]byte(nil), p...) // prefix packets are the tracker's copies
+		p[5] |= 0x80
+		sp.marked[PID(p)] = true
+	}
+	return append(out, p...)
 }

@@ -28,6 +28,31 @@ func patPkt(cc uint8) []byte {
 	return b
 }
 
+// pmtPID is where testPAT points; testPMT names pidPCR as H.264 video.
+const pmtPID = 0x1000
+
+// tablePkt is a real PAT (pid 0) or PMT with continuity counter cc.
+func tablePkt(pid uint16, cc uint8) []byte {
+	var b []byte
+	if pid == 0 {
+		b = psiPkt(0, []byte{0x00, 0, 0, 0, 1, 0xC1, 0, 0, 0, 1, 0xE0 | pmtPID>>8, pmtPID & 0xFF})
+	} else {
+		b = psiPkt(pid, []byte{0x02, 0, 0, 0, 1, 0xC1, 0, 0, 0xE0 | pidPCR>>8, pidPCR & 0xFF, 0xF0, 0x00,
+			0x1B, 0xE0 | pidPCR>>8, pidPCR & 0xFF, 0xF0, 0x00})
+	}
+	b[3] = b[3]&0xF0 | cc&0x0F
+	return b
+}
+
+// keyPkt is a PCR packet that starts a video keyframe
+// (random_access_indicator at a PES start on the video PID).
+func keyPkt(tag byte, cc uint8) []byte {
+	b := pcrPkt(tag, cc)
+	b[1] |= 0x40
+	b[5] |= 0x40
+	return b
+}
+
 // pcrPkt carries an adaptation field (as PCR packets do) and tag at byte 12.
 func pcrPkt(tag byte, cc uint8) []byte {
 	b := tsPkt(pidPCR, cc)
@@ -88,8 +113,8 @@ func newFakeProvider(t *testing.T, tag byte, mode string, n int) *fakeProvider {
 		var cc [3]uint8
 		sent := 0
 		for {
-			// One "GOP": PAT, PCR, 8 data packets.
-			group := [][]byte{patPkt(cc[0]), pcrPkt(tag, cc[1])}
+			// One "GOP": PAT, PMT, a keyframe (with the PCR), 8 data packets.
+			group := [][]byte{tablePkt(0, cc[0]), tablePkt(pmtPID, cc[0]), keyPkt(tag, cc[1])}
 			cc[0]++
 			cc[1]++
 			for range 8 {
@@ -431,14 +456,66 @@ func TestSplicer(t *testing.T) {
 		t.Error("initial start must not mark discontinuity")
 	}
 
-	// After a switch: first AF packet per PID marked, later ones untouched.
+	// After a switch: output starts at the first keyframe, behind its PAT
+	// and PMT; frames before it are dropped; the first AF packet per PID is
+	// marked, later ones untouched.
 	sp = newSplicer(true)
-	out = sp.process(cat(patPkt(0), dataPkt('Y', 0), pcrPkt('Y', 5), pcrPkt('Y', 6)))
+	out = sp.process(cat(tablePkt(0, 0), tablePkt(pmtPID, 0), dataPkt('Y', 0), pcrPkt('Y', 4), keyPkt('Y', 5), pcrPkt('Y', 6)))
+	if got := pids(out); !slices.Equal(got, []uint16{0, pmtPID, pidPCR, pidPCR}) {
+		t.Fatalf("after a switch: pids %#x, want PAT, PMT, keyframe, PCR", got)
+	}
+	if out[2*TSPacketSize+12] != 'Y' || out[2*TSPacketSize+5]&0x40 == 0 {
+		t.Error("output does not continue with the keyframe")
+	}
 	if out[2*TSPacketSize+5]&0x80 == 0 {
-		t.Error("first PCR after switch not marked")
+		t.Error("keyframe after switch not marked discontinuous")
 	}
 	if out[3*TSPacketSize+5]&0x80 != 0 {
 		t.Error("second PCR wrongly marked")
+	}
+
+	// The keyframe in a later read than the tables: they still come first
+	// (and no packet is overwritten on the way).
+	sp = newSplicer(true)
+	if out = sp.process(cat(tablePkt(0, 0), tablePkt(pmtPID, 0), dataPkt('Y', 0))); len(out) != 0 {
+		t.Fatalf("kept %d packets before the keyframe", len(out)/TSPacketSize)
+	}
+	out = sp.process(cat(keyPkt('Y', 1), dataPkt('Y', 1), dataPkt('Y', 2)))
+	if got := pids(out); !slices.Equal(got, []uint16{0, pmtPID, pidPCR, pidData, pidData}) || tagOf(out[3*TSPacketSize:]) != 'Y' {
+		t.Fatalf("keyframe in a later read: pids %#x", got)
+	}
+
+	// A keyframe found from the H.264 data when the flag is not set (an
+	// SPS at the PES start).
+	sp = newSplicer(true)
+	sps := tsPkt(pidPCR, 1)
+	sps[1] |= 0x40
+	copy(sps[4:], []byte{0, 0, 1, 0xE0, 0, 0, 0x80, 0x80, 5, 0x21, 0, 1, 0, 1, 0, 0, 0, 1, 0x09, 0xF0, 0, 0, 0, 1, 0x67, 0x64})
+	out = sp.process(cat(tablePkt(0, 0), tablePkt(pmtPID, 0), dataPkt('Y', 0), sps))
+	if got := pids(out); !slices.Equal(got, []uint16{0, pmtPID, pidPCR}) {
+		t.Fatalf("SPS keyframe: pids %#x", got)
+	}
+
+	// No keyframe within maxKeyframeWait, or no readable PMT within
+	// noPMTWait: passed through as before. A PMT without video: at once.
+	for _, tc := range []struct {
+		name   string
+		tables [][]byte
+		limit  int
+	}{
+		{"no keyframes", [][]byte{tablePkt(0, 0), tablePkt(pmtPID, 0)}, maxKeyframeWait},
+		{"no PMT", [][]byte{tablePkt(0, 0)}, noPMTWait},
+		{"no video", [][]byte{tablePkt(0, 0), psiPkt(pmtPID, []byte{0x02, 0, 0, 0, 1, 0xC1, 0, 0, 0xE1, 0x01, 0xF0, 0x00, 0x0F, 0xE1, 0x01, 0xF0, 0x00})}, 0},
+	} {
+		sp = newSplicer(true)
+		kept := len(sp.process(cat(tc.tables...))) / TSPacketSize
+		n := 0
+		for ; kept == 0 && n < tc.limit/TSPacketSize+10; n++ {
+			kept += len(sp.process(dataPkt('Z', 0))) / TSPacketSize
+		}
+		if kept == 0 || n > tc.limit/TSPacketSize+2 {
+			t.Errorf("%s: passed through after %d packets (kept %d), want after ~%d", tc.name, n, kept, tc.limit/TSPacketSize)
+		}
 	}
 
 	// A provider that never sends a PAT is passed through after maxPATWait.
@@ -450,6 +527,15 @@ func TestSplicer(t *testing.T) {
 	if kept == 0 || kept > 11 {
 		t.Errorf("passthrough kept %d packets", kept)
 	}
+}
+
+// pids lists the PIDs of aligned packets.
+func pids(pkts []byte) []uint16 {
+	var out []uint16
+	for i := 0; i+TSPacketSize <= len(pkts); i += TSPacketSize {
+		out = append(out, PID(pkts[i:]))
+	}
+	return out
 }
 
 func TestCooldownsBackoff(t *testing.T) {
@@ -805,5 +891,87 @@ func TestAvoidBackbones(t *testing.T) {
 	}
 	if out, jumped := avoidBackbones(cands, map[string]time.Time{"X": now}, now); !slices.Equal(ids(out), []int64{1, 2, 3, 4}) || jumped != nil {
 		t.Errorf("expired avoid reordered: %v %v", ids(out), jumped)
+	}
+}
+
+// newSlowProvider serves a TS whose video runs at speed × real time (PTS
+// on pidPCR), starting with tables and a keyframe.
+func newSlowProvider(t *testing.T, speed float64) *fakeProvider {
+	t.Helper()
+	fp := &fakeProvider{}
+	fp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fp.hits.Add(1)
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Write(append(append(tablePkt(0, 0), tablePkt(pmtPID, 0)...), keyPkt('S', 0)...))
+		var pts float64
+		for i := uint8(1); ; i++ {
+			if _, err := w.Write(pesPkt(pidPCR, i, int64(pts))); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			pts += speed * 0.02 * 90000
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}))
+	t.Cleanup(fp.Close)
+	return fp
+}
+
+// TestSessionLagEverywhereStays: a stream that falls behind fails over (the
+// event gives the numbers), but when the next backbone falls behind too the
+// lag is not one provider's: the session reopens that stream instead of
+// switching again, without a cooldown, and says so once.
+func TestSessionLagEverywhereStays(t *testing.T) {
+	a := newSlowProvider(t, 0.5)
+	b := newSlowProvider(t, 0.5)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, Backbone: "Strong", URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, Backbone: "Trex", URL: b.URL + "/2.ts"},
+	}, func(c *SessionConfig) {
+		c.Thresholds = Thresholds{StallTimeout: 2 * time.Second, Window: time.Second, MaxLag: 300 * time.Millisecond}
+		c.StableAfter = time.Hour // no "retry the same stream" first
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for b.hits.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	h.stop(t)
+	if n := b.hits.Load(); n < 3 {
+		t.Fatalf("Trex stream opened %d times, want it reopened (A %d)", n, a.hits.Load())
+	}
+	if n := a.hits.Load(); n != 1 {
+		t.Errorf("went back to the first backbone: %d opens of A", n)
+	}
+	fo := h.eventsOf(EventFailover)
+	if len(fo) != 1 || !strings.Contains(fo[0].Message, "of video arrived in") || !strings.Contains(fo[0].Message, "Mbit/s") {
+		t.Errorf("failover events = %+v, want one with the numbers", fo)
+	}
+	slow := h.eventsOf(EventSlow)
+	if len(slow) != 1 || slow[0].ProviderID != 2 || !strings.Contains(slow[0].Message, "Strong fell behind too") {
+		t.Errorf("slow events = %+v, want one naming Strong", slow)
+	}
+	if h.cool.Active(2, time.Now()) {
+		t.Error("the stream kept despite the lag got a cooldown")
+	}
+}
+
+func TestLagTracker(t *testing.T) {
+	lt := &lagTracker{at: map[string]time.Time{}}
+	a, b, c := Candidate{Backbone: "Strong"}, Candidate{Backbone: "Trex"}, Candidate{ProviderID: 7}
+	if o := lt.note(a, t0); o != nil {
+		t.Errorf("first lag: others %v", o)
+	}
+	if o := lt.note(a, t0.Add(time.Minute)); o != nil {
+		t.Errorf("same backbone again: others %v", o)
+	}
+	if o := lt.note(c, t0.Add(2*time.Minute)); !slices.Equal(o, []string{"Strong"}) {
+		t.Errorf("other source: %v", o)
+	}
+	if o := lt.note(b, t0.Add(30*time.Minute)); o != nil {
+		t.Errorf("after the window: others %v", o)
 	}
 }
