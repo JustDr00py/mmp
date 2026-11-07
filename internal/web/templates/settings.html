@@ -69,6 +69,45 @@
   </form>
 </section>
 
+<section class="settings-section" id="routes">
+  <h2>Game routing</h2>
+  <form class="card form" method="post" action="/admin/settings/routes">
+    <label class="check"><input type="checkbox" name="enabled"{{if $d.Routes.Enabled}} checked{{end}}> Let team channels play the game slot that carries their game</label>
+    <span class="hint">Slot channels like <span class="mono">NBA 06</span> are renamed for each game, e.g.
+      <span class="mono">Milwaukee Bucks vs Toronto Raptors @ Nov 6 8:00 PM :NBA 06</span>. While that game is on, the
+      Bucks and Raptors channels play NBA 06's streams first and their own streams after, then go back to their own list.
+      Their guide stays as it is. Slot streams added to a team channel by hand are taken off it: routing gives them back during the game.</span>
+    <fieldset>
+      <legend>Game slots are in</legend>
+      {{if $d.ChannelGroups}}<div class="checks">
+        {{range $d.ChannelGroups}}<label class="check"><input type="checkbox" name="source" value="{{.ID}}"{{if index $d.RouteSource .ID}} checked{{end}}> {{.Name}}</label>{{end}}
+      </div>{{else}}<span class="muted">No channel groups yet.</span>{{end}}
+    </fieldset>
+    <fieldset>
+      <legend>Team channels are in</legend>
+      {{if $d.ChannelGroups}}<div class="checks">
+        {{range $d.ChannelGroups}}<label class="check"><input type="checkbox" name="target" value="{{.ID}}"{{if index $d.RouteTarget .ID}} checked{{end}}> {{.Name}}</label>{{end}}
+      </div>{{end}}
+      <span class="hint">A team channel is recognised by its team's name (NBA teams also by city and nicknames like Sixers or Cavs); other channels by the last word of their name.</span>
+    </fieldset>
+    <div class="grid2 top">
+      <label>Start playing the slot
+        <input class="short" type="number" name="before" min="0" max="1440" value="{{$d.Routes.BeforeMins}}" required>
+        <span class="hint">minutes before the start time in the slot's name</span></label>
+      <label>Keep playing it until
+        <input class="short" type="number" name="after" min="30" max="1440" value="{{$d.Routes.AfterMins}}" required>
+        <span class="hint">minutes after the start</span></label>
+    </div>
+    <div class="row"><button type="submit">Save and run</button><span class="hint">Runs again every 5 minutes and after each provider refresh.</span></div>
+  </form>
+  {{with $d.RouteResult}}<div class="card">
+    {{if .Overrides}}<p>{{len .Overrides}} team channel(s) routed{{if .Unlinked}}, {{.Unlinked}} hand-added slot stream(s) taken off team channels{{end}}:</p>
+    <ul>{{range .Overrides}}<li>{{.ChannelName}}: {{.Title}} → <span class="mono">{{.SourceName}}</span></li>{{end}}</ul>
+    {{else if .Ran}}<p class="muted">No games on now or within {{$d.Routes.BeforeMins}} minutes{{if .Unlinked}}; {{.Unlinked}} hand-added slot stream(s) taken off team channels{{end}}.</p>
+    {{else}}<p class="muted">Routing is off; no team channel is routed.</p>{{end}}
+  </div>{{end}}
+</section>
+
 <section class="settings-section">
   <h2>History</h2>
   <form class="card form narrow" method="post" action="/admin/settings/events">

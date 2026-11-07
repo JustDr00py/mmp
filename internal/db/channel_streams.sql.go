@@ -264,20 +264,32 @@ func (q *Queries) ListBouquets(ctx context.Context) ([]Bouquet, error) {
 }
 
 const listChannelCandidates = `-- name: ListChannelCandidates :many
+WITH ov AS (
+    SELECT o.source_channel_id FROM channel_event_overrides o
+    WHERE o.channel_id = $1 AND now() >= o.starts_at AND now() < o.ends_at
+), lists AS (
+    SELECT cs.provider_stream_id, 0 AS tier, cs.priority FROM channel_streams cs
+    WHERE cs.channel_id IN (SELECT source_channel_id FROM ov)
+    UNION ALL
+    SELECT cs.provider_stream_id, 1 AS tier, cs.priority FROM channel_streams cs
+    WHERE cs.channel_id = $1
+), best AS (
+    SELECT DISTINCT ON (provider_stream_id) provider_stream_id, tier, priority
+    FROM lists ORDER BY provider_stream_id, tier, priority
+)
 SELECT ps.id AS stream_id, ps.stream_url, ps.health_score,
        pr.id AS provider_id, pr.max_connections, pr.user_agent, pr.backbone,
        COALESCE(sp.mode, 'passthrough')::text AS profile_mode,
        COALESCE(sp.ffmpeg_args, '')::text AS profile_ffmpeg_args,
        COALESCE(sp.user_agent, '')::text AS profile_user_agent
-FROM channel_streams cs
-JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+FROM best b
+JOIN provider_streams ps ON ps.id = b.provider_stream_id
 JOIN providers pr ON pr.id = ps.provider_id
-JOIN channels c ON c.id = cs.channel_id
+JOIN channels c ON c.id = $1
 LEFT JOIN stream_profiles sp ON sp.id = c.stream_profile_id
-WHERE cs.channel_id = $1
-  AND pr.enabled
+WHERE pr.enabled
   AND NOT ps.disabled
-ORDER BY cs.priority, pr.priority, ps.id
+ORDER BY b.tier, b.priority, pr.priority, ps.id
 `
 
 type ListChannelCandidatesRow struct {
@@ -294,9 +306,11 @@ type ListChannelCandidatesRow struct {
 }
 
 // The proxy's failover list: live streams of enabled providers, preferred first.
-// The channel's stream profile (if any) rides along on every row.
-func (q *Queries) ListChannelCandidates(ctx context.Context, channelID int64) ([]ListChannelCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listChannelCandidates, channelID)
+// The channel's stream profile (if any) rides along on every row. While a
+// game override is on (channel_event_overrides), the event slot channel's
+// streams come first and the channel's own after, each stream once.
+func (q *Queries) ListChannelCandidates(ctx context.Context, id int64) ([]ListChannelCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listChannelCandidates, id)
 	if err != nil {
 		return nil, err
 	}

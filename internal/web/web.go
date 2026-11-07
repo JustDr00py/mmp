@@ -27,6 +27,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/backup"
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/eventroute"
 	"github.com/JustDr00py/mmp/internal/logos"
 	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
@@ -61,6 +62,7 @@ type LiveViewers interface {
 // Store is the persistence the pages need (satisfied by *db.Queries).
 type Store interface {
 	ListProviders(ctx context.Context) ([]db.Provider, error)
+	ListEventOverrides(ctx context.Context) ([]db.ListEventOverridesRow, error)
 	GetProvider(ctx context.Context, id int64) (db.Provider, error)
 	CreateProvider(ctx context.Context, arg db.CreateProviderParams) (db.Provider, error)
 	UpdateProvider(ctx context.Context, arg db.UpdateProviderParams) (db.Provider, error)
@@ -251,6 +253,11 @@ type Deps struct {
 	// RootAPI may answer a request for "/" (an app's Xtream call there);
 	// false sends it on to the admin UI. Optional.
 	RootAPI func(w http.ResponseWriter, r *http.Request) bool
+	// Routes runs a game routing pass (Settings → Game routing); nil
+	// leaves passes to the background ticker.
+	Routes interface {
+		Run(ctx context.Context, now time.Time) (eventroute.Result, error)
+	}
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger
