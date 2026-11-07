@@ -27,6 +27,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/config"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/eventroute"
 	eventlog "github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/gluetun"
 	"github.com/JustDr00py/mmp/internal/health"
@@ -205,7 +206,12 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 			"channels_renamed", len(res.Renamed), "renames", res.Renamed)
 	}
 	refresher.Timeout = cfg.Refresh.Timeout.Duration
-	refresher.AfterRefresh = matcher.AutoMatchHook()
+	router := eventroute.NewRouter(log, pool)
+	autoMatch := matcher.AutoMatchHook()
+	refresher.AfterRefresh = func(ctx context.Context, p db.Provider) {
+		autoMatch(ctx, p)
+		router.AfterRefresh(ctx, p) // slot names change with a refresh; after auto-match, which may relink slots
+	}
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
 		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
@@ -263,7 +269,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		vpn = &web.VPN{Client: client, Keeper: keeper, Servers: &gluetun.ServerList{Path: gc.ServersFile}}
 		go keeper.Run(ctx)
 	}
-	ui, err := web.New(web.Deps{VPN: vpn, Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
+	ui, err := web.New(web.Deps{VPN: vpn, Routes: router, Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
 		Backups: backups, Logos: logoLib, LogoUpdateInterval: cfg.Logos.UpdateInterval.Duration, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,
@@ -288,6 +294,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 
 	// Background workers.
 	go refresher.RefreshOnVPNChange(ctx)
+	router.Start(ctx)
 	go func() {
 		if err := refresher.Start(ctx, time.Minute, cfg.Refresh.EPGInterval.Duration); err != nil {
 			log.Error("refresher stopped", "err", err)

@@ -5,11 +5,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/eventroute"
 	"github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/nameguide"
 )
@@ -24,6 +26,7 @@ func (ui *UI) mountSettings(r chi.Router) {
 	r.Post("/settings/prefixes", ui.settingsPrefixesSave)
 	r.Post("/settings/events", ui.settingsEventsSave)
 	r.Post("/settings/nameguide", ui.settingsNameGuideSave)
+	r.Post("/settings/routes", ui.settingsRoutesSave)
 }
 
 type settingsData struct {
@@ -31,6 +34,10 @@ type settingsData struct {
 	Prefixes      string // ignored name prefixes, one per line
 	Events        events.Retention
 	NameGuide     nameguide.Settings
+	Routes        eventroute.Settings
+	RouteSource   map[int64]bool // ticked game groups (the first rule's)
+	RouteTarget   map[int64]bool // ticked team groups
+	RouteResult   *eventroute.Result
 	Zones         []string // suggestions for the name guide's zone
 	ChannelGroups []db.ChannelGroup
 	Bouquets      []db.Bouquet
@@ -68,6 +75,18 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 		return d, err
 	}
 	d.Zones = commonZones
+	if d.Routes, err = eventroute.Load(r.Context(), ui.Store); err != nil {
+		return d, err
+	}
+	d.RouteSource, d.RouteTarget = map[int64]bool{}, map[int64]bool{}
+	if len(d.Routes.Rules) > 0 {
+		for _, id := range d.Routes.Rules[0].SourceGroupIDs {
+			d.RouteSource[id] = true
+		}
+		for _, id := range d.Routes.Rules[0].TargetGroupIDs {
+			d.RouteTarget[id] = true
+		}
+	}
 	if d.ChannelGroups, err = ui.Store.ListChannelGroups(r.Context()); err != nil {
 		return d, err
 	}
@@ -99,6 +118,8 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "History setting saved. Older events and activity are deleted within the hour."
 	case "nameguide":
 		d.Flash = "Stream-name guide saved. Players get it the next time they load the guide."
+	case "routes":
+		d.Flash = "Game routing saved."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
@@ -217,4 +238,72 @@ func (ui *UI) settingsNameGuideSave(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: stream-name guide saved", "enabled", s.Enabled, "all", s.All, "zone", s.Zone)
 	ui.redirect(w, r, Prefix+"/settings?msg=nameguide")
+}
+
+func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	s := eventroute.Settings{Enabled: f.Get("enabled") != ""}
+	s.BeforeMins, _ = strconv.Atoi(f.Get("before"))
+	s.AfterMins, _ = strconv.Atoi(f.Get("after"))
+	var rule eventroute.Rule
+	for _, v := range f["source"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			rule.SourceGroupIDs = append(rule.SourceGroupIDs, id)
+		}
+	}
+	for _, v := range f["target"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			rule.TargetGroupIDs = append(rule.TargetGroupIDs, id)
+		}
+	}
+	if len(rule.SourceGroupIDs) > 0 || len(rule.TargetGroupIDs) > 0 {
+		s.Rules = []eventroute.Rule{rule}
+	}
+	fail := func(status int, msg string) {
+		d, derr := ui.settingsData(r, nil)
+		if derr != nil {
+			ui.fail(w, "settings", derr)
+			return
+		}
+		d.Routes, d.Error = s, msg
+		d.RouteSource, d.RouteTarget = map[int64]bool{}, map[int64]bool{}
+		for _, id := range rule.SourceGroupIDs {
+			d.RouteSource[id] = true
+		}
+		for _, id := range rule.TargetGroupIDs {
+			d.RouteTarget[id] = true
+		}
+		ui.render(w, r, status, "settings", "Settings", d)
+	}
+	if err := s.Validate(); err != nil {
+		fail(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err := eventroute.Save(r.Context(), ui.Store, s); err != nil {
+		ui.fail(w, "save game routing", err)
+		return
+	}
+	ui.Log.Info("web: game routing saved", "enabled", s.Enabled, "rules", s.Rules,
+		"before_mins", s.BeforeMins, "after_mins", s.AfterMins)
+	if ui.Routes == nil {
+		ui.redirect(w, r, Prefix+"/settings?msg=routes")
+		return
+	}
+	res, err := ui.Routes.Run(r.Context(), time.Now()) // apply at once rather than at the next tick
+	if err != nil {
+		fail(http.StatusInternalServerError, "Saved, but routing failed: "+err.Error())
+		return
+	}
+	d, err := ui.settingsData(r, nil)
+	if err != nil {
+		ui.fail(w, "settings", err)
+		return
+	}
+	d.RouteResult = &res
+	d.Flash = "Game routing saved and run."
+	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }

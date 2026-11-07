@@ -68,7 +68,7 @@
     <td class="mono" data-label="tvg-id">{{.TvgID}}</td>
     <td class="num" data-label="Streams">{{if .Streams}}{{.Streams}}{{else}}<span class="pill warn">none</span>{{end}}</td>
     <td class="num" data-label="Bouquets">{{if .Bouquets}}{{.Bouquets}}{{else}}<span class="pill warn">none</span>{{end}}</td>
-    <td data-label="Status">{{if .Playing}}<span class="pill ok">playing</span>{{else if not .Enabled}}<span class="pill off">disabled</span>{{end}}</td>
+    <td data-label="Status">{{if .Playing}}<span class="pill ok">playing</span>{{else if not .Enabled}}<span class="pill off">disabled</span>{{end}}{{with .Game}} <span class="pill warn" title="{{.Title}}: plays {{.SourceName}} first">game · {{.SourceName}}</span>{{end}}</td>
   </tr>
   {{end}}
   </tbody>
