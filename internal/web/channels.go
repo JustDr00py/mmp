@@ -493,8 +493,6 @@ type channelPageData struct {
 	// Merges are the Match suggestions added to this channel: each keeps
 	// sending it streams until unlinked.
 	Merges []channelMerge
-	// Game is the slot game routing plays on this channel now, if any.
-	Game *db.ListEventOverridesRow
 }
 
 // channelMerge is one suggestion linked to a channel.
@@ -507,11 +505,47 @@ type streamListData struct {
 	ChannelID int64
 	Rows      []db.ListChannelStreamsRow
 	Playing   int64 // stream id playing now, 0 if none
+	// While game routing is on (Game set), the slot's streams play first
+	// (Slot, in its order) and Rows after, each stream once, as the
+	// proxy's ListChannelCandidates does. Ranks[i] is Rows[i]'s place in
+	// that order, 0 when the stream already plays from the slot.
+	Game  *db.ListEventOverridesRow
+	Slot  []db.ListChannelStreamsRow
+	Ranks []int
 }
 
 func (ui *UI) streamList(r *http.Request, channelID int64) (streamListData, error) {
 	rows, err := ui.Store.ListChannelStreams(r.Context(), channelID)
-	return streamListData{ChannelID: channelID, Rows: rows, Playing: ui.playing()[channelID]}, err
+	if err != nil {
+		return streamListData{}, err
+	}
+	d := streamListData{ChannelID: channelID, Rows: rows, Playing: ui.playing()[channelID]}
+	if g, ok := ui.games(r.Context())[channelID]; ok {
+		slot, err := ui.Store.ListChannelStreams(r.Context(), g.SourceChannelID)
+		if err != nil {
+			return streamListData{}, err
+		}
+		d.Game, d.Slot = &g, slot
+	}
+	d.Ranks = playRanks(d.Slot, rows)
+	return d, nil
+}
+
+// playRanks numbers own after slot, skipping streams slot already has.
+func playRanks(slot, own []db.ListChannelStreamsRow) []int {
+	inSlot := make(map[int64]bool, len(slot))
+	for _, s := range slot {
+		inSlot[s.ProviderStreamID] = true
+	}
+	ranks := make([]int, len(own))
+	next := len(slot) + 1
+	for i, s := range own {
+		if !inSlot[s.ProviderStreamID] {
+			ranks[i] = next
+			next++
+		}
+	}
+	return ranks
 }
 
 func (ui *UI) channelPage(w http.ResponseWriter, r *http.Request) {
@@ -556,9 +590,6 @@ func (ui *UI) renderChannel(w http.ResponseWriter, r *http.Request, status int, 
 		flash = "Channel saved."
 	}
 	d := channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones, Merges: linked}
-	if g, ok := ui.games(r.Context())[c.ID]; ok {
-		d.Game = &g
-	}
 	ui.render(w, r, status, "channel", c.Name, d)
 }
 

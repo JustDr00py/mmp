@@ -283,6 +283,8 @@ ol.failover, ul.picker { list-style: none; margin: 0; padding: 0; display: grid;
 ol.failover li, ul.picker li { display: flex; align-items: center; gap: .75rem; background: var(--card);
   border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .8rem; box-shadow: var(--shadow); }
 ol.failover li { cursor: grab; }
+ol.failover.slot { margin-bottom: .9rem; }
+ol.failover.slot li { cursor: default; }
 ol.failover li:hover { border-color: var(--line-strong); }
 ol.failover li.dragging { opacity: .5; border-style: dashed; }
 ol.failover li.dim { opacity: .55; }
