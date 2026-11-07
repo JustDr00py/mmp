@@ -110,6 +110,78 @@ func TestVPNPage(t *testing.T) {
 	}
 }
 
+// While gluetun is mid-change or still looking for a working server, a
+// new location waits (it can wedge gluetun); the latter can be forced.
+func TestVPNBusy(t *testing.T) {
+	var mu sync.Mutex
+	status, healthy, puts := "running", true, 0
+	loc := gluetun.Location{Countries: []string{"Netherlands"}}
+	g := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method + " " + r.URL.Path {
+		case "GET /health":
+			if !healthy {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		case "GET /v1/publicip/ip":
+			io.WriteString(w, `{"public_ip":""}`)
+		case "GET /v1/vpn/status":
+			json.NewEncoder(w).Encode(map[string]string{"status": status})
+		case "GET /v1/vpn/settings":
+			json.NewEncoder(w).Encode(map[string]any{"type": "wireguard",
+				"provider": map[string]any{"name": "nordvpn", "server_selection": loc}})
+		case "PUT /v1/vpn/settings", "PUT /v1/vpn/status":
+			puts++
+			io.WriteString(w, "ok")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer g.Close()
+	b, _ := pgUI(t, func(d *Deps, _ *pgxpool.Pool) {
+		c := &gluetun.Client{BaseURL: g.URL, HealthURL: g.URL + "/health"}
+		d.VPN = &VPN{Client: c, Servers: &gluetun.ServerList{},
+			Keeper: &gluetun.Keeper{Client: c, Store: d.Store.(*db.Queries), Log: slog.New(slog.DiscardHandler)}}
+	})
+	set := func(st string, h bool) { mu.Lock(); status, healthy = st, h; mu.Unlock() }
+	nPuts := func() int { mu.Lock(); defer mu.Unlock(); return puts }
+	japan := url.Values{"country": {"Japan"}}
+
+	set("stopping", true)
+	for _, path := range []string{"/admin/vpn/location", "/admin/vpn/reconnect"} {
+		resp, body := b.post(path, japan, b.base)
+		if resp.StatusCode != http.StatusConflict || !strings.Contains(body, "Gluetun is stopping") || strings.Contains(body, "Change anyway") {
+			t.Errorf("%s while stopping = %d", path, resp.StatusCode)
+		}
+	}
+	forced := url.Values{"country": {"Japan"}, "force": {"1"}}
+	if resp, _ := b.post("/admin/vpn/location", forced, b.base); resp.StatusCode != http.StatusConflict {
+		t.Errorf("forced while stopping = %d, want refused", resp.StatusCode)
+	}
+
+	set("running", false)
+	resp, body := b.post("/admin/vpn/location", japan, b.base)
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(body, "still looking for a server") ||
+		!strings.Contains(body, `name="force" value="1"`) || !strings.Contains(body, "Change anyway") {
+		t.Fatalf("location while unhealthy = %d", resp.StatusCode)
+	}
+	if nPuts() != 0 {
+		t.Fatalf("gluetun got %d changes while busy", nPuts())
+	}
+	if resp, _ := b.post("/admin/vpn/reconnect", nil, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("reconnect while unhealthy = %d, want allowed", resp.StatusCode)
+	}
+	if resp, _ := b.post("/admin/vpn/location", forced, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("forced change = %d", resp.StatusCode)
+	}
+
+	set("running", true)
+	if resp, _ := b.post("/admin/vpn/location", japan, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("change when healthy = %d", resp.StatusCode)
+	}
+}
+
 func TestVPNHiddenWithoutGluetun(t *testing.T) {
 	b, _ := pgUI(t)
 	if resp, _ := b.get("/admin/vpn"); resp.StatusCode != http.StatusNotFound {

@@ -264,7 +264,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	var vpn *web.VPN
 	source.SetBehindVPN(cfg.Gluetun.URL != "") // providers' VPN URLs apply
 	if gc := cfg.Gluetun; gc.URL != "" {
-		client := &gluetun.Client{BaseURL: gc.URL, APIKey: gc.APIKey}
+		client := &gluetun.Client{BaseURL: gc.URL, APIKey: gc.APIKey, HealthURL: gc.HealthURL}
 		keeper := &gluetun.Keeper{Client: client, Store: queries, Log: log}
 		vpn = &web.VPN{Client: client, Keeper: keeper, Servers: &gluetun.ServerList{Path: gc.ServersFile}}
 		go keeper.Run(ctx)
