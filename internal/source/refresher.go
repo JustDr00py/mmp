@@ -35,10 +35,11 @@ import (
 const maxM3USize = 100 << 20
 
 // Guide downloads are bounded twice: as fetched, and after gzip, so a small
-// gzip bomb cannot inflate into an endless guide.
-const (
-	maxEPGSize         = 512 << 20 // 512 MiB as downloaded
-	maxEPGInflatedSize = 4 << 30   // 4 GiB once decompressed
+// gzip bomb cannot inflate into an endless guide. Variables so tests can
+// shrink them.
+var (
+	maxEPGSize         int64 = 512 << 20 // 512 MiB as downloaded
+	maxEPGInflatedSize int64 = 4 << 30   // 4 GiB once decompressed
 )
 
 // errGuideTooLarge: a guide past maxEPGSize or maxEPGInflatedSize.
@@ -543,6 +544,12 @@ func (r *Refresher) loadGuide(ctx context.Context, sourceID int64, xmltvURL, use
 		return 0, fmt.Errorf("refresh epg %s: fetch %s: invalid url", label, redact.URL(xmltvURL))
 	}
 	req.Header.Set("User-Agent", userAgentOr(userAgent))
+	// Asked for explicitly, gzip reaches us as sent (Go only unzips the
+	// encoding it added itself): maxEPGSize then bounds the bytes
+	// downloaded, and the magic-byte check below inflates the guide under
+	// maxEPGInflatedSize. Left to Go, a 500 MB guide sent as 80 MB of gzip
+	// counted its unzipped size against maxEPGSize.
+	req.Header.Set("Accept-Encoding", "gzip")
 	resp, err := r.hc.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("refresh epg %s: fetch %s: %w", label, redact.URL(xmltvURL), redact.Err(err))
