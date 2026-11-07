@@ -90,8 +90,8 @@ func TestServerList(t *testing.T) {
 
 // fakeGluetun is a control server holding a location.
 type fakeGluetun struct {
-	mu   sync.Mutex
-	loc  Location
+	mu     sync.Mutex
+	loc    Location
 	puts   []string
 	key    string
 	status string // "" = running
@@ -190,7 +190,8 @@ func TestKeeper(t *testing.T) {
 		t.Fatalf("Sync = %v, %v", applied, err)
 	}
 	f.loc = Location{Countries: []string{"Netherlands"}, Hostnames: []string{"nl1"}} // restarted with .env
-	f.status = "stopping" // mid-change: leave gluetun alone until it settles
+	// Mid-change: leave gluetun alone until it settles.
+	f.status = "stopping"
 	if applied, err := k.Sync(ctx); err != nil || applied {
 		t.Fatalf("Sync while stopping = %v, %v", applied, err)
 	}
