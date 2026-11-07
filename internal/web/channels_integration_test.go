@@ -366,3 +366,59 @@ func TestMatchPage(t *testing.T) {
 		t.Error("rule not deleted")
 	}
 }
+
+// TestChannelPageGameOrder: while game routing is on, the failover list
+// shows what plays: the slot's streams first, then the channel's own, a
+// stream both have only once (in the slot's place).
+func TestChannelPageGameOrder(t *testing.T) {
+	b, q := pgUI(t)
+	ids := seedStreams(t, q)
+	ctx := context.Background()
+	channel := func(name string, streams ...int64) int64 {
+		c, err := q.CreateChannel(ctx, db.CreateChannelParams{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, s := range streams {
+			if err := q.AddStreamToChannel(ctx, db.AddStreamToChannelParams{ChannelID: c.ID, ProviderStreamID: s,
+				Priority: int32(i + 1)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return c.ID
+	}
+	slot := channel("NBA 06", ids["BBC One HD@A"], ids["CNN@A"])
+	team := channel("Toronto Raptors", ids["Only B@B"], ids["CNN@A"], ids["CNN@B"])
+	page := "/admin/channels/" + strconv.FormatInt(team, 10)
+	rank := regexp.MustCompile(`<span class="rank">([^<]*)</span>\s*<span class="what">\s*<span class="what-name"><strong>([^<]*)</strong>`)
+	ranks := func(body string) string {
+		var out []string
+		for _, m := range rank.FindAllStringSubmatch(body, -1) {
+			out = append(out, m[1]+" "+m[2])
+		}
+		return strings.Join(out, ", ")
+	}
+
+	_, body := b.get(page)
+	if got, want := ranks(body), "1 Only B, 2 CNN, 3 CNN"; got != want || strings.Contains(body, "Game on") {
+		t.Errorf("no game: ranks %q, want %q", got, want)
+	}
+
+	now := time.Now()
+	if err := q.UpsertEventOverride(ctx, db.UpsertEventOverrideParams{ChannelID: team, SourceChannelID: slot,
+		Title: "Milwaukee Bucks vs Toronto Raptors", StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	_, body = b.get(page)
+	if got, want := ranks(body), "1 BBC One HD, 2 CNN, 3 Only B, – CNN, 4 CNN"; got != want {
+		t.Errorf("game on: ranks %q, want %q", got, want)
+	}
+	if !strings.Contains(body, "NBA 06</a>'s 2 streams in order, then this channel's own") || !strings.Contains(body, ">in NBA 06</span>") {
+		t.Errorf("game on: banner or slot pill missing:\n%s", body)
+	}
+	// An htmx edit re-renders the fragment in the same order.
+	_, body = b.htmx(http.MethodPost, page+"/streams/"+strconv.FormatInt(ids["CNN@B"], 10)+"/move?dir=up", nil, "stream-list")
+	if got, want := ranks(body), "1 BBC One HD, 2 CNN, 3 Only B, 4 CNN, – CNN"; got != want {
+		t.Errorf("after move: ranks %q, want %q", got, want)
+	}
+}
