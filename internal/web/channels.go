@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -55,6 +56,7 @@ type channelRow struct {
 	Streams  int64
 	Bouquets int64
 	Playing  bool
+	Game     *db.ListEventOverridesRow // game routing: the slot it plays now
 }
 
 type channelsData struct {
@@ -147,6 +149,7 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 		groupName[g.ID] = g.Name
 	}
 	playing := ui.playing()
+	games := ui.games(ctx)
 	d := channelsData{Groups: groups, Bouquets: bouquets, Query: q, GroupID: gid, BouquetID: bid, Offset: offset, PrevOffset: max(offset-channelsPerPage, 0),
 		Flash: channelFlashes[r.URL.Query().Get("msg")]}
 	switch q := r.URL.Query(); q.Get("msg") {
@@ -164,6 +167,9 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range chans {
 		row := channelRow{Channel: c, Streams: nStreams[c.ID], Bouquets: nBouquets[c.ID], Playing: playing[c.ID] != 0}
+		if g, ok := games[c.ID]; ok {
+			row.Game = &g
+		}
 		if c.GroupID != nil {
 			row.Group = groupName[*c.GroupID]
 		}
@@ -289,6 +295,24 @@ func (ui *UI) channelsSortStreams(w http.ResponseWriter, r *http.Request) {
 }
 
 // playing maps channel id to the stream its session is playing now.
+// games are the game routing overrides in effect now, by team channel. A
+// failure only hides the badges.
+func (ui *UI) games(ctx context.Context) map[int64]db.ListEventOverridesRow {
+	out := map[int64]db.ListEventOverridesRow{}
+	rows, err := ui.Store.ListEventOverrides(ctx)
+	if err != nil {
+		ui.Log.Warn("web: game routing overrides", "err", err)
+		return out
+	}
+	now := time.Now()
+	for _, o := range rows {
+		if !now.Before(o.StartsAt) && now.Before(o.EndsAt) {
+			out[o.ChannelID] = o
+		}
+	}
+	return out
+}
+
 func (ui *UI) playing() map[int64]int64 {
 	out := map[int64]int64{}
 	if ui.Live == nil {
@@ -469,6 +493,8 @@ type channelPageData struct {
 	// Merges are the Match suggestions added to this channel: each keeps
 	// sending it streams until unlinked.
 	Merges []channelMerge
+	// Game is the slot game routing plays on this channel now, if any.
+	Game *db.ListEventOverridesRow
 }
 
 // channelMerge is one suggestion linked to a channel.
@@ -529,7 +555,11 @@ func (ui *UI) renderChannel(w http.ResponseWriter, r *http.Request, status int, 
 	if r.URL.Query().Get("msg") == "saved" {
 		flash = "Channel saved."
 	}
-	ui.render(w, r, status, "channel", c.Name, channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones, Merges: linked})
+	d := channelPageData{Form: f, Streams: sl, Flash: flash, Backbones: backbones, Merges: linked}
+	if g, ok := ui.games(r.Context())[c.ID]; ok {
+		d.Game = &g
+	}
+	ui.render(w, r, status, "channel", c.Name, d)
 }
 
 // channelUnlinkMerge undoes an "Add to channel" from the Match page: the

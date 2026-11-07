@@ -8,6 +8,9 @@
   <section>
     <h2>Failover order</h2>
     <p class="muted small">The first available stream plays; on a stall or error the next one takes over. Drag rows or use the arrows.</p>
+    {{with $d.Game}}<p class="flash" role="status">Game on: <strong>{{.Title}}</strong>. Until <time datetime="{{.EndsAt.Format "2006-01-02T15:04:05Z07:00"}}" data-local="clock">{{.EndsAt.Format "15:04"}}</time>
+      this channel plays <a href="/admin/channels/{{.SourceChannelID}}">{{.SourceName}}</a>'s streams first, then the list below
+      (<a href="/admin/settings#routes">game routing</a>).</p>{{end}}
     {{template "stream-list" $d.Streams}}
     <h2>Add streams</h2>
     <form class="search" method="get" action="/admin/channels/{{$d.Form.ID}}/picker"

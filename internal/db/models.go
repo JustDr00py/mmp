@@ -78,6 +78,15 @@ type Channel struct {
 	GuideMode       string    `json:"guide_mode"`
 }
 
+type ChannelEventOverride struct {
+	ChannelID       int64     `json:"channel_id"`
+	SourceChannelID int64     `json:"source_channel_id"`
+	Title           string    `json:"title"`
+	StartsAt        time.Time `json:"starts_at"`
+	EndsAt          time.Time `json:"ends_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type ChannelGroup struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
