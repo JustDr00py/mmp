@@ -128,3 +128,48 @@ func TestGuideDownloadOnce(t *testing.T) {
 		t.Errorf("download after = %d %v", n, err)
 	}
 }
+
+// TestGuideGzipCap: a guide served with Content-Encoding: gzip counts its
+// compressed size against maxEPGSize, not its unzipped size (a 500 MB
+// guide sent as 80 MB of gzip used to fail as "guide too large").
+func TestGuideGzipCap(t *testing.T) {
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	start := time.Now().Add(-30 * time.Minute).UTC()
+	var plain bytes.Buffer
+	plain.WriteString(`<?xml version="1.0"?><tv>`)
+	for i := range 200 { // compresses well: unzipped many times the gzip
+		s := start.Add(time.Duration(i) * time.Minute)
+		plain.WriteString(`<programme start="` + s.Format("20060102150405 -0700") + `" stop="` +
+			s.Add(time.Minute).Format("20060102150405 -0700") + `" channel="AandE.us"><title>Padding padding padding</title></programme>`)
+	}
+	plain.WriteString(`</tv>`)
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(plain.Bytes())
+	zw.Close()
+	old := maxEPGSize
+	maxEPGSize = int64(plain.Len() / 2) // over the gzip, under the XML
+	t.Cleanup(func() { maxEPGSize = old })
+	if int64(gz.Len()) >= maxEPGSize {
+		t.Fatalf("gzip %d not under cap %d", gz.Len(), maxEPGSize)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept-Encoding") != "gzip" {
+			rw.Write(plain.Bytes()) // like a server without gzip
+			return
+		}
+		rw.Header().Set("Content-Encoding", "gzip")
+		rw.Write(gz.Bytes())
+	}))
+	t.Cleanup(srv.Close)
+	ref := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+	src, err := q.CreateExtraEpgSource(ctx, db.CreateExtraEpgSourceParams{Name: "Big", Url: srv.URL + "/guide.xml", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ref.RefreshEPGSource(ctx, src); err != nil || n != 200 {
+		t.Fatalf("refresh = %d %v, want 200 programs", n, err)
+	}
+}
