@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -143,16 +144,31 @@ func TestVODPlaybackSlots(t *testing.T) {
 	if r, body := fetch(t, srv.URL+"/movie/alice/alice-pw1/101.mkv", map[string]string{"Range": "bytes=1000-1999"}); r.StatusCode != 206 || len(body) != 1000 {
 		t.Errorf("seek while playing = %d (%d bytes), want 206", r.StatusCode, len(body))
 	}
-	// Another item is another connection: alice is at her limit.
-	if r, _ := fetch(t, srv.URL+"/series/alice/alice-pw1/701.mkv", nil); r.StatusCode != http.StatusForbidden {
-		t.Errorf("alice second item = %d, want 403", r.StatusCode)
+	// The playback is on the dashboard, titled.
+	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].Output != "movie" || vs[0].ItemID != 101 || vs[0].Title == "" || vs[0].ProviderID != 1 {
+		t.Errorf("viewers = %+v", vs)
 	}
+	// Another user cannot have the provider's only slot.
 	if r, _ := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", nil); r.StatusCode != http.StatusServiceUnavailable || r.Header.Get("Retry-After") == "" {
 		t.Errorf("provider full = %d, want 503", r.StatusCode)
+	}
+	if hs.Access.ActiveConnections(2) != 0 {
+		t.Error("refused playback kept root's slot")
 	}
 	// The player leaves: both slots come back.
 	cancel()
 	resp.Body.Close()
+	waitVODIdle(t, hs, slots)
+	if vs := hs.Access.Viewers(); len(vs) != 0 {
+		t.Errorf("viewers after the player left = %+v", vs)
+	}
+	if r, _ := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", map[string]string{"Range": "bytes=0-0"}); r.StatusCode != 206 {
+		t.Errorf("after release = %d", r.StatusCode)
+	}
+}
+
+func waitVODIdle(t *testing.T, hs *Handlers, slots *proxy.Capacity) {
+	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for slots.InUse(1) != 0 || hs.Access.ActiveConnections(1) != 0 {
 		if time.Now().After(deadline) {
@@ -160,8 +176,73 @@ func TestVODPlaybackSlots(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if r, _ := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", map[string]string{"Range": "bytes=0-0"}); r.StatusCode != 206 {
-		t.Errorf("after release = %d", r.StatusCode)
+}
+
+// openPlayback starts a GET that stays open (the body is not read).
+func openPlayback(t *testing.T, url string) (*http.Response, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cancel(); resp.Body.Close() })
+	return resp, cancel
+}
+
+// TestVODPlaybackTakeover: a player that starts the next title without
+// closing the last one (alice's only slot, the provider's only slot) ends
+// the old playback instead of being refused.
+func TestVODPlaybackTakeover(t *testing.T) {
+	movie := make([]byte, 16<<20)
+	srv, hs, panel, slots := newPlaybackServer(t, movie, 1)
+	panel.episode = make([]byte, 16<<20) // still playing when checked
+	old, _ := openPlayback(t, srv.URL+"/movie/alice/alice-pw1/101.mkv")
+	if old.StatusCode != 200 {
+		t.Fatalf("first = %d", old.StatusCode)
+	}
+	next, _ := openPlayback(t, srv.URL+"/series/alice/alice-pw1/701.mkv")
+	if next.StatusCode != 200 {
+		t.Fatalf("next title = %d, want 200 (take over)", next.StatusCode)
+	}
+	waitBodyEnds(t, old) // the old response is cut off
+	if n := hs.Access.ActiveConnections(1); n != 1 || slots.InUse(1) != 1 {
+		t.Errorf("alice %d, provider %d slots; want 1 and 1", n, slots.InUse(1))
+	}
+	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].Output != "series" || vs[0].ItemID != 701 {
+		t.Errorf("viewers = %+v", vs)
+	}
+}
+
+// TestVODPlaybackKick: the dashboard's disconnect ends a playback and frees
+// its slots at once.
+func TestVODPlaybackKick(t *testing.T) {
+	movie := make([]byte, 16<<20)
+	srv, hs, _, slots := newPlaybackServer(t, movie, 1)
+	resp, _ := openPlayback(t, srv.URL+"/movie/alice/alice-pw1/101.mkv")
+	if resp.StatusCode != 200 {
+		t.Fatalf("play = %d", resp.StatusCode)
+	}
+	vs := hs.Access.Viewers()
+	if len(vs) != 1 || !hs.Access.Kick(vs[0].ID) {
+		t.Fatalf("kick %+v", vs)
+	}
+	if hs.Access.ActiveConnections(1) != 0 || slots.InUse(1) != 0 || len(hs.Access.Viewers()) != 0 {
+		t.Error("kick left slots or the viewer behind")
+	}
+	waitBodyEnds(t, resp)
+}
+
+// waitBodyEnds fails unless resp's body is cut off within a few seconds.
+func waitBodyEnds(t *testing.T, resp *http.Response) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { io.Copy(io.Discard, resp.Body); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("playback still streaming")
 	}
 }
 
@@ -222,9 +303,10 @@ func TestVODLeaseSharing(t *testing.T) {
 		p, _ := slots.TryAcquire(2, 0)
 		return s, p, nil
 	}
+	ctx := context.Background()
 	key := vodKey{1, "movie", 101}
-	rel1, _ := l.acquire(key, take)
-	rel2, _ := l.acquire(key, take) // a seek while playing
+	_, _, rel1, _ := l.acquire(ctx, vodAcquire{key: key, providerID: 2, take: take})
+	_, _, rel2, _ := l.acquire(ctx, vodAcquire{key: key, providerID: 2, take: take}) // a seek while playing
 	if takes != 1 || slots.InUse(1) != 1 {
 		t.Fatalf("takes %d, slots %d; want one shared pair", takes, slots.InUse(1))
 	}
@@ -237,7 +319,58 @@ func TestVODLeaseSharing(t *testing.T) {
 	if slots.InUse(1) != 0 || slots.InUse(2) != 0 {
 		t.Fatal("slots kept after the last request")
 	}
-	if _, err := l.acquire(vodKey{1, "movie", 102}, take); err != nil || takes != 2 {
+	if _, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{1, "movie", 102}, providerID: 2, take: take}); err != nil || takes != 2 {
 		t.Errorf("another item: takes %d, %v", takes, err)
+	}
+}
+
+// TestVODLeaseTakeover: at the user's limit the user's oldest lease is
+// ended; with the provider full, the user's oldest lease on that provider.
+// Other users' leases are never taken.
+func TestVODLeaseTakeover(t *testing.T) {
+	var l vodLeases
+	users, provs := proxy.NewCapacity(), proxy.NewCapacity()
+	take := func(user int64, userMax int, prov int64, provMax int) func() (*proxy.Slot, *proxy.Slot, error) {
+		return func() (*proxy.Slot, *proxy.Slot, error) {
+			u, ok := users.TryAcquire(user, userMax)
+			if !ok {
+				return nil, nil, ErrTooManyConnections
+			}
+			p, ok := provs.TryAcquire(prov, provMax)
+			if !ok {
+				u.Release()
+				return nil, nil, errProviderFull
+			}
+			return u, p, nil
+		}
+	}
+	ctx := context.Background()
+	var taken []vodKey
+	play := func(user, id, prov int64, userMax, provMax int) (context.Context, error) {
+		c, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{user, "movie", id}, providerID: prov,
+			take: take(user, userMax, prov, provMax), tookOver: func(o *vodLease) { taken = append(taken, o.key) }})
+		return c, err
+	}
+	// User 1 may have 2: movies 1 (provider 10) then 2 (provider 20).
+	c1, _ := play(1, 1, 10, 2, 0)
+	time.Sleep(time.Millisecond)
+	c2, _ := play(1, 2, 20, 2, 0)
+	// A third title ends the oldest (movie 1) only.
+	if _, err := play(1, 3, 30, 2, 0); err != nil || len(taken) != 1 || taken[0].id != 1 || c1.Err() == nil || c2.Err() != nil {
+		t.Fatalf("user limit: err %v, taken %v, c1 %v, c2 %v", err, taken, c1.Err(), c2.Err())
+	}
+	// Provider 20 allows 1: user 1 starting movie 4 there ends movie 2
+	// (movie 3, older-than-nothing on provider 30, stays).
+	taken = nil
+	if _, err := play(1, 4, 20, 3, 1); err != nil || len(taken) != 1 || taken[0].id != 2 {
+		t.Fatalf("provider full: err %v, taken %v", err, taken)
+	}
+	// User 2 cannot take user 1's provider slot.
+	taken = nil
+	if _, err := play(2, 5, 20, 3, 1); !errors.Is(err, errProviderFull) || len(taken) != 0 {
+		t.Fatalf("other user: err %v, taken %v", err, taken)
+	}
+	if users.InUse(1) != 2 || provs.InUse(20) != 1 || users.InUse(2) != 0 {
+		t.Errorf("slots: user1 %d, prov20 %d, user2 %d", users.InUse(1), provs.InUse(20), users.InUse(2))
 	}
 }
