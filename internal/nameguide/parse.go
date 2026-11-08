@@ -39,7 +39,17 @@ var (
 	monthDay  = regexp.MustCompile(`(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b`)
 	year      = regexp.MustCompile(`\b(20\d{2})\b`)
 	word      = regexp.MustCompile(`[A-Za-z]+`)
+	// bracketWhen is a date and time in brackets ending a part.
+	bracketWhen = regexp.MustCompile(`\s*\(([^()]*)\)\s*$`)
+	// slotLabel is a numbered event slot's label leading a piped name: a
+	// zero-padded number ("NBA 01") or one in brackets ("CA (TSN+ 001)"),
+	// so a title like "UFC 300" or "PPV 1" stays the title.
+	slotLabel = regexp.MustCompile(`(?:\s0\d{1,3}|\(\pL[^()]*\s\d{1,4}\))\s*$`)
 )
+
+// placeholderAfter: a start further from now than this is a placeholder
+// date, not when anything starts.
+const placeholderAfter = 366 * 24 * time.Hour
 
 var months = map[string]time.Month{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8,
 	"sep": 9, "oct": 10, "nov": 11, "dec": 12}
@@ -72,12 +82,26 @@ func Parse(name string, now time.Time, loc *time.Location) Event {
 	for _, p := range parts {
 		if ev.Piped && isWhen(p) {
 			when = append(when, p)
-		} else {
-			text = append(text, p)
+			continue
 		}
+		if m := bracketWhen.FindStringSubmatchIndex(p); m != nil && isWhen(p[m[2]:m[3]]) {
+			// "LaLiga: Elche vs. Real Betis (2026-11-08 07:48:00)"
+			when = append(when, p[m[2]:m[3]])
+			if p = strings.TrimSpace(p[:m[0]]); p == "" {
+				continue
+			}
+		}
+		text = append(text, p)
 	}
 	if len(when) > 0 {
 		ev.Start = whenOf(strings.Join(when, " "), now, loc)
+		if ev.Start != nil && absDur(ev.Start.Sub(now)) > placeholderAfter {
+			ev.Start = nil // "CA (TSN+ 100) | (2098-12-31 08:00:35)": an empty slot
+		}
+	}
+	if len(text) > 1 && ev.Start != nil && slotLabel.MatchString(text[0]) {
+		// "CA (TSN+ 001) | ATP 1000 Tennis: …": the slot's label, not the event
+		text = text[1:]
 	}
 	switch {
 	case len(text) == 0:
