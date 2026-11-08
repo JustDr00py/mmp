@@ -164,7 +164,8 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 }
 
 const getUserEpisode = `-- name: GetUserEpisode :one
-SELECT e.id, e.external_id, e.container_extension, s.id AS series_id, s.provider_id
+SELECT e.id, e.external_id, e.container_extension, s.id AS series_id, s.provider_id,
+       s.name AS series_name, e.season, e.episode_num, e.title
 FROM series_episodes e
 JOIN series s ON s.id = e.series_id AND NOT s.disabled
 JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'
@@ -189,6 +190,10 @@ type GetUserEpisodeRow struct {
 	ContainerExtension string `json:"container_extension"`
 	SeriesID           int64  `json:"series_id"`
 	ProviderID         int64  `json:"provider_id"`
+	SeriesName         string `json:"series_name"`
+	Season             int32  `json:"season"`
+	EpisodeNum         int32  `json:"episode_num"`
+	Title              string `json:"title"`
 }
 
 // One episode if the user may see its series.
@@ -201,6 +206,10 @@ func (q *Queries) GetUserEpisode(ctx context.Context, arg GetUserEpisodeParams) 
 		&i.ContainerExtension,
 		&i.SeriesID,
 		&i.ProviderID,
+		&i.SeriesName,
+		&i.Season,
+		&i.EpisodeNum,
+		&i.Title,
 	)
 	return i, err
 }

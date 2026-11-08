@@ -71,10 +71,20 @@ type liveProvider struct {
 	Disabled bool
 }
 
+// liveVOD is one movie or episode being played.
+type liveVOD struct {
+	ID                          uint64 // viewer id, for kicking
+	Kind                        string // "Movie" or "Episode"
+	Title, Provider, User, Addr string
+	Since, Duration             string
+	Bytes                       uint64
+}
+
 // liveSnapshot is everything the dashboard shows.
 type liveSnapshot struct {
 	Sessions, Streaming, Viewers, Customers int
 	Channels                                []liveChannel
+	VOD                                     []liveVOD
 	Providers                               []liveProvider
 	Events                                  []eventRow
 }
@@ -171,6 +181,25 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 			lp.Percent = min(100, lp.Used*100/int(lp.Max))
 		}
 		s.Providers = append(s.Providers, lp)
+	}
+
+	if ui.Viewers != nil {
+		now := time.Now()
+		for _, v := range ui.Viewers.Viewers() {
+			if !v.IsVOD() {
+				continue
+			}
+			kind, title := "Movie", v.Title
+			if v.Output == "series" {
+				kind = "Episode"
+			}
+			if title == "" {
+				title = "#" + strconv.FormatInt(v.ItemID, 10)
+			}
+			s.VOD = append(s.VOD, liveVOD{ID: v.ID, Kind: kind, Title: title, Provider: provName[v.ProviderID],
+				User: v.Username, Addr: v.Addr, Since: clockTime(v.Since, now), Duration: shortDuration(now.Sub(v.Since)),
+				Bytes: uint64(max(v.Bytes, 0))})
+		}
 	}
 
 	if ui.Connections != nil {

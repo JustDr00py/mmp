@@ -41,6 +41,18 @@
 {{if .Channels}}
 <div class="live-grid">{{range .Channels}}{{template "live-card" .}}{{end}}</div>
 {{else}}<div class="card empty"><p>Nobody is watching right now.</p><p class="muted">Channels appear here as soon as a customer starts playing one.</p></div>{{end}}
+{{if .VOD}}
+<h2>Movies &amp; episodes</h2>
+<div class="card table-wrap" data-keep-scroll="live-vod"><table>
+  <thead><tr><th>Title</th><th>User</th><th class="wide-only">Provider</th><th class="wide-only">Started</th><th>Duration</th><th title="Sent to the player">Data</th><th><span class="sr-only">Actions</span></th></tr></thead>
+  <tbody>{{range .VOD}}
+  <tr><td>{{.Title}} <span class="sub">{{.Kind}}</span></td><td>{{.User}} <span class="sub mono">{{.Addr}}</span></td><td class="wide-only">{{.Provider}}</td>
+    <td class="wide-only">{{.Since}}</td><td>{{.Duration}}</td><td>{{bytesize .Bytes}}</td>
+    <td><form method="post" action="/admin/live/viewers/{{.ID}}/kick" data-confirm="Stop {{.Title}} for {{.User}} ({{.Addr}})? Their player may reconnect.">
+      <button type="submit" class="icon-btn danger" aria-label="Stop {{.Title}} for {{.User}}" title="Disconnect"><svg aria-hidden="true"><use href="#i-x"/></svg></button></form></td></tr>{{end}}
+  </tbody>
+</table></div>
+{{end}}
 <div class="split">
   <section>
     <div class="section-head"><h2>Recent events</h2><a class="small" href="/admin/events">View all</a></div>

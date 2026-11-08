@@ -223,8 +223,8 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	// Customer outputs: playlists, EPG, Xtream API and live streams.
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
 	access.OnViewerEnd(func(v output.Viewer, at time.Time) {
-		if v.Output == "preview" {
-			return // the admin's preview player is not watch history
+		if v.Output == "preview" || v.IsVOD() {
+			return // the admin's preview player and VOD are not channel watch history
 		}
 		tracker.Watched(v.UserID, v.ChannelID, v.Addr, v.Output, v.Since, at)
 	})

@@ -226,7 +226,8 @@ WHERE s.id = sqlc.arg('id') AND NOT s.disabled
 
 -- name: GetUserEpisode :one
 -- One episode if the user may see its series.
-SELECT e.id, e.external_id, e.container_extension, s.id AS series_id, s.provider_id
+SELECT e.id, e.external_id, e.container_extension, s.id AS series_id, s.provider_id,
+       s.name AS series_name, e.season, e.episode_num, e.title
 FROM series_episodes e
 JOIN series s ON s.id = e.series_id AND NOT s.disabled
 JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series'

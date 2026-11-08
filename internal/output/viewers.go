@@ -4,20 +4,30 @@ import (
 	"cmp"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// Viewer is one customer watching a live channel, for the dashboard: a TS
-// connection or an HLS lease.
+// Viewer is one customer connection, for the dashboard: a live channel's TS
+// connection or HLS lease, or a movie/episode playback.
 type Viewer struct {
 	ID        uint64    `json:"id"`
-	ChannelID int64     `json:"channel_id"`
+	ChannelID int64     `json:"channel_id"` // 0 for VOD
 	UserID    int64     `json:"user_id"`
 	Username  string    `json:"username"`
 	Addr      string    `json:"addr"`   // client IP
-	Output    string    `json:"output"` // "ts", "hls" or "preview" (admin preview player)
+	Output    string    `json:"output"` // "ts", "hls", "preview" (admin preview player), "movie" or "series"
 	Since     time.Time `json:"since"`
+
+	// VOD playback only.
+	Title      string `json:"title,omitempty"`
+	ItemID     int64  `json:"item_id,omitempty"` // movie or episode id
+	ProviderID int64  `json:"provider_id,omitempty"`
+	Bytes      int64  `json:"bytes,omitempty"` // sent to the player so far
 }
+
+// IsVOD reports a movie or episode playback.
+func (v Viewer) IsVOD() bool { return v.Output == "movie" || v.Output == "series" }
 
 // viewers tracks who is watching and how to disconnect them.
 type viewers struct {
@@ -29,12 +39,13 @@ type viewers struct {
 
 type viewerEntry struct {
 	Viewer
-	kick func()
+	kick  func()
+	bytes *atomic.Int64 // optional: Viewer.Bytes, live
 }
 
 // add registers v; kick must end the connection (and with it, through the
 // caller's cleanup, call remove). It returns remove, which is idempotent.
-func (vs *viewers) add(v Viewer, kick func()) (uint64, func()) {
+func (vs *viewers) add(v Viewer, kick func(), bytes ...*atomic.Int64) (uint64, func()) {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 	if vs.m == nil {
@@ -42,7 +53,11 @@ func (vs *viewers) add(v Viewer, kick func()) (uint64, func()) {
 	}
 	vs.next++
 	v.ID = vs.next
-	vs.m[v.ID] = &viewerEntry{Viewer: v, kick: kick}
+	e := &viewerEntry{Viewer: v, kick: kick}
+	if len(bytes) > 0 {
+		e.bytes = bytes[0]
+	}
+	vs.m[v.ID] = e
 	id := v.ID
 	return id, func() {
 		vs.mu.Lock()
@@ -60,7 +75,11 @@ func (vs *viewers) list() []Viewer {
 	vs.mu.Lock()
 	out := make([]Viewer, 0, len(vs.m))
 	for _, e := range vs.m {
-		out = append(out, e.Viewer)
+		v := e.Viewer
+		if e.bytes != nil {
+			v.Bytes = e.bytes.Load()
+		}
+		out = append(out, v)
 	}
 	vs.mu.Unlock()
 	slices.SortFunc(out, func(a, b Viewer) int { return cmp.Or(a.Since.Compare(b.Since), cmp.Compare(a.ID, b.ID)) })

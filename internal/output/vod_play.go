@@ -3,10 +3,12 @@ package output
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -72,16 +74,32 @@ type vodTarget struct {
 	providerID int64
 	externalID string
 	ext        string
+	title      string // for the dashboard
 }
 
 func (h *Handlers) vodTarget(ctx context.Context, u db.User, kind string, id int64) (vodTarget, error) {
 	admin := u.Role == auth.RoleAdmin
 	if kind == "movie" {
 		m, err := h.VOD.GetUserVODItem(ctx, db.GetUserVODItemParams{ID: id, UserID: u.ID, IsAdmin: admin})
-		return vodTarget{m.ProviderID, m.ExternalID, m.ContainerExtension}, err
+		return vodTarget{m.ProviderID, m.ExternalID, m.ContainerExtension, m.Name}, err
 	}
 	e, err := h.VOD.GetUserEpisode(ctx, db.GetUserEpisodeParams{ID: id, UserID: u.ID, IsAdmin: admin})
-	return vodTarget{e.ProviderID, e.ExternalID, e.ContainerExtension}, err
+	return vodTarget{e.ProviderID, e.ExternalID, e.ContainerExtension, episodeTitle(e)}, err
+}
+
+// episodeTitle is "Series · S01E02 · Title" (parts it lacks left out).
+func episodeTitle(e db.GetUserEpisodeRow) string {
+	parts := []string{}
+	if e.SeriesName != "" {
+		parts = append(parts, e.SeriesName)
+	}
+	if e.Season > 0 || e.EpisodeNum > 0 {
+		parts = append(parts, fmt.Sprintf("S%02dE%02d", e.Season, e.EpisodeNum))
+	}
+	if e.Title != "" && e.Title != e.SeriesName {
+		parts = append(parts, e.Title)
+	}
+	return strings.Join(parts, " · ")
 }
 
 var vodContentTypes = map[string]string{
@@ -125,20 +143,33 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		return
 	}
 
-	release, err := h.vodLeases.acquire(vodKey{u.ID, kind, id}, func() (*proxy.Slot, *proxy.Slot, error) {
-		userSlot, err := h.Access.Acquire(u)
-		if err != nil {
-			return nil, nil, err
-		}
-		if h.Slots == nil {
-			return userSlot, nil, nil
-		}
-		provSlot, ok := h.Slots.TryAcquire(p.ID, int(p.MaxConnections))
-		if !ok {
-			userSlot.Release()
-			return nil, nil, errProviderFull
-		}
-		return userSlot, provSlot, nil
+	addr := auth.RemoteIP(r)
+	ctx, lease, release, err := h.vodLeases.acquire(ctx, vodAcquire{
+		key: vodKey{u.ID, kind, id}, providerID: p.ID,
+		take: func() (*proxy.Slot, *proxy.Slot, error) {
+			userSlot, err := h.Access.Acquire(u)
+			if err != nil {
+				return nil, nil, err
+			}
+			if h.Slots == nil {
+				return userSlot, nil, nil
+			}
+			provSlot, ok := h.Slots.TryAcquire(p.ID, int(p.MaxConnections))
+			if !ok {
+				userSlot.Release()
+				return nil, nil, errProviderFull
+			}
+			return userSlot, provSlot, nil
+		},
+		register: func(ls *vodLease, kick func()) func() {
+			_, remove := h.Access.viewers.add(Viewer{UserID: u.ID, Username: u.Username, Addr: addr, Output: kind,
+				Title: tgt.title, ItemID: id, ProviderID: p.ID, Since: ls.since}, kick, &ls.bytes)
+			return remove
+		},
+		tookOver: func(old *vodLease) {
+			h.Log.Info("vod playback taken over", "user_id", u.ID, "old_kind", old.key.kind, "old_id", old.key.id,
+				"old_bytes", old.bytes.Load(), "kind", kind, "id", id)
+		},
 	})
 	switch {
 	case errors.Is(err, errProviderFull):
@@ -231,6 +262,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 				break // the player left (or seeks with a new request)
 			}
 			sent += int64(n)
+			lease.bytes.Add(int64(n))
 		}
 		if rerr != nil {
 			break
@@ -272,11 +304,22 @@ func vodTransport() *http.Transport {
 // seek by opening a new ranged request (often before closing the old one),
 // so every concurrent request for the same (user, item) shares the lease:
 // seeking never counts as a second connection. The slots are released as
-// soon as the last request ends (a later seek simply re-acquires them), so
-// switching to another item right away is never refused.
+// soon as the last request ends (a later seek simply re-acquires them).
+//
+// Starting another item when the user (or the item's provider) has no free
+// slot takes over: the user's oldest playback that frees the needed slot is
+// ended (players move on to the next title without closing the last one).
 type vodLease struct {
+	key                vodKey
+	providerID         int64
+	since              time.Time
 	userSlot, provSlot *proxy.Slot
 	refs               int
+	nextReq            uint64
+	cancels            map[uint64]context.CancelFunc // the requests sharing the lease
+	ended              bool                          // kicked or taken over: slots already released
+	removeViewer       func()                        // its dashboard entry
+	bytes              atomic.Int64                  // sent to the player, all requests
 }
 
 type vodKey struct {
@@ -291,36 +334,115 @@ type vodLeases struct {
 	m  map[vodKey]*vodLease
 }
 
-// acquire joins the lease for key or creates one with acquire's slots.
-func (l *vodLeases) acquire(key vodKey, take func() (user, prov *proxy.Slot, err error)) (release func(), err error) {
+// vodAcquire describes one playback request to vodLeases.acquire.
+type vodAcquire struct {
+	key        vodKey
+	providerID int64
+	// take reserves the user's and the provider's slot for a new lease.
+	take func() (user, prov *proxy.Slot, err error)
+	// register lists a new lease on the dashboard; kick must end it. It
+	// returns the entry's remove. Optional.
+	register func(ls *vodLease, kick func()) (remove func())
+	// tookOver reports a lease ended to make room. Optional.
+	tookOver func(old *vodLease)
+}
+
+// acquire joins the lease for a.key or creates one, taking over the
+// user's older playbacks when take finds no free slot. The returned context
+// is ctx, cancelled if the lease is kicked or taken over.
+func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Context, _ *vodLease, release func(), err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.m == nil {
 		l.m = map[vodKey]*vodLease{}
 	}
-	ls, ok := l.m[key]
+	ls, ok := l.m[a.key]
 	if !ok {
-		u, p, err := take()
-		if err != nil {
-			return nil, err
+		var u, p *proxy.Slot
+		for {
+			if u, p, err = a.take(); err == nil {
+				break
+			}
+			var old *vodLease
+			switch {
+			case errors.Is(err, ErrTooManyConnections):
+				old = l.oldestLocked(a.key.userID, 0)
+			case errors.Is(err, errProviderFull):
+				old = l.oldestLocked(a.key.userID, a.providerID)
+			}
+			if old == nil {
+				return nil, nil, nil, err
+			}
+			l.endLocked(old)
+			if a.tookOver != nil {
+				a.tookOver(old)
+			}
 		}
-		ls = &vodLease{userSlot: u, provSlot: p}
-		l.m[key] = ls
+		ls = &vodLease{key: a.key, providerID: a.providerID, since: time.Now(), userSlot: u, provSlot: p,
+			cancels: map[uint64]context.CancelFunc{}}
+		l.m[a.key] = ls
+		if a.register != nil {
+			ls.removeViewer = a.register(ls, func() { l.kick(ls) })
+		}
 	}
 	ls.refs++
+	ls.nextReq++
+	req := ls.nextReq
+	ctx, cancel := context.WithCancel(ctx)
+	ls.cancels[req] = cancel
 	var once sync.Once
-	return func() { once.Do(func() { l.release(key, ls) }) }, nil
+	return ctx, ls, func() { once.Do(func() { cancel(); l.release(ls, req) }) }, nil
 }
 
-func (l *vodLeases) release(key vodKey, ls *vodLease) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if ls.refs--; ls.refs > 0 {
+// oldestLocked is userID's oldest lease, on providerID unless that is 0.
+func (l *vodLeases) oldestLocked(userID, providerID int64) *vodLease {
+	var old *vodLease
+	for _, ls := range l.m {
+		if ls.key.userID != userID || (providerID != 0 && ls.providerID != providerID) {
+			continue
+		}
+		if old == nil || ls.since.Before(old.since) {
+			old = ls
+		}
+	}
+	return old
+}
+
+// endLocked ends ls now: its slots are free at once and its requests are
+// cancelled (they finish unwinding on their own).
+func (l *vodLeases) endLocked(ls *vodLease) {
+	if ls.ended {
 		return
 	}
-	delete(l.m, key)
+	ls.ended = true
+	if l.m[ls.key] == ls {
+		delete(l.m, ls.key)
+	}
 	ls.userSlot.Release()
 	if ls.provSlot != nil {
 		ls.provSlot.Release()
 	}
+	for _, cancel := range ls.cancels {
+		cancel()
+	}
+	if ls.removeViewer != nil {
+		ls.removeViewer()
+	}
+}
+
+// kick ends ls (the dashboard's disconnect).
+func (l *vodLeases) kick(ls *vodLease) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.endLocked(ls)
+}
+
+func (l *vodLeases) release(ls *vodLease, req uint64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(ls.cancels, req)
+	if ls.refs--; ls.refs > 0 {
+		return
+	}
+	l.endLocked(ls)
 }
