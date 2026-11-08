@@ -166,13 +166,30 @@ LEFT JOIN stream_profiles sp ON sp.id = c.stream_profile_id
 WHERE c.id = ANY(sqlc.arg('ids')::bigint[]);
 
 -- name: LiveChannelStreams :many
--- The failover lists of several channels, for the dashboard's stream picker.
-SELECT cs.channel_id, cs.provider_stream_id, ps.name AS stream_name, pr.name AS provider_name
-FROM channel_streams cs
-JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+-- The failover lists of several channels, for the dashboard's stream picker
+-- and the streams it may switch to. Like ListChannelCandidates, while a game
+-- override is on the event slot's streams come first (routed_from names the
+-- slot) and the channel's own after, each stream once.
+WITH ov AS (
+    SELECT o.channel_id, o.source_channel_id FROM channel_event_overrides o
+    WHERE o.channel_id = ANY(sqlc.arg('ids')::bigint[]) AND now() >= o.starts_at AND now() < o.ends_at
+), lists AS (
+    SELECT ov.channel_id, cs.provider_stream_id, 0 AS tier, cs.priority, ov.source_channel_id AS from_channel_id
+    FROM ov JOIN channel_streams cs ON cs.channel_id = ov.source_channel_id
+    UNION ALL
+    SELECT cs.channel_id, cs.provider_stream_id, 1 AS tier, cs.priority, NULL::bigint AS from_channel_id
+    FROM channel_streams cs WHERE cs.channel_id = ANY(sqlc.arg('ids')::bigint[])
+), best AS (
+    SELECT DISTINCT ON (channel_id, provider_stream_id) channel_id, provider_stream_id, tier, priority, from_channel_id
+    FROM lists ORDER BY channel_id, provider_stream_id, tier, priority
+)
+SELECT b.channel_id, b.provider_stream_id, ps.name AS stream_name, pr.name AS provider_name,
+       COALESCE(src.name, '')::text AS routed_from
+FROM best b
+JOIN provider_streams ps ON ps.id = b.provider_stream_id
 JOIN providers pr ON pr.id = ps.provider_id
-WHERE cs.channel_id = ANY(sqlc.arg('ids')::bigint[])
-ORDER BY cs.channel_id, cs.priority, pr.priority, ps.name;
+LEFT JOIN channels src ON src.id = b.from_channel_id
+ORDER BY b.channel_id, b.tier, b.priority, pr.priority, ps.name;
 
 -- name: SetupProgress :one
 -- Counts behind the dashboard's setup checklist.
