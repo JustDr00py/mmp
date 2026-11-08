@@ -97,6 +97,25 @@ func TestEventOverrides(t *testing.T) {
 	set(now.Add(-time.Hour), now.Add(time.Hour))
 	check("game on", slotA, slotB, tsn, att) // slotB once, in the slot's place
 
+	// The dashboard's stream picker offers the same list, in the same
+	// order, naming the slot for its streams.
+	picker := func() []string {
+		t.Helper()
+		rows, err := q.LiveChannelStreams(ctx, []int64{raptors})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.StreamName+"|"+r.RoutedFrom)
+		}
+		return out
+	}
+	if got, want := picker(), []string{"Bucks vs Raptors :NBA 06 a|NBA 06", "Bucks vs Raptors :NBA 06 b|NBA 06",
+		"TSN 1|", "AT&T: TORONTO RAPTORS|"}; !slices.Equal(got, want) {
+		t.Errorf("game on: picker %q, want %q", got, want)
+	}
+
 	n, err := q.RemoveSlotLinksFromGroups(ctx, RemoveSlotLinksFromGroupsParams{
 		TargetGroupIds: []int64{teams}, SourceGroupIds: []int64{games}})
 	if err != nil || n != 1 {
@@ -111,6 +130,9 @@ func TestEventOverrides(t *testing.T) {
 
 	set(now.Add(-5*time.Hour), now.Add(-time.Hour))
 	check("game over", tsn, att)
+	if got, want := picker(), []string{"TSN 1|", "AT&T: TORONTO RAPTORS|"}; !slices.Equal(got, want) {
+		t.Errorf("game over: picker %q, want %q", got, want)
+	}
 
 	set(now.Add(-time.Hour), now.Add(time.Hour))
 	if n, err := q.DeleteEventOverridesExcept(ctx, []int64{slot}); err != nil || n != 1 {

@@ -223,7 +223,11 @@ func (ui *UI) cardDetails(ctx context.Context, chans []liveChannel) error {
 	streamName := map[int64]string{} // the stream each channel plays (else its first)
 	for _, r := range streams {
 		c := byID[r.ChannelID]
-		c.Streams = append(c.Streams, liveStreamOption{ID: r.ProviderStreamID, Label: r.StreamName + " [" + r.ProviderName + "]"})
+		label := r.StreamName + " [" + r.ProviderName + "]"
+		if r.RoutedFrom != "" { // game routing: the slot's stream
+			label += " · " + r.RoutedFrom
+		}
+		c.Streams = append(c.Streams, liveStreamOption{ID: r.ProviderStreamID, Label: label})
 		if _, ok := streamName[c.ID]; !ok || r.ProviderStreamID == c.StreamID {
 			streamName[c.ID] = r.StreamName
 		}
@@ -338,13 +342,14 @@ func (ui *UI) liveSwitch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	// Only a stream on the channel's own failover list.
-	rows, err := ui.Store.ListChannelStreams(r.Context(), id)
+	// Only a stream the picker offers: the channel's failover list, with
+	// the routed slot's streams while a game is on.
+	rows, err := ui.Store.LiveChannelStreams(r.Context(), []int64{id})
 	if err != nil {
 		ui.fail(w, "channel streams", err)
 		return
 	}
-	if !slices.ContainsFunc(rows, func(s db.ListChannelStreamsRow) bool { return s.ProviderStreamID == stream }) {
+	if !slices.ContainsFunc(rows, func(s db.LiveChannelStreamsRow) bool { return s.ProviderStreamID == stream }) {
 		http.Error(w, "that stream is not on this channel", http.StatusConflict)
 		return
 	}
