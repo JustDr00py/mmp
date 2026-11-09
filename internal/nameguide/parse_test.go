@@ -42,6 +42,15 @@ func TestParse(t *testing.T) {
 		{"US: ESPN HD", Event{Title: "US: ESPN HD"}, nil}, // not an event name
 		{"Match of the Day 2 | BBC One", Event{Title: "Match of the Day 2", Desc: "BBC One", Piped: true}, nil},
 		{"End | ", Event{Title: "End"}, nil}, // a status needs something after it
+		{"CA (TSN+ 002) | LaLiga: Elche vs. Real Betis (2026-11-08 07:48:00)", // slot label first, start in brackets
+			Event{Title: "LaLiga: Elche vs. Real Betis", Start: utc("2026-11-08 12:48"), Piped: true},
+			mustLoad(t, "America/New_York")},
+		{"NBA 01 | Bulls vs 76ers | Nov 8 3:30 PM ET", // a zero-padded slot number is a label too
+			Event{Title: "Bulls vs 76ers", Start: utc("2026-11-08 20:30"), Piped: true}, nil},
+		{"UFC 300 | Jones vs Miocic | Nov 16 10:00 PM ET", // a numbered title is still the title
+			Event{Title: "UFC 300: Jones vs Miocic", Start: utc("2026-11-17 03:00"), Piped: true}, nil},
+		{"CA (TSN+ 100) |  (2098-12-31 08:00:35)", // an empty slot's placeholder date
+			Event{Title: "CA (TSN+ 100)", Piped: true}, nil},
 		{"US - ESPN PLUS 01 : 2026 WSL CHAMPIONSHIP TOUR – MEO RIP CURL PRO PORTUGAL OCT 22 – 3:30 AM ET / 8:30 AM UK",
 			Event{Title: "2026 WSL CHAMPIONSHIP TOUR – MEO RIP CURL PRO PORTUGAL", Start: utc("2026-10-22 07:30")}, nil},
 		{"ESPN PLUS 01 : 2026 REYES CUP – DAY 1 (TEAM REST OF THE WORLD @ TEAM ASIA) OCT 15 – 7:00 AM ET / 12:00 PM UK",
