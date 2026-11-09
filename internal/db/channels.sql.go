@@ -193,7 +193,7 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 
 const createChannelGroup = `-- name: CreateChannelGroup :one
 
-INSERT INTO channel_groups (name, sort_order) VALUES ($1, $2) RETURNING id, name, sort_order, guide_mode
+INSERT INTO channel_groups (name, sort_order) VALUES ($1, $2) RETURNING id, name, sort_order, guide_mode, logo_url
 `
 
 type CreateChannelGroupParams struct {
@@ -210,6 +210,7 @@ func (q *Queries) CreateChannelGroup(ctx context.Context, arg CreateChannelGroup
 		&i.Name,
 		&i.SortOrder,
 		&i.GuideMode,
+		&i.LogoUrl,
 	)
 	return i, err
 }
@@ -261,7 +262,7 @@ const ensureChannelGroup = `-- name: EnsureChannelGroup :one
 INSERT INTO channel_groups (name, sort_order)
 VALUES ($1, (SELECT COALESCE(max(sort_order), 0) + 1 FROM channel_groups))
 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-RETURNING id, name, sort_order, guide_mode
+RETURNING id, name, sort_order, guide_mode, logo_url
 `
 
 // The group with this name, created (sorted last) if it does not exist.
@@ -273,6 +274,7 @@ func (q *Queries) EnsureChannelGroup(ctx context.Context, name string) (ChannelG
 		&i.Name,
 		&i.SortOrder,
 		&i.GuideMode,
+		&i.LogoUrl,
 	)
 	return i, err
 }
@@ -356,7 +358,7 @@ func (q *Queries) GetChannelByTvgID(ctx context.Context, tvgID string) (Channel,
 }
 
 const getChannelGroup = `-- name: GetChannelGroup :one
-SELECT id, name, sort_order, guide_mode FROM channel_groups WHERE id = $1
+SELECT id, name, sort_order, guide_mode, logo_url FROM channel_groups WHERE id = $1
 `
 
 func (q *Queries) GetChannelGroup(ctx context.Context, id int64) (ChannelGroup, error) {
@@ -367,12 +369,13 @@ func (q *Queries) GetChannelGroup(ctx context.Context, id int64) (ChannelGroup, 
 		&i.Name,
 		&i.SortOrder,
 		&i.GuideMode,
+		&i.LogoUrl,
 	)
 	return i, err
 }
 
 const listChannelGroups = `-- name: ListChannelGroups :many
-SELECT id, name, sort_order, guide_mode FROM channel_groups ORDER BY sort_order, name
+SELECT id, name, sort_order, guide_mode, logo_url FROM channel_groups ORDER BY sort_order, name
 `
 
 func (q *Queries) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error) {
@@ -389,6 +392,7 @@ func (q *Queries) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error)
 			&i.Name,
 			&i.SortOrder,
 			&i.GuideMode,
+			&i.LogoUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -462,7 +466,7 @@ func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]C
 const listEnabledChannels = `-- name: ListEnabledChannels :many
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(g.sort_order, 0) AS group_sort, COALESCE(g.logo_url, '')::text AS group_logo, c.created_at,
        COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
@@ -481,6 +485,7 @@ type ListEnabledChannelsRow struct {
 	GroupID    int64     `json:"group_id"`
 	GroupName  string    `json:"group_name"`
 	GroupSort  int32     `json:"group_sort"`
+	GroupLogo  string    `json:"group_logo"`
 	CreatedAt  time.Time `json:"created_at"`
 	GuideMode  string    `json:"guide_mode"`
 	StreamName string    `json:"stream_name"`
@@ -505,6 +510,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 			&i.GroupID,
 			&i.GroupName,
 			&i.GroupSort,
+			&i.GroupLogo,
 			&i.CreatedAt,
 			&i.GuideMode,
 			&i.StreamName,
@@ -522,7 +528,7 @@ func (q *Queries) ListEnabledChannels(ctx context.Context) ([]ListEnabledChannel
 const listUserChannels = `-- name: ListUserChannels :many
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(g.sort_order, 0) AS group_sort, COALESCE(g.logo_url, '')::text AS group_logo, c.created_at,
        COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
@@ -543,6 +549,7 @@ type ListUserChannelsRow struct {
 	GroupID    int64     `json:"group_id"`
 	GroupName  string    `json:"group_name"`
 	GroupSort  int32     `json:"group_sort"`
+	GroupLogo  string    `json:"group_logo"`
 	CreatedAt  time.Time `json:"created_at"`
 	GuideMode  string    `json:"guide_mode"`
 	StreamName string    `json:"stream_name"`
@@ -569,6 +576,7 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 			&i.GroupID,
 			&i.GroupName,
 			&i.GroupSort,
+			&i.GroupLogo,
 			&i.CreatedAt,
 			&i.GuideMode,
 			&i.StreamName,
@@ -738,6 +746,20 @@ func (q *Queries) SetChannelGroupGuideMode(ctx context.Context, arg SetChannelGr
 	return err
 }
 
+const setChannelGroupLogo = `-- name: SetChannelGroupLogo :exec
+UPDATE channel_groups SET logo_url = $2 WHERE id = $1
+`
+
+type SetChannelGroupLogoParams struct {
+	ID      int64  `json:"id"`
+	LogoUrl string `json:"logo_url"`
+}
+
+func (q *Queries) SetChannelGroupLogo(ctx context.Context, arg SetChannelGroupLogoParams) error {
+	_, err := q.db.Exec(ctx, setChannelGroupLogo, arg.ID, arg.LogoUrl)
+	return err
+}
+
 const setChannelGroupOrder = `-- name: SetChannelGroupOrder :exec
 UPDATE channel_groups SET sort_order = 10 * array_position($1::bigint[], id)
 WHERE id = ANY($1::bigint[])
@@ -897,7 +919,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 }
 
 const updateChannelGroup = `-- name: UpdateChannelGroup :one
-UPDATE channel_groups SET name = $2, sort_order = $3 WHERE id = $1 RETURNING id, name, sort_order, guide_mode
+UPDATE channel_groups SET name = $2, sort_order = $3 WHERE id = $1 RETURNING id, name, sort_order, guide_mode, logo_url
 `
 
 type UpdateChannelGroupParams struct {
@@ -914,6 +936,7 @@ func (q *Queries) UpdateChannelGroup(ctx context.Context, arg UpdateChannelGroup
 		&i.Name,
 		&i.SortOrder,
 		&i.GuideMode,
+		&i.LogoUrl,
 	)
 	return i, err
 }

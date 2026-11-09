@@ -16,6 +16,9 @@ SELECT * FROM channel_groups ORDER BY sort_order, name;
 -- name: SetChannelGroupGuideMode :exec
 UPDATE channel_groups SET guide_mode = $2 WHERE id = $1;
 
+-- name: SetChannelGroupLogo :exec
+UPDATE channel_groups SET logo_url = $2 WHERE id = $1;
+
 -- name: UpdateChannelGroup :one
 UPDATE channel_groups SET name = $2, sort_order = $3 WHERE id = $1 RETURNING *;
 
@@ -109,7 +112,7 @@ SELECT * FROM channels WHERE tvg_id = $1 AND tvg_id <> '' LIMIT 1;
 -- and where their guide comes from (the channel's mode, else its group's).
 SELECT DISTINCT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(g.sort_order, 0) AS group_sort, COALESCE(g.logo_url, '')::text AS group_logo, c.created_at,
        COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name
@@ -124,7 +127,7 @@ ORDER BY c.number NULLS LAST, c.name, c.id;
 -- Every enabled channel (admin playlists), as ListUserChannels.
 SELECT c.id, c.number, c.name, c.tvg_id, c.logo_url,
        COALESCE(g.id, 0)::bigint AS group_id, COALESCE(g.name, '') AS group_name,
-       COALESCE(g.sort_order, 0) AS group_sort, c.created_at,
+       COALESCE(g.sort_order, 0) AS group_sort, COALESCE(g.logo_url, '')::text AS group_logo, c.created_at,
        COALESCE(NULLIF(c.guide_mode, ''), g.guide_mode, 'auto')::text AS guide_mode,
        COALESCE((SELECT ps.name FROM channel_streams cs JOIN provider_streams ps ON ps.id = cs.provider_stream_id
                   WHERE cs.channel_id = c.id ORDER BY cs.priority, ps.id LIMIT 1), '')::text AS stream_name

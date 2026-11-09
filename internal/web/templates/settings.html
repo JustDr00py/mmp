@@ -69,6 +69,18 @@
   </form>
 </section>
 
+<section class="settings-section" id="group-icons">
+  <h2>Group icons</h2>
+  <form class="card form" method="post" action="/admin/settings/groupicons">
+    <label class="check"><input type="checkbox" name="enabled"{{if $d.GroupIcons.Enabled}} checked{{end}}> Send group icons to Xtream clients</label>
+    <span class="hint">Groups with an icon (set on the <a href="/admin/groups">Groups</a> page) get an extra
+      <span class="mono">category_icon</span> field in <span class="mono">get_live_categories</span>. Standard players ignore it
+      and keep showing the name; clients that know it can show the image. M3U playlists are not affected. Turn this off if a
+      player stops listing categories.</span>
+    <div class="row"><button type="submit">Save</button></div>
+  </form>
+</section>
+
 <section class="settings-section" id="routes">
   <h2>Game routing</h2>
   <form class="card form" method="post" action="/admin/settings/routes">

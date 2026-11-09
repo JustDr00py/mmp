@@ -15,6 +15,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/output"
 )
 
 func TestSettingsMatch(t *testing.T) {
@@ -93,4 +94,29 @@ func TestSettingsMatch(t *testing.T) {
 func matchEqual(a, b channel.MatchSettings) bool {
 	return a.Auto == b.Auto && a.NewChannels == b.NewChannels && a.MinProviders == b.MinProviders && a.Group == b.Group &&
 		a.GroupID == b.GroupID && a.Bouquets == b.Bouquets && slices.Equal(a.BouquetIDs, b.BouquetIDs)
+}
+
+func TestSettingsGroupIcons(t *testing.T) {
+	b, q := pgUI(t)
+	ctx := context.Background()
+	if s, err := output.LoadGroupIcons(ctx, q); err != nil || s.Enabled {
+		t.Fatalf("default = %+v, %v (want off)", s, err)
+	}
+	if _, body := b.get("/admin/settings"); !strings.Contains(body, `action="/admin/settings/groupicons"`) {
+		t.Fatal("settings page lacks the group icons form")
+	}
+	resp, _ := b.post("/admin/settings/groupicons", url.Values{"enabled": {"on"}}, b.base)
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/settings?msg=groupicons" {
+		t.Fatalf("save = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if s, _ := output.LoadGroupIcons(ctx, q); !s.Enabled {
+		t.Fatal("not saved on")
+	}
+	if _, body := b.get("/admin/settings"); !strings.Contains(body, `name="enabled" checked> Send group icons`) {
+		t.Error("settings page does not show it on")
+	}
+	b.post("/admin/settings/groupicons", url.Values{}, b.base)
+	if s, _ := output.LoadGroupIcons(ctx, q); s.Enabled {
+		t.Fatal("not saved off")
+	}
 }

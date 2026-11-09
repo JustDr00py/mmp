@@ -105,6 +105,7 @@ type Store interface {
 	EnsureChannelGroup(ctx context.Context, name string) (db.ChannelGroup, error)
 	UpdateChannelGroup(ctx context.Context, arg db.UpdateChannelGroupParams) (db.ChannelGroup, error)
 	SetChannelGroupGuideMode(ctx context.Context, arg db.SetChannelGroupGuideModeParams) error
+	SetChannelGroupLogo(ctx context.Context, arg db.SetChannelGroupLogoParams) error
 	DeleteChannelGroup(ctx context.Context, id int64) error
 	ChannelGroupCounts(ctx context.Context) ([]db.ChannelGroupCountsRow, error)
 	SetChannelsGroup(ctx context.Context, arg db.SetChannelsGroupParams) (int64, error)

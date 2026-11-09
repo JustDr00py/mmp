@@ -60,6 +60,9 @@ type xtreamCategory struct {
 	CategoryID   string `json:"category_id"`
 	CategoryName string `json:"category_name"`
 	ParentID     int    `json:"parent_id"`
+	// CategoryIcon is MMP's own addition (panels send no icon): players
+	// that do not know it ignore it. Left out when empty.
+	CategoryIcon string `json:"category_icon,omitempty"`
 }
 
 type xtreamLiveStream struct {
@@ -153,7 +156,7 @@ func (h *Handlers) playerAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	switch action {
 	case "get_live_categories":
-		writeXtream(w, liveCategories(chans))
+		writeXtream(w, liveCategories(chans, h.GroupIcons != nil && h.GroupIcons(r.Context())))
 	case "get_live_streams":
 		writeXtream(w, liveStreams(chans, r.FormValue("category_id")))
 	case "get_short_epg":
@@ -213,12 +216,14 @@ func (h *Handlers) serverInfo() xtreamServerInfo {
 }
 
 // liveCategories lists the groups of chans in group order; channels without
-// a group fall under one "Uncategorized" category with id "0".
-func liveCategories(chans []Channel) []xtreamCategory {
+// a group fall under one "Uncategorized" category with id "0". With icons,
+// groups that have one carry it as category_icon.
+func liveCategories(chans []Channel, icons bool) []xtreamCategory {
 	type group struct {
 		id   int64
 		name string
 		sort int32
+		logo string
 	}
 	seen := map[int64]bool{}
 	var groups []group
@@ -227,7 +232,7 @@ func liveCategories(chans []Channel) []xtreamCategory {
 			continue
 		}
 		seen[c.GroupID] = true
-		g := group{c.GroupID, c.GroupName, c.GroupSort}
+		g := group{c.GroupID, c.GroupName, c.GroupSort, c.GroupLogo}
 		if c.GroupID == 0 {
 			g.name = uncategorized
 		}
@@ -245,6 +250,9 @@ func liveCategories(chans []Channel) []xtreamCategory {
 	out := make([]xtreamCategory, len(groups))
 	for i, g := range groups {
 		out[i] = xtreamCategory{CategoryID: strconv.FormatInt(g.id, 10), CategoryName: g.name}
+		if icons {
+			out[i].CategoryIcon = g.logo
+		}
 	}
 	return out
 }

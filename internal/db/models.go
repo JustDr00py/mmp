@@ -92,6 +92,7 @@ type ChannelGroup struct {
 	Name      string `json:"name"`
 	SortOrder int32  `json:"sort_order"`
 	GuideMode string `json:"guide_mode"`
+	LogoUrl   string `json:"logo_url"`
 }
 
 type ChannelStream struct {

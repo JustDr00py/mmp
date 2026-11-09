@@ -55,6 +55,9 @@ type Handlers struct {
 	// NameGuide gives the stream-name guide settings for channels without
 	// a guide (nil = no stream-name guides).
 	NameGuide func(ctx context.Context) nameguide.Settings
+	// GroupIcons says whether Xtream categories carry their group's icon
+	// as category_icon (nil = never).
+	GroupIcons func(ctx context.Context) bool
 }
 
 // Mount registers the customer routes on the root router.
@@ -84,6 +87,7 @@ type Channel struct {
 	GroupID    int64
 	GroupName  string
 	GroupSort  int32
+	GroupLogo  string // the group's icon URL ('' = none)
 	Added      time.Time
 	StreamName string // its first failover stream's name, for stream-name guides
 	GuideMode  string // where its guide comes from: GuideAuto, GuideXMLTV or GuideName
@@ -116,7 +120,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 			return nil, err
 		}
 		for _, r := range rows {
-			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName, r.GuideMode})
+			out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.GroupLogo, r.CreatedAt, r.StreamName, r.GuideMode})
 		}
 		return out, nil
 	}
@@ -125,7 +129,7 @@ func (h *Handlers) channelsFor(ctx context.Context, u db.User) ([]Channel, error
 		return nil, err
 	}
 	for _, r := range rows {
-		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.CreatedAt, r.StreamName, r.GuideMode})
+		out = append(out, Channel{r.ID, r.Number, r.Name, r.TvgID, r.LogoUrl, r.GroupID, r.GroupName, r.GroupSort, r.GroupLogo, r.CreatedAt, r.StreamName, r.GuideMode})
 	}
 	return out, nil
 }
