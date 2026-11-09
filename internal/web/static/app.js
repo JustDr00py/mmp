@@ -216,6 +216,73 @@
   });
   document.addEventListener('input', (e) => { if (e.target.id === 'logo_url') logoPreview(); });
   document.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'logo-hits') logoPreview(); });
+  // Groups page icon picker: [data-icon-picker="<form id>"] opens
+  // #icon-picker for that group; picking a tile fills the group's logo_url
+  // field (and its preview), uploads are picked once saved.
+  {
+    const dlg = document.getElementById('icon-picker');
+    let field = null;
+    let groupName = '';
+    const hits = dlg?.querySelector('[data-icon-hits]');
+    const show = (url) => {
+      field.value = url;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const load = async (params) => {
+      hits.textContent = 'Loading…';
+      try {
+        const resp = await fetch(`/admin/logos/pick?${new URLSearchParams(params)}`, { credentials: 'same-origin' });
+        hits.innerHTML = await resp.text();
+      } catch {
+        hits.textContent = 'Could not load logos; try again.';
+      }
+    };
+    let timer;
+    document.addEventListener('click', (e) => {
+      const open = e.target.closest?.('[data-icon-picker]');
+      if (open && dlg) {
+        field = document.querySelector(`input[name="logo_url"][form="${CSS.escape(open.dataset.iconPicker)}"]`);
+        groupName = open.dataset.groupName || '';
+        dlg.querySelector('[data-icon-picker-name]').textContent = groupName;
+        dlg.querySelector('[data-icon-search]').value = '';
+        dlg.showModal();
+        load({ name: groupName });
+        return;
+      }
+      if (!dlg?.open || !field) return;
+      const tile = e.target.closest?.('[data-logo-pick]');
+      if (tile && dlg.contains(tile)) {
+        show(tile.dataset.logoPick);
+        dlg.close();
+      } else if (e.target.closest?.('[data-icon-clear]')) {
+        show('');
+        dlg.close();
+      }
+    });
+    dlg?.querySelector('[data-icon-search]').addEventListener('input', (e) => {
+      clearTimeout(timer);
+      const q = e.target.value.trim();
+      timer = setTimeout(() => load(q ? { q } : { name: groupName }), 300);
+    });
+    dlg?.querySelector('[data-icon-search]').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    dlg?.querySelector('[data-icon-upload]').addEventListener('change', async (e) => {
+      const input = e.target;
+      if (!input.files.length) return;
+      const body = new FormData();
+      body.append('file', input.files[0]);
+      body.append('name', groupName);
+      input.value = '';
+      hits.textContent = 'Uploading…';
+      try {
+        const resp = await fetch('/admin/logos/upload?picker=1', { method: 'POST', body, credentials: 'same-origin' });
+        hits.innerHTML = await resp.text();
+        hits.querySelector('[data-logo-pick]')?.click();
+      } catch {
+        hits.textContent = 'The upload failed; try again.';
+      }
+    });
+  }
+
   // Groups page: an icon URL field updates the [data-icon-preview] beside it.
   document.addEventListener('input', (e) => {
     const img = e.target.closest?.('.logo-field')?.querySelector('[data-icon-preview]');
