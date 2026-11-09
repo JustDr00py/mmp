@@ -47,6 +47,29 @@ func TestChannelGroupsPage(t *testing.T) {
 	if g, _ = q.GetChannelGroup(ctx, g.ID); g.Name != "Sport" || g.SortOrder != 2 {
 		t.Fatalf("after update = %+v", g)
 	}
+	if g, _ = q.GetChannelGroup(ctx, g.ID); g.LogoUrl != "" {
+		t.Fatalf("icon without a field = %q", g.LogoUrl)
+	}
+	icon := "https://mmp.example/logos/sports.png"
+	if resp, _ := b.post("/admin/groups/"+gid, url.Values{"name": {"Sport"}, "sort_order": {"2"}, "logo_url": {icon}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("set icon = %d", resp.StatusCode)
+	}
+	if g, _ = q.GetChannelGroup(ctx, g.ID); g.LogoUrl != icon {
+		t.Fatalf("icon = %q", g.LogoUrl)
+	}
+	if resp, body := b.post("/admin/groups/"+gid, url.Values{"name": {"Sport"}, "logo_url": {"javascript:alert(1)"}}, b.base); resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "http(s) image URL") {
+		t.Fatalf("bad icon = %d\n%s", resp.StatusCode, body)
+	}
+	if resp, _ := b.post("/admin/groups/"+gid, url.Values{"name": {"Sport"}}, b.base); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save without icon field = %d", resp.StatusCode)
+	}
+	if g, _ = q.GetChannelGroup(ctx, g.ID); g.LogoUrl != icon {
+		t.Fatalf("icon lost when the form has no field: %q", g.LogoUrl)
+	}
+	if _, body := b.get("/admin/groups"); !strings.Contains(body, `value="`+icon+`"`) {
+		t.Error("groups page lacks the icon")
+	}
 	if resp, _ := b.post("/admin/groups/999999", url.Values{"name": {"X"}}, b.base); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("update missing = %d", resp.StatusCode)
 	}

@@ -237,6 +237,13 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		}
 		return s
 	}
+	outputs.GroupIcons = func(ctx context.Context) bool {
+		s, err := output.LoadGroupIcons(ctx, queries)
+		if err != nil {
+			log.Warn("group icon settings", "err", err)
+		}
+		return s.Enabled
+	}
 	outputs.Slots = capacity // VOD playback shares provider slots with live sessions
 	outputs.VOD = &output.VODCatalog{Queries: queries, Refresher: refresher,
 		InfoTTL: cfg.VOD.InfoTTL.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration}

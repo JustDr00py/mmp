@@ -14,6 +14,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/eventroute"
 	"github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/nameguide"
+	"github.com/JustDr00py/mmp/internal/output"
 )
 
 // The Settings page holds settings that apply while MMP runs (stored in
@@ -27,6 +28,7 @@ func (ui *UI) mountSettings(r chi.Router) {
 	r.Post("/settings/events", ui.settingsEventsSave)
 	r.Post("/settings/nameguide", ui.settingsNameGuideSave)
 	r.Post("/settings/routes", ui.settingsRoutesSave)
+	r.Post("/settings/groupicons", ui.settingsGroupIconsSave)
 }
 
 type settingsData struct {
@@ -34,6 +36,7 @@ type settingsData struct {
 	Prefixes      string // ignored name prefixes, one per line
 	Events        events.Retention
 	NameGuide     nameguide.Settings
+	GroupIcons    output.GroupIconSettings
 	Routes        eventroute.Settings
 	RouteSource   map[int64]bool // ticked game groups (the first rule's)
 	RouteTarget   map[int64]bool // ticked team groups
@@ -75,6 +78,9 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 		return d, err
 	}
 	d.Zones = commonZones
+	if d.GroupIcons, err = output.LoadGroupIcons(r.Context(), ui.Store); err != nil {
+		return d, err
+	}
 	if d.Routes, err = eventroute.Load(r.Context(), ui.Store); err != nil {
 		return d, err
 	}
@@ -120,6 +126,8 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Stream-name guide saved. Players get it the next time they load the guide."
 	case "routes":
 		d.Flash = "Game routing saved."
+	case "groupicons":
+		d.Flash = "Group icon setting saved. Players get it the next time they load their categories."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
@@ -306,4 +314,18 @@ func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
 	d.RouteResult = &res
 	d.Flash = "Game routing saved and run."
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
+}
+
+func (ui *UI) settingsGroupIconsSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	s := output.GroupIconSettings{Enabled: r.PostForm.Get("enabled") != ""}
+	if err := output.SaveGroupIcons(r.Context(), ui.Store, s); err != nil {
+		ui.fail(w, "save group icon settings", err)
+		return
+	}
+	ui.Log.Info("web: group icon setting saved", "enabled", s.Enabled)
+	ui.redirect(w, r, Prefix+"/settings?msg=groupicons")
 }

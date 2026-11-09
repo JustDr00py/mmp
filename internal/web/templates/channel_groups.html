@@ -17,10 +17,10 @@
 
 {{if $d.Rows}}
 <form id="group-order" method="post" action="/admin/groups/order"></form>
-<p class="hint">Drag groups (or use the arrows) into the order players should show them. Guide is where its channels' guides come from unless a channel says otherwise: set event and PPV groups to “Stream name” when their XMLTV only has placeholders.</p>
+<p class="hint">Drag groups (or use the arrows) into the order players should show them. Guide is where its channels' guides come from unless a channel says otherwise: set event and PPV groups to “Stream name” when their XMLTV only has placeholders. Icon is an image URL (copy one from <a href="/admin/logos">Logos</a>) sent to Xtream players when <a href="/admin/settings#group-icons">group icons</a> are on.</p>
 <div class="table-wrap">
 <table class="stack group-table">
-  <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th class="num">Sort</th><th>Guide</th><th class="num">Channels</th><th></th></tr></thead>
+  <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th>Icon</th><th class="num">Sort</th><th>Guide</th><th class="num">Channels</th><th></th></tr></thead>
   <tbody data-sortable data-sortable-submit="#group-order">
   {{range $d.Rows}}
   <tr>
@@ -28,6 +28,8 @@
       <button type="button" class="move" data-move="up" aria-label="Move {{.Name}} up">↑</button><button type="button" class="move" data-move="down" aria-label="Move {{.Name}} down">↓</button></td>
     <td class="cell-title"><form id="group-{{.ID}}" method="post" action="/admin/groups/{{.ID}}"></form>
       <input form="group-{{.ID}}" name="name" value="{{.Name}}" maxlength="100" required aria-label="Name of {{.Name}}"></td>
+    <td data-label="Icon"><span class="logo-field"><img class="logo-preview" data-icon-preview{{with .LogoUrl}} src="{{.}}"{{else}} hidden{{end}} alt="" referrerpolicy="no-referrer">
+      <input form="group-{{.ID}}" name="logo_url" type="url" value="{{.LogoUrl}}" placeholder="https://…" aria-label="Icon URL of {{.Name}}"></span></td>
     <td class="num" data-label="Sort"><input form="group-{{.ID}}" name="sort_order" type="number" value="{{.SortOrder}}" aria-label="Sort order of {{.Name}}"></td>
     <td data-label="Guide"><select form="group-{{.ID}}" name="guide_mode" aria-label="Guide of {{.Name}}">
       {{$m := .GuideMode}}{{range guideModes}}<option value="{{.Value}}"{{if eq .Value $m}} selected{{end}}>{{.Label}}</option>{{end}}

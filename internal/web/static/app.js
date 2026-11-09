@@ -216,6 +216,19 @@
   });
   document.addEventListener('input', (e) => { if (e.target.id === 'logo_url') logoPreview(); });
   document.addEventListener('htmx:afterSwap', (e) => { if (e.target.id === 'logo-hits') logoPreview(); });
+  // Groups page: an icon URL field updates the [data-icon-preview] beside it.
+  document.addEventListener('input', (e) => {
+    const img = e.target.closest?.('.logo-field')?.querySelector('[data-icon-preview]');
+    if (!img) return;
+    const v = e.target.value.trim();
+    if (/^https?:\/\//.test(v)) {
+      img.src = v;
+      img.hidden = false;
+    } else {
+      img.removeAttribute('src');
+      img.hidden = true;
+    }
+  });
   document.addEventListener('change', async (e) => {
     const input = e.target.closest?.('[data-logo-upload]');
     const hits = document.getElementById('logo-hits');

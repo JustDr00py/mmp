@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -136,6 +138,15 @@ func validGuideMode(m string) bool {
 	return slices.ContainsFunc(guideModes, func(g struct{ Value, Label string }) bool { return g.Value == m })
 }
 
+// validLogoURL: empty, or an absolute http(s) URL players can fetch.
+func validLogoURL(s string) bool {
+	if s == "" {
+		return true
+	}
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 // channelGroup loads {id}, answering 404 itself when it does not exist.
 func (ui *UI) channelGroup(w http.ResponseWriter, r *http.Request) (db.ChannelGroup, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -168,9 +179,19 @@ func (ui *UI) channelGroupUpdate(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !validGuideMode(mode) {
 		err = formError("Unknown guide setting.")
 	}
+	logo := g.LogoUrl // kept when the form has no logo field
+	if _, ok := r.PostForm["logo_url"]; ok {
+		logo = strings.TrimSpace(r.PostForm.Get("logo_url"))
+	}
+	if err == nil && !validLogoURL(logo) {
+		err = formError("The icon must be an http(s) image URL, or empty for none.")
+	}
 	if err == nil {
 		err = ui.inTx(r.Context(), func(q Store) error {
 			if _, err := q.UpdateChannelGroup(r.Context(), db.UpdateChannelGroupParams{ID: g.ID, Name: name, SortOrder: sort}); err != nil {
+				return err
+			}
+			if err := q.SetChannelGroupLogo(r.Context(), db.SetChannelGroupLogoParams{ID: g.ID, LogoUrl: logo}); err != nil {
 				return err
 			}
 			return q.SetChannelGroupGuideMode(r.Context(), db.SetChannelGroupGuideModeParams{ID: g.ID, GuideMode: mode})
