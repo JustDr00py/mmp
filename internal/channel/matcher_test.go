@@ -106,6 +106,34 @@ func TestMatchAttachesToExisting(t *testing.T) {
 	}
 }
 
+// TestMatchAttachesByChannelStream: an event slot channel is named by its
+// label, so a new provider's copy of the slot joins it through the stream
+// already on it carrying the same event. A slot with another event, or a
+// name on two channels, picks no channel.
+func TestMatchAttachesByChannelStream(t *testing.T) {
+	const nfl = "US (ESPN+ 001) | Football: Bucs vs. Bears (2026-11-09 02:30:00)"
+	existing := []Existing{
+		{ID: 11, Name: "US (ESPN+ 001)", Streams: []Stream{{ID: 100, Name: nfl}}},
+		{ID: 12, Name: "US (ESPN+ 002)", Streams: []Stream{{ID: 101, Name: "US (ESPN+ 002) | FA Cup Highlights"}}},
+		{ID: 13, Name: "Fox A", Streams: []Stream{{ID: 102, Name: "FOX SPORTS X"}}},
+		{ID: 14, Name: "Fox B", Streams: []Stream{{ID: 103, Name: "FOX SPORTS X HD"}}},
+	}
+	streams := []Stream{
+		{ID: 1, ProviderID: 2, Name: nfl},
+		{ID: 2, ProviderID: 2, Name: "US (ESPN+ 002) | Otterbein vs. Ohio"},
+		{ID: 3, ProviderID: 2, Name: "FOX SPORTS X"},
+	}
+	want := map[int64]int64{1: 11, 2: 0, 3: 0}
+	for _, p := range Match(streams, existing, nil, nil) {
+		if got := p.ChannelID; got != want[p.StreamIDs[0]] {
+			t.Errorf("stream %d: channel_id=%d want %d", p.StreamIDs[0], got, want[p.StreamIDs[0]])
+		}
+		if p.StreamIDs[0] == 1 && p.Name != "US (ESPN+ 001)" {
+			t.Errorf("existing channel name not kept: %q", p.Name)
+		}
+	}
+}
+
 // TestMatchMinorityTvgID: one stream with another channel's tvg-id, linked
 // in by name, does not send the whole group to that channel.
 func TestMatchMinorityTvgID(t *testing.T) {

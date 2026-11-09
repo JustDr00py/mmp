@@ -101,9 +101,19 @@ func (s *Service) propose(ctx context.Context, q *db.Queries) ([]Proposal, error
 			Backbone: r.Backbone,
 		})
 	}
+	onChannels, err := q.ListChannelStreamNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("match: list channel streams: %w", err)
+	}
+	streamsOf := map[int64][]Stream{}
+	for _, r := range onChannels {
+		streamsOf[r.ChannelID] = append(streamsOf[r.ChannelID], Stream{
+			ID: r.StreamID, Name: r.StreamName, MatchName: StripPrefixes(r.StreamName, prefixes), TvgID: r.StreamTvgID,
+		})
+	}
 	existing := make([]Existing, len(chans))
 	for i, c := range chans {
-		existing[i] = Existing{ID: c.ID, Name: c.Name, TvgID: c.TvgID}
+		existing[i] = Existing{ID: c.ID, Name: c.Name, TvgID: c.TvgID, Streams: streamsOf[c.ID]}
 	}
 	rules := make([]Rule, 0, len(dbRules))
 	for _, r := range dbRules {
