@@ -41,10 +41,12 @@ type channelGroupsData struct {
 	Error     string
 	Name      string // new group form
 	Sort      string
+	// LogoLibrary shows the icon picker (the logo library is available).
+	LogoLibrary bool
 }
 
 func (ui *UI) channelGroupsData(r *http.Request) (channelGroupsData, error) {
-	var d channelGroupsData
+	d := channelGroupsData{LogoLibrary: ui.Logos != nil}
 	groups, err := ui.Store.ListChannelGroups(r.Context())
 	if err != nil {
 		return d, err

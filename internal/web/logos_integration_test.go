@@ -158,3 +158,26 @@ func TestLogosPages(t *testing.T) {
 		t.Errorf("update = %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
+
+// TestGroupIconPicker: with a logo library the Groups page offers the
+// library picker for each group's icon; without one it does not.
+func TestGroupIconPicker(t *testing.T) {
+	lib, err := logos.Open(t.TempDir(), "", "http://mmp.example:8080", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, q := pgUI(t, func(d *Deps, _ *pgxpool.Pool) { d.Logos = lib })
+	g, _ := q.CreateChannelGroup(context.Background(), db.CreateChannelGroupParams{Name: "Sports"})
+	_, body := b.get("/admin/groups")
+	for _, want := range []string{`data-icon-picker="group-` + strconv.FormatInt(g.ID, 10) + `"`, `data-group-name="Sports"`, `id="icon-picker"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("groups page lacks %q", want)
+		}
+	}
+
+	b, q = pgUI(t)
+	q.CreateChannelGroup(context.Background(), db.CreateChannelGroupParams{Name: "Sports"})
+	if _, body := b.get("/admin/groups"); strings.Contains(body, "data-icon-picker") {
+		t.Error("picker shown without a logo library")
+	}
+}

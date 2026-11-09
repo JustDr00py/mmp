@@ -17,7 +17,7 @@
 
 {{if $d.Rows}}
 <form id="group-order" method="post" action="/admin/groups/order"></form>
-<p class="hint">Drag groups (or use the arrows) into the order players should show them. Guide is where its channels' guides come from unless a channel says otherwise: set event and PPV groups to “Stream name” when their XMLTV only has placeholders. Icon is an image URL (copy one from <a href="/admin/logos">Logos</a>) sent to Xtream players when <a href="/admin/settings#group-icons">group icons</a> are on.</p>
+<p class="hint">Drag groups (or use the arrows) into the order players should show them. Guide is where its channels' guides come from unless a channel says otherwise: set event and PPV groups to “Stream name” when their XMLTV only has placeholders. Icon is an image{{if $d.LogoLibrary}}: pick one with <strong>Library…</strong> or paste any URL{{else}} URL{{end}}, sent to Xtream players when <a href="/admin/settings#group-icons">group icons</a> are on.</p>
 <div class="table-wrap">
 <table class="stack group-table">
   <thead><tr><th class="grip-cell" aria-label="Order"></th><th>Name</th><th>Icon</th><th class="num">Sort</th><th>Guide</th><th class="num">Channels</th><th></th></tr></thead>
@@ -29,7 +29,8 @@
     <td class="cell-title"><form id="group-{{.ID}}" method="post" action="/admin/groups/{{.ID}}"></form>
       <input form="group-{{.ID}}" name="name" value="{{.Name}}" maxlength="100" required aria-label="Name of {{.Name}}"></td>
     <td data-label="Icon"><span class="logo-field"><img class="logo-preview" data-icon-preview{{with .LogoUrl}} src="{{.}}"{{else}} hidden{{end}} alt="" referrerpolicy="no-referrer">
-      <input form="group-{{.ID}}" name="logo_url" type="url" value="{{.LogoUrl}}" placeholder="https://…" aria-label="Icon URL of {{.Name}}"></span></td>
+      <input form="group-{{.ID}}" name="logo_url" type="url" value="{{.LogoUrl}}" placeholder="https://…" aria-label="Icon URL of {{.Name}}">
+      {{if $d.LogoLibrary}}<button type="button" class="small secondary" data-icon-picker="group-{{.ID}}" data-group-name="{{.Name}}" aria-label="Choose an icon for {{.Name}} from the logo library">Library…</button>{{end}}</span></td>
     <td class="num" data-label="Sort"><input form="group-{{.ID}}" name="sort_order" type="number" value="{{.SortOrder}}" aria-label="Sort order of {{.Name}}"></td>
     <td data-label="Guide"><select form="group-{{.ID}}" name="guide_mode" aria-label="Guide of {{.Name}}">
       {{$m := .GuideMode}}{{range guideModes}}<option value="{{.Value}}"{{if eq .Value $m}} selected{{end}}>{{.Label}}</option>{{end}}
@@ -66,6 +67,22 @@
 </div>
 {{else}}
 <div class="card empty"><p>No groups yet.</p><p class="muted">Create one below, e.g. “Sports”, or let Match create them from your providers' groups.</p></div>
+{{end}}
+
+{{if $d.LogoLibrary}}
+<dialog class="modal icon-picker" id="icon-picker" aria-labelledby="icon-picker-title">
+  <h2 id="icon-picker-title">Icon for <span data-icon-picker-name></span></h2>
+  <div class="row">
+    <input type="search" data-icon-search placeholder="search logos: sports, nfl, news…" autocomplete="off" aria-label="Search logos">
+    <label class="button small secondary">Upload…<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg" data-icon-upload hidden></label>
+  </div>
+  <div data-icon-hits aria-live="polite"></div>
+  <p class="hint">Picking fills the icon field; click the group's <strong>Save</strong> to keep it. Uploads are saved under the group's name and can be managed on the <a href="/admin/logos">Logos</a> page.</p>
+  <form method="dialog" class="row">
+    <button type="button" class="secondary" data-icon-clear>Remove icon</button>
+    <button type="submit" class="secondary">Close</button>
+  </form>
+</dialog>
 {{end}}
 
 <h2>New group</h2>
