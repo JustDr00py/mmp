@@ -43,6 +43,11 @@ type Existing struct {
 	ID    int64
 	Name  string
 	TvgID string
+	// Streams are the streams already on the channel (MatchName set as for
+	// Stream). A group named like one of them joins the channel even when
+	// the channel's own name differs: an event slot channel is named by its
+	// label ("ESPN+ 001"), its streams by label and event.
+	Streams []Stream
 }
 
 // Rule groups streams whose raw name matches Pattern under ChannelName.
@@ -242,6 +247,7 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 	}
 
 	byTvg, byCall, byName := map[string]int64{}, map[string]int64{}, map[string]int64{}
+	byStreamName := map[string]int64{} // name keys of streams on channels; 0 = on several
 	existingByID := make(map[int64]Existing, len(existing))
 	for _, c := range existing { // first (lowest ID) wins ties
 		existingByID[c.ID] = c
@@ -265,18 +271,30 @@ func Match(streams []Stream, existing []Existing, rules []Rule, merges []Merge) 
 				byName[k] = c.ID
 			}
 		}
+		for _, s := range c.Streams {
+			k := NormalizeName(s.matchName())
+			if k == "" {
+				continue
+			}
+			k = nameKeyOf("name:"+k, CallSign(s.matchName(), s.TvgID))
+			if id, ok := byStreamName[k]; ok && id != c.ID {
+				byStreamName[k] = 0 // ambiguous: pick no channel
+			} else {
+				byStreamName[k] = c.ID
+			}
+		}
 	}
 
 	out := make([]Proposal, 0, len(groups))
 	for _, idx := range groups {
-		out = append(out, buildProposal(streams, tvgKeys, callKeys, nameKeys, idx, ruleOf, byTvg, byCall, byName, existingByID, partners))
+		out = append(out, buildProposal(streams, tvgKeys, callKeys, nameKeys, idx, ruleOf, byTvg, byCall, byName, byStreamName, existingByID, partners))
 	}
 	slices.SortFunc(out, func(a, b Proposal) int { return cmp.Compare(a.Key, b.Key) })
 	return out
 }
 
 func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKeys []string, idx []int, ruleOf []*Rule,
-	byTvg, byCall, byName map[string]int64, existing map[int64]Existing, partners map[string][]string) Proposal {
+	byTvg, byCall, byName, byStreamName map[string]int64, existing map[int64]Existing, partners map[string][]string) Proposal {
 	// Failover order: preferred providers first, then stream id.
 	slices.SortFunc(idx, func(a, b int) int {
 		return cmp.Or(
@@ -368,7 +386,8 @@ func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKe
 
 	// Existing channel: a channel the admin merged the group into, then
 	// tvg-id, rule target, call sign and name, then a channel matching a
-	// key merged with the group's (its other side was applied).
+	// key merged with the group's (its other side was applied), then a
+	// channel holding a stream of the same name.
 	for _, k := range keys {
 		for _, m := range partners[k] {
 			if id, ok := ChannelOfKey(m); ok && p.ChannelID == 0 {
@@ -411,6 +430,12 @@ func buildProposal(streams []Stream, streamTvgKeys, streamCallKeys, streamNameKe
 				p.ChannelID = id
 			}
 		}
+	}
+	for _, k := range nameKeys {
+		if p.ChannelID != 0 {
+			break
+		}
+		p.ChannelID = byStreamName[k]
 	}
 
 	switch {
