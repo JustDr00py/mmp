@@ -53,6 +53,15 @@ func TestUserActivity(t *testing.T) {
 	watch(news.ID, now.Add(-30*time.Minute), 25*time.Minute, "ts")
 	watch(gone.ID, now.Add(-3*time.Hour), 90*time.Second, "hls")
 	watch(news.ID, now.AddDate(0, 0, -40), time.Minute, "ts") // old
+	for _, v := range []db.InsertViewingSessionParams{
+		{Output: "movie", ItemID: 101, Title: "Big Film", Bytes: 1_500_000_000, EndReason: "stopped"},
+		{Output: "series", ItemID: 701, Title: "Show · S01E02", Bytes: 2_000_000, EndReason: "kicked"},
+	} {
+		v.UserID, v.Ip, v.StartedAt, v.EndedAt = u.ID, "203.0.113.7", now.Add(-2*time.Hour), now.Add(-time.Hour)
+		if err := q.InsertViewingSession(ctx, v); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := q.DeleteChannel(ctx, gone.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +80,8 @@ func TestUserActivity(t *testing.T) {
 		"Used from 3 different networks in the last 24 hours", // 203.0.113.7, 198.51.100.4, the IPv6 /64
 		"2001:db8:1:2::/64", "last 2001:db8:1:2::9",
 		">News 24</a>", "25m00s", "deleted channel", "HLS",
+		"Big Film <span class=\"pill off\">Movie</span>", "1.50 GB",
+		"Show · S01E02 <span class=\"pill off\">Episode</span> <span class=\"small muted\">kicked</span>", "2.00 MB",
 		"198.51.100.66", "1 in the last 24 hours",
 	} {
 		if !strings.Contains(body, want) {
@@ -88,8 +99,8 @@ func TestUserActivity(t *testing.T) {
 	if nets, _ := q.UserNetworks(ctx, db.UserNetworksParams{UserID: u.ID, Limit: 10}); len(nets) != 3 {
 		t.Errorf("networks after pruning = %d, want 3", len(nets))
 	}
-	if ws, _ := q.UserViewingSessions(ctx, db.UserViewingSessionsParams{UserID: u.ID, Limit: 10}); len(ws) != 2 {
-		t.Errorf("sessions after pruning = %d, want 2", len(ws))
+	if ws, _ := q.UserViewingSessions(ctx, db.UserViewingSessionsParams{UserID: u.ID, Limit: 10}); len(ws) != 4 {
+		t.Errorf("sessions after pruning = %d, want 4", len(ws))
 	}
 
 	// Deleting the user deletes their activity.

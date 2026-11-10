@@ -1,6 +1,6 @@
 -- name: InsertViewingSession :exec
-INSERT INTO viewing_sessions (user_id, channel_id, ip, output, started_at, ended_at)
-SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1);
+INSERT INTO viewing_sessions (user_id, channel_id, ip, output, started_at, ended_at, item_id, title, bytes, end_reason)
+SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1);
 
 -- name: TouchUserNetwork :exec
 INSERT INTO user_networks AS n (user_id, network, last_ip, first_seen, last_seen)
@@ -14,9 +14,10 @@ INSERT INTO auth_failures (ts, user_id, username, ip)
 VALUES ($1, (SELECT id FROM users WHERE username = $2), $2, $3);
 
 -- name: UserViewingSessions :many
--- A user's watch history, newest first; channel_name is '' for a deleted
--- channel.
-SELECT v.id, v.channel_id, COALESCE(c.name, '')::text AS channel_name, v.ip, v.output, v.started_at, v.ended_at
+-- A user's watch history (live channels, movies and episodes), newest
+-- first; channel_name is '' for a deleted channel and for VOD rows.
+SELECT v.id, v.channel_id, COALESCE(c.name, '')::text AS channel_name, v.ip, v.output, v.started_at, v.ended_at,
+       v.item_id, v.title, v.bytes, v.end_reason
 FROM viewing_sessions v LEFT JOIN channels c ON c.id = v.channel_id
 WHERE v.user_id = $1
 ORDER BY v.started_at DESC, v.id DESC

@@ -1,7 +1,8 @@
 // Package activity records what customers do, for their user pages: the
 // client networks they authenticate from (so "last seen"), the live
-// channels they watch, and wrong passwords. Writes happen off the request
-// path; a full queue drops the record rather than slow a player down.
+// channels, movies and episodes they watch, and wrong passwords. Writes
+// happen off the request path; a full queue drops the record rather than
+// slow a player down.
 package activity
 
 import (
@@ -93,6 +94,29 @@ func (t *Tracker) Watched(userID, channelID int64, ip, output string, start, end
 	t.queue(func(ctx context.Context) error {
 		return t.q.InsertViewingSession(ctx, db.InsertViewingSessionParams{UserID: userID, ChannelID: channelID,
 			Ip: ip, Output: output, StartedAt: start, EndedAt: end})
+	})
+}
+
+// VODSession is one finished movie or episode playback.
+type VODSession struct {
+	UserID     int64
+	IP         string
+	Kind       string // "movie" or "series"
+	ItemID     int64  // movie or episode id
+	Title      string
+	Bytes      int64 // sent to the player
+	EndReason  string
+	Start, End time.Time
+}
+
+// WatchedVOD records a finished movie or episode playback.
+func (t *Tracker) WatchedVOD(s VODSession) {
+	if t == nil || s.UserID == 0 {
+		return
+	}
+	t.queue(func(ctx context.Context) error {
+		return t.q.InsertViewingSession(ctx, db.InsertViewingSessionParams{UserID: s.UserID, Ip: s.IP, Output: s.Kind,
+			StartedAt: s.Start, EndedAt: s.End, ItemID: s.ItemID, Title: s.Title, Bytes: s.Bytes, EndReason: s.EndReason})
 	})
 }
 

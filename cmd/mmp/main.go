@@ -224,12 +224,14 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	access := output.NewAccess(auth.NewCustomers(queries, time.Minute))
 	access.OnViewerEnd(func(v output.Viewer, at time.Time) {
 		if v.Output == "preview" || v.IsVOD() {
-			return // the admin's preview player and VOD are not channel watch history
+			return // not channel history (VOD playback records its own sessions)
 		}
 		tracker.Watched(v.UserID, v.ChannelID, v.Addr, v.Output, v.Since, at)
 	})
 	outputs := &output.Handlers{Access: access, Store: queries, Streams: streams, BaseURL: cfg.BaseURL, Log: log, Activity: tracker,
 		Limit: loginLimit}
+	// On shutdown, record movie/episode playbacks still held open for a resume.
+	context.AfterFunc(ctx, outputs.FlushVOD)
 	outputs.NameGuide = func(ctx context.Context) nameguide.Settings {
 		s, err := nameguide.Load(ctx, queries)
 		if err != nil {

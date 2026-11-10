@@ -296,6 +296,10 @@ type ViewingSession struct {
 	Output    string    `json:"output"`
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at"`
+	ItemID    int64     `json:"item_id"`
+	Title     string    `json:"title"`
+	Bytes     int64     `json:"bytes"`
+	EndReason string    `json:"end_reason"`
 }
 
 type VodCategory struct {
