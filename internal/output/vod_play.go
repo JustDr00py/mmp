@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/netguard"
@@ -167,17 +168,23 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 			return remove
 		},
 		tookOver: func(old *vodLease) {
-			h.Log.Info("vod playback taken over", "user_id", u.ID, "old_kind", old.key.kind, "old_id", old.key.id,
-				"old_bytes", old.bytes.Load(), "kind", kind, "id", id)
+			h.Log.Info("vod playback taken over", "user_id", u.ID, "username", u.Username, "old_kind", old.key.kind,
+				"old_id", old.key.id, "kind", kind, "id", id)
+		},
+		ended: func(ls *vodLease, reason string, at time.Time) {
+			h.vodSessionEnded(u, addr, tgt, p.ID, ls, reason, at)
 		},
 	})
 	switch {
 	case errors.Is(err, errProviderFull):
+		h.Log.Info("output: vod provider busy", "user_id", u.ID, "username", u.Username, "provider_id", p.ID,
+			"max", p.MaxConnections, "kind", kind, "id", id)
 		w.Header().Set("Retry-After", "10")
 		http.Error(w, "provider busy, try again shortly", http.StatusServiceUnavailable)
 		return
 	case err != nil:
-		h.Log.Info("output: connection limit", "user_id", u.ID, "kind", kind, "max", u.MaxConnections)
+		h.Log.Info("output: connection limit", "user_id", u.ID, "username", u.Username, "kind", kind, "id", id,
+			"max", u.MaxConnections)
 		http.Error(w, "connection limit reached", http.StatusForbidden)
 		return
 	}
@@ -217,6 +224,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	if err != nil {
 		if ctx.Err() == nil {
 			h.Log.Warn("output: vod upstream", "provider_id", p.ID, "kind", kind, "id", id, "err", redact.Err(err))
+			h.vodLeases.failed(lease, redact.Err(err).Error())
 		}
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
@@ -226,10 +234,13 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	case resp.StatusCode == http.StatusOK, resp.StatusCode == http.StatusPartialContent,
 		resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
 	case resp.StatusCode == http.StatusNotFound:
+		h.Log.Warn("output: vod upstream not found", "provider_id", p.ID, "kind", kind, "id", id)
+		h.vodLeases.failed(lease, "upstream status 404")
 		http.NotFound(w, r)
 		return
 	default:
 		h.Log.Warn("output: vod upstream status", "provider_id", p.ID, "kind", kind, "id", id, "status", resp.StatusCode)
+		h.vodLeases.failed(lease, "upstream status "+strconv.Itoa(resp.StatusCode))
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
 	}
@@ -250,7 +261,8 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		return
 	}
 
-	h.Log.Info("vod playback started", "user_id", u.ID, "kind", kind, "id", id, "range", r.Header.Get("Range") != "")
+	h.Log.Debug("vod request started", "user_id", u.ID, "kind", kind, "id", id, "range", r.Header.Get("Range"),
+		"status", resp.StatusCode)
 	rc := http.NewResponseController(w)
 	buf := make([]byte, 128*1024)
 	var sent int64
@@ -263,13 +275,45 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 			}
 			sent += int64(n)
 			lease.bytes.Add(int64(n))
+			if lease.started.CompareAndSwap(false, true) {
+				h.Log.Info("vod session started", "user_id", u.ID, "username", u.Username, "ip", addr, "kind", kind,
+					"id", id, "title", tgt.title, "provider_id", p.ID)
+			}
 		}
 		if rerr != nil {
 			break
 		}
 	}
-	h.Log.Info("vod playback stopped", "user_id", u.ID, "kind", kind, "id", id, "bytes", sent)
+	h.Log.Debug("vod request ended", "user_id", u.ID, "kind", kind, "id", id, "bytes", sent)
 }
+
+// vodSessionEnded logs a finished playback and adds it to the user's watch
+// history. A lease that sent nothing and failed nothing (a HEAD probe, a
+// player that gave up at once) is not a session worth keeping.
+func (h *Handlers) vodSessionEnded(u db.User, addr string, tgt vodTarget, providerID int64, ls *vodLease, reason string, at time.Time) {
+	bytes := ls.bytes.Load()
+	args := []any{"user_id", u.ID, "username", u.Username, "ip", addr, "kind", ls.key.kind, "id", ls.key.id,
+		"title", tgt.title, "provider_id", providerID, "reason", reason,
+		"duration", at.Sub(ls.since).Round(time.Second).String(), "bytes", bytes, "requests", ls.requests}
+	if ls.lastErr != "" {
+		args = append(args, "err", ls.lastErr)
+	}
+	if bytes == 0 && ls.lastErr == "" {
+		h.Log.Debug("vod session ended", args...)
+		return
+	}
+	h.Log.Info("vod session ended", args...)
+	h.Activity.WatchedVOD(activity.VODSession{UserID: u.ID, IP: addr, Kind: ls.key.kind, ItemID: ls.key.id,
+		Title: tgt.title, Bytes: bytes, EndReason: reason, Start: ls.since, End: at})
+}
+
+// End reasons, in logs and the watch history.
+const (
+	vodStopped   = "stopped"        // the player closed its last request
+	vodKicked    = "kicked"         // disconnected from the dashboard
+	vodTakenOver = "taken over"     // ended to make room for the user's next title
+	vodFailed    = "upstream error" // the provider never delivered
+)
 
 var errProviderFull = errors.New("provider has no free connection")
 
@@ -320,6 +364,10 @@ type vodLease struct {
 	ended              bool                          // kicked or taken over: slots already released
 	removeViewer       func()                        // its dashboard entry
 	bytes              atomic.Int64                  // sent to the player, all requests
+	started            atomic.Bool                   // the first byte reached the player
+	requests           int                           // requests served (a seek is one more)
+	lastErr            string                        // the last upstream failure, if any
+	onEnd              func(ls *vodLease, reason string, at time.Time)
 }
 
 type vodKey struct {
@@ -328,10 +376,28 @@ type vodKey struct {
 	id     int64
 }
 
+// vodResume is how long a stopped playback stays open for its report:
+// reopening the same title within it (a seek that closed the old request
+// first, a reconnect, resuming after a pause) continues the session rather
+// than starting a new one in the logs and the watch history.
+const vodResume = time.Minute
+
 // vodLeases tracks active playback leases; the zero value is ready.
 type vodLeases struct {
 	mu sync.Mutex
 	m  map[vodKey]*vodLease
+	// stopped holds playbacks whose last request ended, unreported until
+	// resume passes; slots are already free.
+	stopped map[vodKey]*vodPause
+	resume  time.Duration // 0: vodResume
+	closing bool          // flushed for shutdown: report at once
+}
+
+// vodPause is a stopped playback awaiting its report.
+type vodPause struct {
+	ls    *vodLease
+	at    time.Time // when its last request ended
+	timer *time.Timer
 }
 
 // vodAcquire describes one playback request to vodLeases.acquire.
@@ -345,6 +411,10 @@ type vodAcquire struct {
 	register func(ls *vodLease, kick func()) (remove func())
 	// tookOver reports a lease ended to make room. Optional.
 	tookOver func(old *vodLease)
+	// ended reports a new lease's end, with why (vodStopped, ...).
+	// It runs with the leases locked, so it must not call back into them.
+	// Optional.
+	ended func(ls *vodLease, reason string, at time.Time)
 }
 
 // acquire joins the lease for a.key or creates one, taking over the
@@ -373,19 +443,27 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 			if old == nil {
 				return nil, nil, nil, err
 			}
-			l.endLocked(old)
+			l.endLocked(old, vodTakenOver)
 			if a.tookOver != nil {
 				a.tookOver(old)
 			}
 		}
 		ls = &vodLease{key: a.key, providerID: a.providerID, since: time.Now(), userSlot: u, provSlot: p,
-			cancels: map[uint64]context.CancelFunc{}}
+			cancels: map[uint64]context.CancelFunc{}, onEnd: a.ended}
+		if st := l.stopped[a.key]; st != nil { // resumed: the same session
+			st.timer.Stop()
+			delete(l.stopped, a.key)
+			ls.since, ls.requests, ls.lastErr = st.ls.since, st.ls.requests, st.ls.lastErr
+			ls.bytes.Store(st.ls.bytes.Load())
+			ls.started.Store(st.ls.started.Load())
+		}
 		l.m[a.key] = ls
 		if a.register != nil {
 			ls.removeViewer = a.register(ls, func() { l.kick(ls) })
 		}
 	}
 	ls.refs++
+	ls.requests++
 	ls.nextReq++
 	req := ls.nextReq
 	ctx, cancel := context.WithCancel(ctx)
@@ -409,10 +487,18 @@ func (l *vodLeases) oldestLocked(userID, providerID int64) *vodLease {
 }
 
 // endLocked ends ls now: its slots are free at once and its requests are
-// cancelled (they finish unwinding on their own).
-func (l *vodLeases) endLocked(ls *vodLease) {
+// cancelled (they finish unwinding on their own). It is reported at once.
+func (l *vodLeases) endLocked(ls *vodLease, reason string) {
+	if l.closeLocked(ls) && ls.onEnd != nil {
+		ls.onEnd(ls, reason, time.Now())
+	}
+}
+
+// closeLocked frees ls's slots, cancels its requests and drops it from the
+// dashboard; false if it had already ended.
+func (l *vodLeases) closeLocked(ls *vodLease) bool {
 	if ls.ended {
-		return
+		return false
 	}
 	ls.ended = true
 	if l.m[ls.key] == ls {
@@ -428,13 +514,21 @@ func (l *vodLeases) endLocked(ls *vodLease) {
 	if ls.removeViewer != nil {
 		ls.removeViewer()
 	}
+	return true
 }
 
 // kick ends ls (the dashboard's disconnect).
 func (l *vodLeases) kick(ls *vodLease) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.endLocked(ls)
+	l.endLocked(ls, vodKicked)
+}
+
+// failed notes an upstream failure on ls, for its end report.
+func (l *vodLeases) failed(ls *vodLease, msg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ls.lastErr = msg
 }
 
 func (l *vodLeases) release(ls *vodLease, req uint64) {
@@ -444,5 +538,55 @@ func (l *vodLeases) release(ls *vodLease, req uint64) {
 	if ls.refs--; ls.refs > 0 {
 		return
 	}
-	l.endLocked(ls)
+	if ls.bytes.Load() == 0 && ls.lastErr != "" {
+		l.endLocked(ls, vodFailed)
+		return
+	}
+	if !l.closeLocked(ls) || ls.onEnd == nil {
+		return
+	}
+	at := time.Now()
+	if l.closing {
+		ls.onEnd(ls, vodStopped, at)
+		return
+	}
+	// Hold the report: a reopen within resume continues this session.
+	if l.stopped == nil {
+		l.stopped = map[vodKey]*vodPause{}
+	}
+	if prev := l.stopped[ls.key]; prev != nil { // cannot happen: acquire takes it
+		prev.timer.Stop()
+		prev.ls.onEnd(prev.ls, vodStopped, prev.at)
+	}
+	resume := l.resume
+	if resume <= 0 {
+		resume = vodResume
+	}
+	st := &vodPause{ls: ls, at: at}
+	st.timer = time.AfterFunc(resume, func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.stopped[ls.key] == st {
+			delete(l.stopped, ls.key)
+			ls.onEnd(ls, vodStopped, at)
+		}
+	})
+	l.stopped[ls.key] = st
 }
+
+// flush reports every stopped playback now, and from now on reports
+// stops at once (for shutdown).
+func (l *vodLeases) flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closing = true
+	for k, st := range l.stopped {
+		st.timer.Stop()
+		delete(l.stopped, k)
+		st.ls.onEnd(st.ls, vodStopped, st.at)
+	}
+}
+
+// FlushVOD records every movie and episode playback still waiting to see
+// if the player comes back, and stops waiting from now on. For shutdown.
+func (h *Handlers) FlushVOD() { h.vodLeases.flush() }

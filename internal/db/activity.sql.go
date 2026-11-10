@@ -27,8 +27,8 @@ func (q *Queries) InsertAuthFailure(ctx context.Context, arg InsertAuthFailurePa
 }
 
 const insertViewingSession = `-- name: InsertViewingSession :exec
-INSERT INTO viewing_sessions (user_id, channel_id, ip, output, started_at, ended_at)
-SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1)
+INSERT INTO viewing_sessions (user_id, channel_id, ip, output, started_at, ended_at, item_id, title, bytes, end_reason)
+SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 WHERE EXISTS (SELECT 1 FROM users WHERE id = $1)
 `
 
 type InsertViewingSessionParams struct {
@@ -38,6 +38,10 @@ type InsertViewingSessionParams struct {
 	Output    string    `json:"output"`
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at"`
+	ItemID    int64     `json:"item_id"`
+	Title     string    `json:"title"`
+	Bytes     int64     `json:"bytes"`
+	EndReason string    `json:"end_reason"`
 }
 
 func (q *Queries) InsertViewingSession(ctx context.Context, arg InsertViewingSessionParams) error {
@@ -48,6 +52,10 @@ func (q *Queries) InsertViewingSession(ctx context.Context, arg InsertViewingSes
 		arg.Output,
 		arg.StartedAt,
 		arg.EndedAt,
+		arg.ItemID,
+		arg.Title,
+		arg.Bytes,
+		arg.EndReason,
 	)
 	return err
 }
@@ -192,7 +200,8 @@ func (q *Queries) UserNetworks(ctx context.Context, arg UserNetworksParams) ([]U
 }
 
 const userViewingSessions = `-- name: UserViewingSessions :many
-SELECT v.id, v.channel_id, COALESCE(c.name, '')::text AS channel_name, v.ip, v.output, v.started_at, v.ended_at
+SELECT v.id, v.channel_id, COALESCE(c.name, '')::text AS channel_name, v.ip, v.output, v.started_at, v.ended_at,
+       v.item_id, v.title, v.bytes, v.end_reason
 FROM viewing_sessions v LEFT JOIN channels c ON c.id = v.channel_id
 WHERE v.user_id = $1
 ORDER BY v.started_at DESC, v.id DESC
@@ -212,10 +221,14 @@ type UserViewingSessionsRow struct {
 	Output      string    `json:"output"`
 	StartedAt   time.Time `json:"started_at"`
 	EndedAt     time.Time `json:"ended_at"`
+	ItemID      int64     `json:"item_id"`
+	Title       string    `json:"title"`
+	Bytes       int64     `json:"bytes"`
+	EndReason   string    `json:"end_reason"`
 }
 
-// A user's watch history, newest first; channel_name is ” for a deleted
-// channel.
+// A user's watch history (live channels, movies and episodes), newest
+// first; channel_name is ” for a deleted channel and for VOD rows.
 func (q *Queries) UserViewingSessions(ctx context.Context, arg UserViewingSessionsParams) ([]UserViewingSessionsRow, error) {
 	rows, err := q.db.Query(ctx, userViewingSessions, arg.UserID, arg.Limit)
 	if err != nil {
@@ -233,6 +246,10 @@ func (q *Queries) UserViewingSessions(ctx context.Context, arg UserViewingSessio
 			&i.Output,
 			&i.StartedAt,
 			&i.EndedAt,
+			&i.ItemID,
+			&i.Title,
+			&i.Bytes,
+			&i.EndReason,
 		); err != nil {
 			return nil, err
 		}

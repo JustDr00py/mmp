@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JustDr00py/mmp/internal/activity"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -372,5 +373,146 @@ func TestVODLeaseTakeover(t *testing.T) {
 	}
 	if users.InUse(1) != 2 || provs.InUse(20) != 1 || users.InUse(2) != 0 {
 		t.Errorf("slots: user1 %d, prov20 %d, user2 %d", users.InUse(1), provs.InUse(20), users.InUse(2))
+	}
+}
+
+// TestVODWatchHistory: each playback (all its seeks together) lands in the
+// watch history once, with why it ended; a bare HEAD probe does not.
+func TestVODWatchHistory(t *testing.T) {
+	movie := make([]byte, 16<<20) // still playing when the seek arrives
+	srv, hs, panel, slots := newPlaybackServer(t, movie, 1)
+	panel.episode = make([]byte, 16<<20) // still playing when kicked
+	st := &activityStore{}
+	tr := activity.New(st, nil, 100)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { tr.Run(ctx); close(done) }()
+	hs.Activity = tr
+	hs.vodLeases.resume = 10 * time.Millisecond
+	u := srv.URL + "/movie/alice/alice-pw1/101.mkv"
+
+	// Played to the end with one seek while the first request was open.
+	first, stop := openPlayback(t, u)
+	if r, _ := fetch(t, u, map[string]string{"Range": "bytes=0-999"}); r.StatusCode != 206 {
+		t.Fatalf("seek = %d", r.StatusCode)
+	}
+	io.Copy(io.Discard, first.Body)
+	stop()
+	waitVODIdle(t, hs, slots)
+	waitWatched(t, st, 1) // once the resume window passes
+	// A HEAD probe: no session.
+	if head, _ := http.Head(u); head.StatusCode != 200 {
+		t.Fatalf("HEAD = %d", head.StatusCode)
+	}
+	waitVODIdle(t, hs, slots)
+	// Kicked from the dashboard.
+	ep, _ := openPlayback(t, srv.URL+"/series/alice/alice-pw1/701.mkv")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		vs := hs.Access.Viewers()
+		if len(vs) == 1 && vs[0].Bytes > 0 {
+			hs.Access.Kick(vs[0].ID)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("episode never played: %+v", vs)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitBodyEnds(t, ep)
+	waitVODIdle(t, hs, slots)
+	// The provider fails.
+	panel.down.Store(true)
+	if r, _ := fetch(t, u, nil); r.StatusCode != http.StatusBadGateway {
+		t.Fatalf("panel down = %d", r.StatusCode)
+	}
+	waitVODIdle(t, hs, slots)
+	hs.FlushVOD()
+	cancel()
+	<-done
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.watched) != 3 {
+		t.Fatalf("watched = %+v, want 3 sessions", st.watched)
+	}
+	for i, want := range []struct {
+		output, reason string
+		item           int64
+		bytes          int64 // -1: some
+	}{{"movie", vodStopped, 101, int64(len(movie)) + 1000}, {"series", vodKicked, 701, -1}, {"movie", vodFailed, 101, 0}} {
+		w := st.watched[i]
+		if want.output == "series" && w.Title != "Show · S01E02" {
+			t.Errorf("episode title = %q", w.Title)
+		}
+		if w.UserID != 1 || w.ChannelID != 0 || w.Output != want.output || w.ItemID != want.item || w.Title == "" ||
+			w.EndReason != want.reason || w.Ip != "127.0.0.1" || w.EndedAt.Before(w.StartedAt) {
+			t.Errorf("session %d = %+v, want %s %d %q", i, w, want.output, want.item, want.reason)
+		}
+		if (want.bytes < 0 && w.Bytes <= 0) || (want.bytes >= 0 && w.Bytes != want.bytes) {
+			t.Errorf("session %d bytes = %d, want %d", i, w.Bytes, want.bytes)
+		}
+	}
+}
+
+// TestVODResume: a player that closes its request before seeking (or
+// reconnects) within the resume window continues the same session.
+func TestVODResume(t *testing.T) {
+	movie := make([]byte, 300_000)
+	srv, hs, _, slots := newPlaybackServer(t, movie, 1)
+	st := &activityStore{}
+	tr := activity.New(st, nil, 100)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { tr.Run(ctx); close(done) }()
+	hs.Activity = tr
+	hs.vodLeases.resume = time.Hour
+	u := srv.URL + "/movie/alice/alice-pw1/101.mkv"
+
+	start := time.Now()
+	fetch(t, u, nil)
+	waitVODIdle(t, hs, slots) // slots are free while the session waits
+	fetch(t, u, map[string]string{"Range": "bytes=0-999"})
+	waitVODIdle(t, hs, slots)
+	time.Sleep(20 * time.Millisecond)
+	fetch(t, u, map[string]string{"Range": "bytes=1000-1999"})
+	waitVODIdle(t, hs, slots)
+	st.mu.Lock()
+	n := len(st.watched)
+	st.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("reported before the resume window passed: %d", n)
+	}
+
+	hs.FlushVOD() // shutdown: reported at once
+	cancel()
+	<-done
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.watched) != 1 {
+		t.Fatalf("watched = %+v, want 1 session", st.watched)
+	}
+	w := st.watched[0]
+	if w.Bytes != int64(len(movie))+2000 || w.EndReason != vodStopped || w.StartedAt.Before(start) ||
+		w.EndedAt.Sub(w.StartedAt) < 20*time.Millisecond {
+		t.Errorf("session = %+v", w)
+	}
+}
+
+// waitWatched waits for n sessions in st.
+func waitWatched(t *testing.T, st *activityStore, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		st.mu.Lock()
+		got := len(st.watched)
+		st.mu.Unlock()
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("watched %d sessions, want %d", got, n)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

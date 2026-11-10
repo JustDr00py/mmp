@@ -90,7 +90,8 @@ func (f *fakeVOD) GetUserSeries(_ context.Context, a db.GetUserSeriesParams) (db
 
 func (f *fakeVOD) GetUserEpisode(_ context.Context, a db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error) {
 	if a.ID == 701 && granted(a.UserID, a.IsAdmin, 5) {
-		return db.GetUserEpisodeRow{ID: 701, ExternalID: "7001", ContainerExtension: "mkv", SeriesID: 7, ProviderID: 1}, nil
+		return db.GetUserEpisodeRow{ID: 701, ExternalID: "7001", ContainerExtension: "mkv", SeriesID: 7, ProviderID: 1,
+			SeriesName: "Show", Season: 1, EpisodeNum: 2}, nil
 	}
 	return db.GetUserEpisodeRow{}, pgx.ErrNoRows
 }

@@ -39,10 +39,17 @@ type networkRow struct {
 
 type watchRow struct {
 	ChannelID       int64
-	Channel         string // "" when the channel was deleted
+	Channel         string // "" when the channel was deleted (or for VOD)
 	Started, Length string
 	IP, Output      string
+	// VOD rows (Output "movie" or "series").
+	Title     string
+	Bytes     uint64
+	EndReason string // shown unless the player simply stopped
 }
+
+// IsVOD reports a movie or episode row.
+func (w watchRow) IsVOD() bool { return w.Output == "movie" || w.Output == "series" }
 
 type failureRow struct {
 	When, IP string
@@ -75,7 +82,7 @@ func (ui *UI) userActivity(ctx context.Context, userID int64) (userActivity, err
 	for _, v := range watched {
 		a.Watched = append(a.Watched, watchRow{ChannelID: v.ChannelID, Channel: v.ChannelName,
 			Started: v.StartedAt.Local().Format("Jan 2 15:04"), Length: shortDuration(v.EndedAt.Sub(v.StartedAt)),
-			IP: v.Ip, Output: v.Output})
+			IP: v.Ip, Output: v.Output, Title: v.Title, Bytes: uint64(max(v.Bytes, 0)), EndReason: v.EndReason})
 	}
 
 	fails, err := ui.Store.UserAuthFailures(ctx, db.UserAuthFailuresParams{UserID: &userID, Limit: activityFailures + 1})

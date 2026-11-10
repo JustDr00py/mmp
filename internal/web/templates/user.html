@@ -77,13 +77,14 @@
       <h3>Watched</h3>
       {{if .Watched}}
       <div class="table-wrap"><table class="stack">
-        <thead><tr><th>Channel</th><th>Started</th><th class="num">For</th><th>Address</th></tr></thead>
+        <thead><tr><th>Watched</th><th>Started</th><th class="num">For</th><th class="num">Data</th><th>Address</th></tr></thead>
         <tbody>{{range .Watched}}
-        <tr><td class="cell-title">{{if .Channel}}<a href="/admin/channels/{{.ChannelID}}">{{.Channel}}</a>{{else}}<span class="muted">deleted channel</span>{{end}}{{if eq .Output "hls"}} <span class="pill off">HLS</span>{{end}}</td>
+        <tr><td class="cell-title">{{if .IsVOD}}{{or .Title "untitled"}} <span class="pill off">{{if eq .Output "movie"}}Movie{{else}}Episode{{end}}</span>{{if and .EndReason (ne .EndReason "stopped")}} <span class="small muted">{{.EndReason}}</span>{{end}}{{else if .Channel}}<a href="/admin/channels/{{.ChannelID}}">{{.Channel}}</a>{{else}}<span class="muted">deleted channel</span>{{end}}{{if eq .Output "hls"}} <span class="pill off">HLS</span>{{end}}</td>
           <td data-label="Started">{{.Started}}</td><td class="num" data-label="For">{{.Length}}</td>
+          <td class="num" data-label="Data">{{if .IsVOD}}{{bytesize .Bytes}}{{else}}<span class="muted">–</span>{{end}}</td>
           <td class="mono" data-label="Address">{{.IP}}</td></tr>{{end}}
         </tbody></table></div>
-      {{else}}<p class="muted">Nothing watched yet. Live channels appear here when the player stops.</p>{{end}}
+      {{else}}<p class="muted">Nothing watched yet. Live channels, movies and episodes appear here when the player stops.</p>{{end}}
     </div>
   </div>
 </section>
