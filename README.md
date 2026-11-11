@@ -510,7 +510,7 @@ because each probe uses one of the provider's connections.
 ### Stream profiles (ffmpeg)
 
 Most channels need nothing special. For a provider whose streams have broken timestamps, or to
-transcode, create a profile under **Profiles** (mode *ffmpeg*, e.g. arguments `-c copy`) and pick it in
+transcode, create a profile under **Profiles** (mode *ffmpeg*, e.g. arguments `-map 0 -dn -c copy`) and pick it in
 the channel's settings. MMP still connects to the provider itself and pipes the stream through ffmpeg, so
 failover works the same. This needs ffmpeg installed (`mmp-ffmpeg` image).
 

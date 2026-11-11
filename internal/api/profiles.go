@@ -11,7 +11,7 @@ import (
 )
 
 // MountProfiles registers stream profile routes. A profile in ffmpeg mode
-// pipes its channels through ffmpeg with ffmpeg_args (e.g. "-c copy");
+// pipes its channels through ffmpeg with ffmpeg_args (e.g. "-map 0 -dn -c copy");
 // changes apply to sessions started afterwards.
 func MountProfiles(r chi.Router, env *Env) {
 	r.Route("/stream-profiles", func(r chi.Router) {

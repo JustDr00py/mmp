@@ -291,7 +291,7 @@ func ValidateProfile(mode, ffmpegArgs string) error {
 			return errors.New("ffmpeg_args: " + err.Error())
 		}
 		if len(args) == 0 { // ffmpeg's defaults would re-encode to MPEG-2
-			return errors.New(`ffmpeg_args is required in ffmpeg mode (e.g. "-c copy")`)
+			return errors.New(`ffmpeg_args is required in ffmpeg mode (e.g. "-map 0 -dn -c copy")`)
 		}
 		return nil
 	}
