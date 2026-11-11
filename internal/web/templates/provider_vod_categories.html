@@ -10,6 +10,27 @@
 <p class="muted small">Save hides titles outside the chosen categories at once. Save and import also imports the catalog
   now, which brings in titles from newly ticked categories. Type a language (e.g. English) in the filter, then
   “tick all shown”, to choose a whole language.</p>
+{{if eq $d.Provider.Type "xtream"}}
+<section class="card" id="pool">
+  <h2>Pool with other accounts</h2>
+  {{if $d.Provider.Backbone}}
+  <p class="muted small">Accounts on one panel share their movie and series ids. Pooled accounts on the
+    <strong>{{$d.Provider.Backbone}}</strong> backbone show each title once to customers, and playback uses whichever of
+    them has a free connection. Only pool accounts on the same panel: nearly all of this account's movies should match
+    below.</p>
+  {{if $d.Pool}}<ul class="pick-list">{{range $d.Pool}}
+    <li>{{.Name}} <span class="sub">{{if .TheirMovies}}{{.Matching}} of this account's {{.Movies}} movies match{{else}}no catalog imported{{end}}
+      {{if .VodPooled}} · pooled{{end}}{{if not .VodEnabled}} · importing off{{end}}</span></li>
+  {{end}}</ul>{{else}}<p class="muted small">No other provider is on this backbone yet.</p>{{end}}
+  <form method="post" action="/admin/providers/{{$d.Provider.ID}}/vod-categories" class="row">
+    <input type="hidden" name="action" value="pool">
+    <label class="check"><input type="checkbox" name="pooled"{{if $d.Provider.VodPooled}} checked{{end}}> Pool this account's titles with the other pooled {{$d.Provider.Backbone}} accounts</label>
+    <button type="submit" class="small">Save</button>
+  </form>
+  {{else}}<p class="muted small">Give this provider a backbone (on its <a href="/admin/providers/{{$d.Provider.ID}}/edit">edit page</a>) to pool it with
+    other accounts on the same panel.</p>{{end}}
+</section>
+{{end}}
 {{if $d.Categories}}
 <form method="post" action="/admin/providers/{{$d.Provider.ID}}/vod-categories" class="groups-form" data-check-on-change="#mode-selected">
   <fieldset class="mode">

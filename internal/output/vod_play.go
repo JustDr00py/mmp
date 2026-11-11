@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,26 +71,55 @@ func vodID(s string) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
-// vodTarget is what one playback fetches.
+// vodTarget is what one playback fetches: the title and the providers that
+// hold it (one, or each pooled account with a copy), in the order to try.
 type vodTarget struct {
+	copies []vodCopy
+	title  string // for the dashboard
+}
+
+// vodCopy is one provider's copy of a title.
+type vodCopy struct {
 	providerID int64
 	externalID string
 	ext        string
-	title      string // for the dashboard
 }
 
+// vodTarget looks the title up; pgx.ErrNoRows if the user may not play it.
 func (h *Handlers) vodTarget(ctx context.Context, u db.User, kind string, id int64) (vodTarget, error) {
 	admin := u.Role == auth.RoleAdmin
+	var t vodTarget
 	if kind == "movie" {
-		m, err := h.VOD.GetUserVODItem(ctx, db.GetUserVODItemParams{ID: id, UserID: u.ID, IsAdmin: admin})
-		return vodTarget{m.ProviderID, m.ExternalID, m.ContainerExtension, m.Name}, err
+		rows, err := h.VOD.ListUserVODItemCopies(ctx, db.ListUserVODItemCopiesParams{ID: id, UserID: u.ID, IsAdmin: admin})
+		if err != nil {
+			return t, err
+		}
+		for _, m := range rows {
+			t.copies = append(t.copies, vodCopy{m.ProviderID, m.ExternalID, m.ContainerExtension})
+		}
+		if len(rows) > 0 {
+			t.title = rows[0].Name
+		}
+	} else {
+		rows, err := h.VOD.ListUserEpisodeCopies(ctx, db.ListUserEpisodeCopiesParams{ID: id, UserID: u.ID, IsAdmin: admin})
+		if err != nil {
+			return t, err
+		}
+		for _, e := range rows {
+			t.copies = append(t.copies, vodCopy{e.ProviderID, e.ExternalID, e.ContainerExtension})
+		}
+		if len(rows) > 0 {
+			t.title = episodeTitle(rows[0])
+		}
 	}
-	e, err := h.VOD.GetUserEpisode(ctx, db.GetUserEpisodeParams{ID: id, UserID: u.ID, IsAdmin: admin})
-	return vodTarget{e.ProviderID, e.ExternalID, e.ContainerExtension, episodeTitle(e)}, err
+	if len(t.copies) == 0 {
+		return t, pgx.ErrNoRows
+	}
+	return t, nil
 }
 
 // episodeTitle is "Series · S01E02 · Title" (parts it lacks left out).
-func episodeTitle(e db.GetUserEpisodeRow) string {
+func episodeTitle(e db.ListUserEpisodeCopiesRow) string {
 	parts := []string{}
 	if e.SeriesName != "" {
 		parts = append(parts, e.SeriesName)
@@ -137,16 +167,34 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	p, err := h.VOD.GetProvider(ctx, tgt.providerID)
-	if err != nil {
-		h.Log.Error("output: vod provider", "provider_id", tgt.providerID, "err", err)
+	// The providers holding a copy, in order: playback takes the first
+	// with a free connection (pooled accounts share one title).
+	var provs []db.Provider
+	copyOf := map[int64]vodCopy{}
+	for _, c := range tgt.copies {
+		if _, dup := copyOf[c.providerID]; dup {
+			continue
+		}
+		p, err := h.VOD.GetProvider(ctx, c.providerID)
+		if err != nil {
+			h.Log.Error("output: vod provider", "provider_id", c.providerID, "err", err)
+			continue
+		}
+		provs = append(provs, p)
+		copyOf[p.ID] = c
+	}
+	if len(provs) == 0 {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
+	}
+	provIDs := make([]int64, len(provs))
+	for i, p := range provs {
+		provIDs[i] = p.ID
 	}
 
 	addr := auth.RemoteIP(r)
 	ctx, lease, release, err := h.vodLeases.acquire(ctx, vodAcquire{
-		key: vodKey{u.ID, kind, id}, providerID: p.ID,
+		key: vodKey{u.ID, kind, id}, providers: provIDs,
 		take: func() (*proxy.Slot, *proxy.Slot, error) {
 			userSlot, err := h.Access.Acquire(u)
 			if err != nil {
@@ -155,16 +203,17 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 			if h.Slots == nil {
 				return userSlot, nil, nil
 			}
-			provSlot, ok := h.Slots.TryAcquire(p.ID, int(p.MaxConnections))
-			if !ok {
-				userSlot.Release()
-				return nil, nil, errProviderFull
+			for _, p := range provs {
+				if provSlot, ok := h.Slots.TryAcquire(p.ID, int(p.MaxConnections)); ok {
+					return userSlot, provSlot, nil
+				}
 			}
-			return userSlot, provSlot, nil
+			userSlot.Release()
+			return nil, nil, errProviderFull
 		},
 		register: func(ls *vodLease, kick func()) func() {
 			_, remove := h.Access.viewers.add(Viewer{UserID: u.ID, Username: u.Username, Addr: addr, Output: kind,
-				Title: tgt.title, ItemID: id, ProviderID: p.ID, Since: ls.since}, kick, &ls.bytes)
+				Title: tgt.title, ItemID: id, ProviderID: ls.providerID, Since: ls.since}, kick, &ls.bytes)
 			return remove
 		},
 		tookOver: func(old *vodLease) {
@@ -172,13 +221,13 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 				"old_id", old.key.id, "kind", kind, "id", id)
 		},
 		ended: func(ls *vodLease, reason string, at time.Time) {
-			h.vodSessionEnded(u, addr, tgt, p.ID, ls, reason, at)
+			h.vodSessionEnded(u, addr, tgt, ls.providerID, ls, reason, at)
 		},
 	})
 	switch {
 	case errors.Is(err, errProviderFull):
-		h.Log.Info("output: vod provider busy", "user_id", u.ID, "username", u.Username, "provider_id", p.ID,
-			"max", p.MaxConnections, "kind", kind, "id", id)
+		h.Log.Info("output: vod provider busy", "user_id", u.ID, "username", u.Username, "providers", provIDs,
+			"kind", kind, "id", id)
 		w.Header().Set("Retry-After", "10")
 		http.Error(w, "provider busy, try again shortly", http.StatusServiceUnavailable)
 		return
@@ -189,6 +238,18 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		return
 	}
 	defer release()
+	// The account this playback holds (a seek joins the running one).
+	var p db.Provider
+	for _, c := range provs {
+		if c.ID == lease.providerID {
+			p = c
+		}
+	}
+	if p.ID == 0 { // joined a lease on an account that no longer holds the title
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	cp := copyOf[p.ID]
 
 	client, err := xtream.New(source.ProviderURL(p), p.Username, p.Password, p.UserAgent)
 	if err != nil {
@@ -196,9 +257,9 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	upURL := client.MovieURL(tgt.externalID, tgt.ext)
+	upURL := client.MovieURL(cp.externalID, cp.ext)
 	if kind == "series" {
-		upURL = client.EpisodeURL(tgt.externalID, tgt.ext)
+		upURL = client.EpisodeURL(cp.externalID, cp.ext)
 	}
 	method := http.MethodGet
 	if r.Method == http.MethodHead {
@@ -249,7 +310,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 			w.Header().Set(k, v)
 		}
 	}
-	ct := vodContentTypes[strings.ToLower(tgt.ext)]
+	ct := vodContentTypes[strings.ToLower(cp.ext)]
 	if ct == "" {
 		ct = resp.Header.Get("Content-Type")
 	}
@@ -402,9 +463,14 @@ type vodPause struct {
 
 // vodAcquire describes one playback request to vodLeases.acquire.
 type vodAcquire struct {
-	key        vodKey
-	providerID int64
-	// take reserves the user's and the provider's slot for a new lease.
+	key vodKey
+	// providers may serve the title (pooled accounts, or just one): with
+	// all of them full, the user's oldest lease on any of them is taken
+	// over. The first stands for the lease when take returns no provider
+	// slot.
+	providers []int64
+	// take reserves the user's slot and a provider slot (on one of
+	// providers) for a new lease.
 	take func() (user, prov *proxy.Slot, err error)
 	// register lists a new lease on the dashboard; kick must end it. It
 	// returns the entry's remove. Optional.
@@ -436,9 +502,9 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 			var old *vodLease
 			switch {
 			case errors.Is(err, ErrTooManyConnections):
-				old = l.oldestLocked(a.key.userID, 0)
+				old = l.oldestLocked(a.key.userID, nil)
 			case errors.Is(err, errProviderFull):
-				old = l.oldestLocked(a.key.userID, a.providerID)
+				old = l.oldestLocked(a.key.userID, a.providers)
 			}
 			if old == nil {
 				return nil, nil, nil, err
@@ -448,8 +514,14 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 				a.tookOver(old)
 			}
 		}
-		ls = &vodLease{key: a.key, providerID: a.providerID, since: time.Now(), userSlot: u, provSlot: p,
+		ls = &vodLease{key: a.key, since: time.Now(), userSlot: u, provSlot: p,
 			cancels: map[uint64]context.CancelFunc{}, onEnd: a.ended}
+		switch {
+		case p != nil:
+			ls.providerID = p.ProviderID()
+		case len(a.providers) > 0:
+			ls.providerID = a.providers[0]
+		}
 		if st := l.stopped[a.key]; st != nil { // resumed: the same session
 			st.timer.Stop()
 			delete(l.stopped, a.key)
@@ -472,11 +544,12 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 	return ctx, ls, func() { once.Do(func() { cancel(); l.release(ls, req) }) }, nil
 }
 
-// oldestLocked is userID's oldest lease, on providerID unless that is 0.
-func (l *vodLeases) oldestLocked(userID, providerID int64) *vodLease {
+// oldestLocked is userID's oldest lease, on one of providers unless that
+// is nil.
+func (l *vodLeases) oldestLocked(userID int64, providers []int64) *vodLease {
 	var old *vodLease
 	for _, ls := range l.m {
-		if ls.key.userID != userID || (providerID != 0 && ls.providerID != providerID) {
+		if ls.key.userID != userID || (providers != nil && !slices.Contains(providers, ls.providerID)) {
 			continue
 		}
 		if old == nil || ls.since.Before(old.since) {

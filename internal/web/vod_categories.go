@@ -20,8 +20,11 @@ type vodCategoriesData struct {
 	Categories []vodCategory // movies first, then series
 	Languages  []langOption
 	Selected   int
-	Flash      string
-	Error      string
+	// Pool lists the other providers on this one's backbone, with how
+	// many of this provider's movies they hold under the same id and name.
+	Pool  []db.VODPoolOverlapRow
+	Flash string
+	Error string
 }
 
 func (ui *UI) providerVODCategoriesPage(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +50,13 @@ func (ui *UI) providerVODCategoriesPage(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	d.Languages = languagesOf(names)
+	if p.Backbone != "" {
+		var err error
+		if d.Pool, err = ui.Store.VODPoolOverlap(r.Context(), db.VODPoolOverlapParams{ProviderID: p.ID, Backbone: p.Backbone}); err != nil {
+			ui.fail(w, "vod pool", err)
+			return
+		}
+	}
 	q := r.URL.Query()
 	switch q.Get("msg") {
 	case "saved":
@@ -60,6 +70,8 @@ func (ui *UI) providerVODCategoriesPage(w http.ResponseWriter, r *http.Request) 
 	case "imported":
 		d.Flash = fmt.Sprintf("Categories saved and catalog imported: %d movies and %d series kept, %d movies and %d series in other categories skipped.",
 			atoi(q.Get("movies")), atoi(q.Get("series")), atoi(q.Get("movies_skipped")), atoi(q.Get("series_skipped")))
+	case "pooled":
+		d.Flash = "Pooling saved."
 	case "loaded":
 		d.Flash = fmt.Sprintf("Loaded %d categories from the provider. Tick the ones you want, then save and import.", atoi(q.Get("n")))
 	}
@@ -90,6 +102,16 @@ func (ui *UI) providerVODCategoriesSave(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	page := Prefix + "/providers/" + strconv.FormatInt(p.ID, 10) + "/vod-categories"
+	if r.PostForm.Get("action") == "pool" {
+		pooled := r.PostForm.Get("pooled") == "on" && p.Backbone != ""
+		if err := ui.Store.SetProviderVODPooled(r.Context(), db.SetProviderVODPooledParams{ID: p.ID, VodPooled: pooled}); err != nil {
+			ui.fail(w, "save vod pool", err)
+			return
+		}
+		ui.Log.Info("web: provider vod pooling saved", "provider_id", p.ID, "backbone", p.Backbone, "pooled", pooled)
+		ui.redirect(w, r, page+"?msg=pooled#pool")
+		return
+	}
 	if r.PostForm.Get("action") == "load" {
 		ctx, cancel := contextFor(r, refreshTimeout)
 		defer cancel()

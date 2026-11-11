@@ -3,7 +3,6 @@ package output
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
@@ -25,9 +22,11 @@ type VODSource interface {
 	ListUserVODCategories(ctx context.Context, arg db.ListUserVODCategoriesParams) ([]db.ListUserVODCategoriesRow, error)
 	ListUserVODItems(ctx context.Context, arg db.ListUserVODItemsParams) ([]db.ListUserVODItemsRow, error)
 	ListUserSeries(ctx context.Context, arg db.ListUserSeriesParams) ([]db.ListUserSeriesRow, error)
-	GetUserVODItem(ctx context.Context, arg db.GetUserVODItemParams) (db.GetUserVODItemRow, error)
-	GetUserSeries(ctx context.Context, arg db.GetUserSeriesParams) (db.GetUserSeriesRow, error)
-	GetUserEpisode(ctx context.Context, arg db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error)
+	// The *Copies lookups return a title and its copies on pooled
+	// providers, in playback order; none if the user may not see it.
+	ListUserVODItemCopies(ctx context.Context, arg db.ListUserVODItemCopiesParams) ([]db.ListUserVODItemCopiesRow, error)
+	ListUserSeriesCopies(ctx context.Context, arg db.ListUserSeriesCopiesParams) ([]db.ListUserSeriesCopiesRow, error)
+	ListUserEpisodeCopies(ctx context.Context, arg db.ListUserEpisodeCopiesParams) ([]db.ListUserEpisodeCopiesRow, error)
 	GetProvider(ctx context.Context, id int64) (db.Provider, error)
 	ListUserCachedEpisodes(ctx context.Context, arg db.ListUserCachedEpisodesParams) ([]db.ListUserCachedEpisodesRow, error)
 	// MovieInfo is the panel's get_vod_info "info" block (cached).
@@ -303,14 +302,15 @@ func (h *Handlers) vodInfo(w http.ResponseWriter, ctx context.Context, u db.User
 		writeXtream(w, emptyInfo)
 		return nil
 	}
-	m, err := h.VOD.GetUserVODItem(ctx, db.GetUserVODItemParams{ID: id, UserID: u.ID, IsAdmin: admin})
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeXtream(w, emptyInfo)
-		return nil
-	}
+	rows, err := h.VOD.ListUserVODItemCopies(ctx, db.ListUserVODItemCopiesParams{ID: id, UserID: u.ID, IsAdmin: admin})
 	if err != nil {
 		return err
 	}
+	if len(rows) == 0 {
+		writeXtream(w, emptyInfo)
+		return nil
+	}
+	m := rows[primaryCopy(len(rows), func(i int) int64 { return rows[i].ID }, id)]
 	raw, err := h.VOD.MovieInfo(ctx, m.ID)
 	if err != nil {
 		h.Log.Warn("output: movie info", "vod_item_id", m.ID, "err", err) // serve what we have
@@ -339,6 +339,21 @@ func (h *Handlers) vodInfo(w http.ResponseWriter, ctx context.Context, u db.User
 	return nil
 }
 
+// primaryCopy picks the copy a title's details come from: the one asked
+// for, or else the oldest (the id listings show).
+func primaryCopy(n int, idOf func(int) int64, want int64) int {
+	best := 0
+	for i := range n {
+		if idOf(i) == want {
+			return i
+		}
+		if idOf(i) < idOf(best) {
+			best = i
+		}
+	}
+	return best
+}
+
 func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.User, admin bool, idStr string) error {
 	empty := map[string]any{"seasons": []any{}, "info": []any{}, "episodes": []any{}}
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -346,14 +361,15 @@ func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.U
 		writeXtream(w, empty)
 		return nil
 	}
-	s, err := h.VOD.GetUserSeries(ctx, db.GetUserSeriesParams{ID: id, UserID: u.ID, IsAdmin: admin})
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeXtream(w, empty)
-		return nil
-	}
+	rows, err := h.VOD.ListUserSeriesCopies(ctx, db.ListUserSeriesCopiesParams{ID: id, UserID: u.ID, IsAdmin: admin})
 	if err != nil {
 		return err
 	}
+	if len(rows) == 0 {
+		writeXtream(w, empty)
+		return nil
+	}
+	s := rows[primaryCopy(len(rows), func(i int) int64 { return rows[i].ID }, id)]
 	row, eps, err := h.VOD.SeriesEpisodes(ctx, s.ID)
 	if err != nil {
 		h.Log.Warn("output: series episodes", "series_id", s.ID, "err", err)

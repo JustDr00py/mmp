@@ -331,6 +331,20 @@ MMP reads that label: **Movies & Series** has a language filter, and a bouquet c
 series category in one language at once. Categories without a recognised label are listed as *No language
 label*; add those by hand.
 
+**Choosing categories per provider:** big panels carry hundreds of categories in every language. A
+provider's **VOD categories** page (on its row in **Providers**) keeps only the ones you tick: titles in other
+categories are not imported, and their categories are hidden from customers, bouquets and **Movies &
+Series**. For a new provider, press **Load categories** first (a quick call that fetches only the category
+lists), tick what you want, then **Save and import**, so the full catalog never lands. Categories the
+provider adds later stay unticked.
+
+**Several accounts on one panel:** accounts from the same reseller panel share movie and series ids. Give
+them the same backbone, then on each account's **VOD categories** page tick **Pool this account's titles**
+(the page shows how many of its movies match the other accounts, which should be nearly all). Customers then
+see each pooled title once, and playback uses the first account, by priority, with a free connection, so
+four 1-connection accounts serve four viewers. Bouquets may grant a category from any of the pooled
+accounts.
+
 **Stopping imports:** unticking **Import movies & series** hides that provider's catalog from customers but
 keeps it stored, so ticking it again restores everything. To free the space, use **Delete imported catalog**
 on the provider's edit page (with importing off). It removes the movies, series, episodes and categories, and

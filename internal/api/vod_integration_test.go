@@ -5,13 +5,10 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source"
@@ -167,11 +164,11 @@ func TestVODAdminAndAccess(t *testing.T) {
 			carsID = m.ID
 		}
 	}
-	if _, err := q.GetUserVODItem(ctx, db.GetUserVODItemParams{ID: carsID, UserID: alice}); !errors.Is(err, pgx.ErrNoRows) {
-		t.Errorf("alice may not get Cars (Kids not granted): %v", err)
+	if rows, err := q.ListUserVODItemCopies(ctx, db.ListUserVODItemCopiesParams{ID: carsID, UserID: alice}); err != nil || len(rows) != 0 {
+		t.Errorf("alice may not get Cars (Kids not granted): %v %v", rows, err)
 	}
-	if _, err := q.GetUserSeries(ctx, db.GetUserSeriesParams{ID: shows[0].ID, UserID: bob}); !errors.Is(err, pgx.ErrNoRows) {
-		t.Errorf("bob may not get the series: %v", err)
+	if rows, err := q.ListUserSeriesCopies(ctx, db.ListUserSeriesCopiesParams{ID: shows[0].ID, UserID: bob}); err != nil || len(rows) != 0 {
+		t.Errorf("bob may not get the series: %v %v", rows, err)
 	}
 
 	// Removing the category, or switching VOD off, hides it again.

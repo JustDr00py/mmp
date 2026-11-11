@@ -54,7 +54,7 @@ INSERT INTO providers (
     refresh_max_disable_pct, backbone, group_filter, vpn_url
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
-) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter
+) RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled
 `
 
 type CreateProviderParams struct {
@@ -122,6 +122,7 @@ func (q *Queries) CreateProvider(ctx context.Context, arg CreateProviderParams) 
 		&i.EpgEnabled,
 		&i.VpnUrl,
 		&i.VodCategoryFilter,
+		&i.VodPooled,
 	)
 	return i, err
 }
@@ -136,7 +137,7 @@ func (q *Queries) DeleteProvider(ctx context.Context, id int64) error {
 }
 
 const getProvider = `-- name: GetProvider :one
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter FROM providers WHERE id = $1
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled FROM providers WHERE id = $1
 `
 
 func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
@@ -169,12 +170,13 @@ func (q *Queries) GetProvider(ctx context.Context, id int64) (Provider, error) {
 		&i.EpgEnabled,
 		&i.VpnUrl,
 		&i.VodCategoryFilter,
+		&i.VodPooled,
 	)
 	return i, err
 }
 
 const getProvidersByIDs = `-- name: GetProvidersByIDs :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled FROM providers WHERE id = ANY($1::bigint[]) ORDER BY priority, name
 `
 
 func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provider, error) {
@@ -213,6 +215,7 @@ func (q *Queries) GetProvidersByIDs(ctx context.Context, ids []int64) ([]Provide
 			&i.EpgEnabled,
 			&i.VpnUrl,
 			&i.VodCategoryFilter,
+			&i.VodPooled,
 		); err != nil {
 			return nil, err
 		}
@@ -256,7 +259,7 @@ func (q *Queries) ListBackbones(ctx context.Context) ([]ListBackbonesRow, error)
 }
 
 const listProviders = `-- name: ListProviders :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter FROM providers ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled FROM providers ORDER BY priority, name
 `
 
 func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
@@ -295,6 +298,7 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 			&i.EpgEnabled,
 			&i.VpnUrl,
 			&i.VodCategoryFilter,
+			&i.VodPooled,
 		); err != nil {
 			return nil, err
 		}
@@ -307,7 +311,7 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 }
 
 const listProvidersWithVPNURL = `-- name: ListProvidersWithVPNURL :many
-SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter FROM providers WHERE vpn_url <> '' AND enabled ORDER BY priority, name
+SELECT id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled FROM providers WHERE vpn_url <> '' AND enabled ORDER BY priority, name
 `
 
 // Providers with a VPN address (refreshed when MMP starts or stops using it).
@@ -347,6 +351,7 @@ func (q *Queries) ListProvidersWithVPNURL(ctx context.Context) ([]Provider, erro
 			&i.EpgEnabled,
 			&i.VpnUrl,
 			&i.VodCategoryFilter,
+			&i.VodPooled,
 		); err != nil {
 			return nil, err
 		}
@@ -432,7 +437,7 @@ UPDATE providers SET
     max_connections = $8, user_agent = $9, refresh_interval_secs = $10,
     priority = $11, enabled = $12, refresh_max_disable_pct = $13, backbone = $14, vpn_url = $15, updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter
+RETURNING id, name, type, url, username, password, epg_url, max_connections, user_agent, refresh_interval_secs, priority, enabled, created_at, updated_at, last_refreshed_at, refresh_max_disable_pct, vod_enabled, vod_refreshed_at, group_filter, backbone, last_error, failing_since, checked_at, epg_enabled, vpn_url, vod_category_filter, vod_pooled
 `
 
 type UpdateProviderParams struct {
@@ -499,6 +504,7 @@ func (q *Queries) UpdateProvider(ctx context.Context, arg UpdateProviderParams) 
 		&i.EpgEnabled,
 		&i.VpnUrl,
 		&i.VodCategoryFilter,
+		&i.VodPooled,
 	)
 	return i, err
 }
