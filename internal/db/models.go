@@ -180,6 +180,7 @@ type Provider struct {
 	EpgEnabled           bool       `json:"epg_enabled"`
 	VpnUrl               string     `json:"vpn_url"`
 	VodCategoryFilter    bool       `json:"vod_category_filter"`
+	VodPooled            bool       `json:"vod_pooled"`
 }
 
 type ProviderGroup struct {
@@ -330,4 +331,14 @@ type VodItem struct {
 	Disabled           bool       `json:"disabled"`
 	LastSeen           time.Time  `json:"last_seen"`
 	CreatedAt          time.Time  `json:"created_at"`
+}
+
+type VodOfferedCategory struct {
+	ID               int64  `json:"id"`
+	ProviderID       int64  `json:"provider_id"`
+	Kind             string `json:"kind"`
+	ExternalID       string `json:"external_id"`
+	Name             string `json:"name"`
+	PoolKey          string `json:"pool_key"`
+	ProviderPriority int32  `json:"provider_priority"`
 }

@@ -168,6 +168,38 @@ func TestVODPlaybackSlots(t *testing.T) {
 	}
 }
 
+// TestVODPlaybackPooled: a movie held by two pooled accounts plays on the
+// second when the first account's only connection is taken, and is
+// refused only when both are.
+func TestVODPlaybackPooled(t *testing.T) {
+	movie := make([]byte, 16<<20)
+	srv, hs, _, slots := newPlaybackServer(t, movie, 1)
+	hs.VOD.(*fakeVOD).pooled = true
+
+	if resp, _ := openPlayback(t, srv.URL+"/movie/alice/alice-pw1/101.mkv"); resp.StatusCode != 200 {
+		t.Fatalf("alice = %d", resp.StatusCode)
+	}
+	resp, _ := openPlayback(t, srv.URL+"/movie/root/root-pw1/101.mkv")
+	if resp.StatusCode != 200 {
+		t.Fatalf("root on the second account = %d, want 200", resp.StatusCode)
+	}
+	if slots.InUse(1) != 1 || slots.InUse(2) != 1 {
+		t.Errorf("slots in use: account 1 %d, account 2 %d; want one each", slots.InUse(1), slots.InUse(2))
+	}
+	byUser := map[int64]int64{}
+	for _, v := range hs.Access.Viewers() {
+		byUser[v.UserID] = v.ProviderID
+	}
+	if byUser[1] != 1 || byUser[2] != 2 {
+		t.Errorf("viewers on accounts %v, want alice on 1 and root on 2", byUser)
+	}
+	// Movie 102 is on account 1 only, which is busy with alice.
+	if r, _ := fetch(t, srv.URL+"/movie/root/root-pw1/102.mp4", nil); r.StatusCode != http.StatusServiceUnavailable {
+		// root's own lease is on account 2, so nothing of root's frees account 1
+		t.Errorf("unpooled title on a full account = %d, want 503", r.StatusCode)
+	}
+}
+
 func waitVODIdle(t *testing.T, hs *Handlers, slots *proxy.Capacity) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -306,8 +338,8 @@ func TestVODLeaseSharing(t *testing.T) {
 	}
 	ctx := context.Background()
 	key := vodKey{1, "movie", 101}
-	_, _, rel1, _ := l.acquire(ctx, vodAcquire{key: key, providerID: 2, take: take})
-	_, _, rel2, _ := l.acquire(ctx, vodAcquire{key: key, providerID: 2, take: take}) // a seek while playing
+	_, _, rel1, _ := l.acquire(ctx, vodAcquire{key: key, providers: []int64{2}, take: take})
+	_, _, rel2, _ := l.acquire(ctx, vodAcquire{key: key, providers: []int64{2}, take: take}) // a seek while playing
 	if takes != 1 || slots.InUse(1) != 1 {
 		t.Fatalf("takes %d, slots %d; want one shared pair", takes, slots.InUse(1))
 	}
@@ -320,7 +352,7 @@ func TestVODLeaseSharing(t *testing.T) {
 	if slots.InUse(1) != 0 || slots.InUse(2) != 0 {
 		t.Fatal("slots kept after the last request")
 	}
-	if _, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{1, "movie", 102}, providerID: 2, take: take}); err != nil || takes != 2 {
+	if _, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{1, "movie", 102}, providers: []int64{2}, take: take}); err != nil || takes != 2 {
 		t.Errorf("another item: takes %d, %v", takes, err)
 	}
 }
@@ -348,7 +380,7 @@ func TestVODLeaseTakeover(t *testing.T) {
 	ctx := context.Background()
 	var taken []vodKey
 	play := func(user, id, prov int64, userMax, provMax int) (context.Context, error) {
-		c, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{user, "movie", id}, providerID: prov,
+		c, _, _, err := l.acquire(ctx, vodAcquire{key: vodKey{user, "movie", id}, providers: []int64{prov},
 			take: take(user, userMax, prov, provMax), tookOver: func(o *vodLease) { taken = append(taken, o.key) }})
 		return c, err
 	}

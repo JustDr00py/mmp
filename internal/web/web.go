@@ -170,6 +170,8 @@ type Store interface {
 	SetProviderVODCategoryFilter(ctx context.Context, arg db.SetProviderVODCategoryFilterParams) error
 	DisableUnselectedVODItems(ctx context.Context, providerID int64) (int64, error)
 	DisableUnselectedSeries(ctx context.Context, providerID int64) (int64, error)
+	SetProviderVODPooled(ctx context.Context, arg db.SetProviderVODPooledParams) error
+	VODPoolOverlap(ctx context.Context, arg db.VODPoolOverlapParams) ([]db.VODPoolOverlapRow, error)
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)

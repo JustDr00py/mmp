@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
@@ -22,6 +20,7 @@ type fakeVOD struct {
 	infoCalls int
 	panelURL  string
 	maxConns  int32
+	pooled    bool // movie 101 also on provider 2
 }
 
 func f32(v float32) *float32 { return &v }
@@ -67,33 +66,41 @@ func (f *fakeVOD) ListUserSeries(_ context.Context, a db.ListUserSeriesParams) (
 	return []db.ListUserSeriesRow{show}, nil
 }
 
-func (f *fakeVOD) GetUserVODItem(_ context.Context, a db.GetUserVODItemParams) (db.GetUserVODItemRow, error) {
+// ListUserVODItemCopies: every movie is on provider 1; with f.pooled,
+// movie 101 also has a copy on provider 2 (a pooled account).
+func (f *fakeVOD) ListUserVODItemCopies(_ context.Context, a db.ListUserVODItemCopiesParams) ([]db.ListUserVODItemCopiesRow, error) {
 	for _, m := range movies {
 		if m.ID == a.ID && granted(a.UserID, a.IsAdmin, m.CategoryID) {
-			return db.GetUserVODItemRow{ID: m.ID, ProviderID: 1, ExternalID: strconv.FormatInt(m.ID-90, 10), Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
-				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID}, nil
+			row := db.ListUserVODItemCopiesRow{ID: m.ID, ProviderID: 1, ExternalID: strconv.FormatInt(m.ID-90, 10), Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
+				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID}
+			out := []db.ListUserVODItemCopiesRow{row}
+			if f.pooled && m.ID == 101 {
+				row.ID, row.ProviderID = 9101, 2
+				out = append(out, row)
+			}
+			return out, nil
 		}
 	}
-	return db.GetUserVODItemRow{}, pgx.ErrNoRows
+	return nil, nil
 }
 
-func (f *fakeVOD) GetUserSeries(_ context.Context, a db.GetUserSeriesParams) (db.GetUserSeriesRow, error) {
+func (f *fakeVOD) ListUserSeriesCopies(_ context.Context, a db.ListUserSeriesCopiesParams) ([]db.ListUserSeriesCopiesRow, error) {
 	if a.ID == 8 && !a.IsAdmin { // series 8 sits in category 6, granted to nobody
-		return db.GetUserSeriesRow{}, pgx.ErrNoRows
+		return nil, nil
 	}
 	if a.ID != show.ID || !granted(a.UserID, a.IsAdmin, show.CategoryID) {
-		return db.GetUserSeriesRow{}, pgx.ErrNoRows
+		return nil, nil
 	}
-	return db.GetUserSeriesRow{ID: show.ID, Name: show.Name, Cover: show.Cover, Plot: show.Plot, Cast: show.Cast, Director: show.Director,
-		Genre: show.Genre, ReleaseDate: show.ReleaseDate, Rating: show.Rating, LastModified: show.LastModified, CategoryID: show.CategoryID}, nil
+	return []db.ListUserSeriesCopiesRow{{ID: show.ID, Name: show.Name, Cover: show.Cover, Plot: show.Plot, Cast: show.Cast, Director: show.Director,
+		Genre: show.Genre, ReleaseDate: show.ReleaseDate, Rating: show.Rating, LastModified: show.LastModified, CategoryID: show.CategoryID}}, nil
 }
 
-func (f *fakeVOD) GetUserEpisode(_ context.Context, a db.GetUserEpisodeParams) (db.GetUserEpisodeRow, error) {
+func (f *fakeVOD) ListUserEpisodeCopies(_ context.Context, a db.ListUserEpisodeCopiesParams) ([]db.ListUserEpisodeCopiesRow, error) {
 	if a.ID == 701 && granted(a.UserID, a.IsAdmin, 5) {
-		return db.GetUserEpisodeRow{ID: 701, ExternalID: "7001", ContainerExtension: "mkv", SeriesID: 7, ProviderID: 1,
-			SeriesName: "Show", Season: 1, EpisodeNum: 2}, nil
+		return []db.ListUserEpisodeCopiesRow{{ID: 701, ExternalID: "7001", ContainerExtension: "mkv", SeriesID: 7, ProviderID: 1,
+			SeriesName: "Show", Season: 1, EpisodeNum: 2}}, nil
 	}
-	return db.GetUserEpisodeRow{}, pgx.ErrNoRows
+	return nil, nil
 }
 
 // GetProvider is the panel behind every item: f.panelURL (set by playback
