@@ -126,8 +126,8 @@
   <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
     {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if not .GroupFilter}}all {{.Groups}} groups{{else if .GroupsSelected}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}<span class="pill warn">choose groups</span>{{end}}</a></div>{{end}}</td>
   <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}" title="{{.Health.Failures}} of {{.Health.Attempts}} attempts failed in the last 7 days">{{.Health.Value}}</span>{{else}}<span class="muted" title="Fewer than 10 attempts in the last 7 days">—</span>{{end}}</td>
-  <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
-    {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}</div>{{end}}</td>
+  <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series{{if or .Result.MoviesSkipped .Result.SeriesSkipped}} ({{.Result.MoviesSkipped}} + {{.Result.SeriesSkipped}} in other categories skipped){{end}} · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
+    {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}{{if .VodCategoryFilter}} · <a href="/admin/providers/{{.ID}}/vod-categories">chosen categories</a>{{end}}</div>{{end}}</td>
   <td data-label="Status">
     <form method="post" action="/admin/providers/{{.ID}}/toggle" hx-post="/admin/providers/{{.ID}}/toggle" hx-target="#provider-{{.ID}}" hx-swap="outerHTML">
       <button type="submit" class="pill {{if .Enabled}}ok{{else}}off{{end}}" title="Click to {{if .Enabled}}disable{{else}}enable{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</button>
@@ -143,6 +143,7 @@
       <button type="submit" class="small secondary" title="Import movies &amp; series now">Import catalog</button>
     </form>{{end}}
     <a class="button small secondary" href="/admin/providers/{{.ID}}/groups">Groups</a>
+    {{if eq .Type "xtream"}}<a class="button small secondary" href="/admin/providers/{{.ID}}/vod-categories" title="Choose the movie &amp; series categories to import">VOD categories</a>{{end}}
     <a class="button small secondary" href="/admin/providers/{{.ID}}/edit">Edit</a>
     <span id="refresh-{{.ID}}-busy" class="htmx-indicator sub">refreshing…</span>
   </div></td>

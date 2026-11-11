@@ -1,0 +1,40 @@
+{{define "content"}}
+{{$d := .Data}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
+<div class="head"><h1>{{$d.Provider.Name}}: movie &amp; series categories</h1>{{if $d.Categories}}<a class="button secondary" href="/admin/bouquets">Next: Bouquets →</a>{{end}}</div>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<p class="lede">Choose the categories you want from this provider. Titles in other categories are not imported, and their
+  categories don't show up in <a href="/admin/vod">Movies &amp; series</a>, in <a href="/admin/bouquets">bouquets</a> or for
+  customers. Categories the provider adds later stay hidden until you tick them.</p>
+<p class="muted small">Save hides titles outside the chosen categories at once. Save and import also imports the catalog
+  now, which brings in titles from newly ticked categories. Type a language (e.g. English) in the filter, then
+  “tick all shown”, to choose a whole language.</p>
+{{if $d.Categories}}
+<form method="post" action="/admin/providers/{{$d.Provider.ID}}/vod-categories" class="groups-form" data-check-on-change="#mode-selected">
+  <fieldset class="mode">
+    <label class="check"><input type="radio" name="mode" value="all"{{if not $d.Provider.VodCategoryFilter}} checked{{end}}> All categories</label>
+    <label class="check"><input type="radio" name="mode" value="selected" id="mode-selected"{{if $d.Provider.VodCategoryFilter}} checked{{end}}> Only the categories ticked below</label>
+  </fieldset>
+  <div class="pane-head">
+    <input type="search" data-filter="#vod-category-list" list="vod-languages" placeholder="Filter, e.g. English or EN |" aria-label="Filter categories">
+    <datalist id="vod-languages">{{range $d.Languages}}{{if ne .Value "-"}}<option value="{{.Label}}">{{.Categories}} categories</option>{{end}}{{end}}</datalist>
+    <label class="check small"><input type="checkbox" data-check-all="category"> tick all shown</label>
+    <span class="muted">{{$d.Selected}} of {{len $d.Categories}} ticked</span>
+    <button type="submit">Save</button>
+    <button type="submit" class="secondary" name="action" value="import">Save and import</button>
+  </div>
+  <ul class="pick-list group-list" id="vod-category-list">{{range $d.Categories}}
+    <li><label class="check"><input type="checkbox" name="category" value="{{.ID}}"{{if .Selected}} checked{{end}}> {{.Name}}
+      <span class="sub">{{if eq .Kind "movie"}}movies{{else}}series{{end}}{{with .Language}} · {{.}}{{end}}{{if .Items}} · {{.Items}} titles{{end}}{{if .Disabled}} · gone from the provider{{end}}</span></label></li>
+  {{end}}</ul>
+  <p class="row"><button type="submit">Save</button> <button type="submit" class="secondary" name="action" value="import">Save and import</button>
+    <button type="submit" class="secondary" name="action" value="load">Reload categories from the provider</button></p>
+</form>
+{{else}}<div class="card empty"><p>No movie or series categories loaded yet.</p>
+  {{if eq $d.Provider.Type "xtream"}}
+  <p class="muted">Load the category lists first (a quick call), choose the ones you want, then save and import. That way a large
+    catalog never imports in full.</p>
+  <form method="post" action="/admin/providers/{{$d.Provider.ID}}/vod-categories"><button type="submit" name="action" value="load">Load categories</button></form>
+  {{else}}<p class="muted">Only Xtream providers have movie and series catalogs.</p>{{end}}</div>{{end}}
+{{end}}

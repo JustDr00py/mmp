@@ -237,6 +237,13 @@ type fakeRefresher struct {
 	store          *db.Queries // backs SeriesEpisodesByID in Postgres tests
 }
 
+func (f *fakeRefresher) RefreshVODCategories(_ context.Context, p db.Provider) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, p.ID)
+	return 0, f.err
+}
+
 func (f *fakeRefresher) RefreshVOD(_ context.Context, p db.Provider, force bool) (source.VODResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

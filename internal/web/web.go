@@ -166,6 +166,10 @@ type Store interface {
 	AddVODCategoriesToBouquet(ctx context.Context, arg db.AddVODCategoriesToBouquetParams) (int64, error)
 	RemoveVODCategoryFromBouquet(ctx context.Context, arg db.RemoveVODCategoryFromBouquetParams) (int64, error)
 	ListBouquetVODCategories(ctx context.Context, bouquetID int64) ([]db.ListBouquetVODCategoriesRow, error)
+	SetVODCategorySelection(ctx context.Context, arg db.SetVODCategorySelectionParams) error
+	SetProviderVODCategoryFilter(ctx context.Context, arg db.SetProviderVODCategoryFilterParams) error
+	DisableUnselectedVODItems(ctx context.Context, providerID int64) (int64, error)
+	DisableUnselectedSeries(ctx context.Context, providerID int64) (int64, error)
 
 	ListRecentEvents(ctx context.Context, arg db.ListRecentEventsParams) ([]db.Event, error)
 	ListEvents(ctx context.Context, arg db.ListEventsParams) ([]db.Event, error)
@@ -211,6 +215,7 @@ type Refresher interface {
 	RefreshEPG(ctx context.Context, p db.Provider) (int, error)
 	RefreshEPGSource(ctx context.Context, src db.EpgSource) (int, error)
 	RefreshVOD(ctx context.Context, p db.Provider, force bool) (source.VODResult, error)
+	RefreshVODCategories(ctx context.Context, p db.Provider) (int, error)
 	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
 
@@ -316,7 +321,7 @@ func (ui *UI) nav() []navItem {
 }
 
 // pageNames are the templates/<name>.html pages, each parsed with the layout.
-var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone", "logos", "logo_suggest", "vpn"}
+var pageNames = []string{"login", "dashboard", "providers", "provider_form", "streams", "channels", "channel_new", "channel", "match", "users", "user_new", "user", "bouquets", "bouquet", "epg", "profiles", "profile_form", "vod", "vod_series", "provider_groups", "provider_vod_categories", "backups", "backup_restored", "epg_source", "channel_groups", "settings", "events", "audit", "guide", "backbone", "logos", "logo_suggest", "vpn"}
 
 // New parses the embedded templates.
 func New(d Deps) (*UI, error) {
