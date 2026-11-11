@@ -67,6 +67,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		ui.fail(w, "vod categories", err)
 		return
 	}
+	d.Categories = slices.DeleteFunc(d.Categories, func(c db.ListVODCategoriesAdminRow) bool { return !c.Offered })
 	// The language narrows the category list and the titles; a category
 	// picked from another language is dropped.
 	var names []string
@@ -327,7 +328,7 @@ func (ui *UI) bouquetVODData(r *http.Request, bouquetID int64) (bouquetVOD, erro
 			return d, err
 		}
 		for _, c := range cats {
-			if !have[c.ID] && !c.Disabled {
+			if !have[c.ID] && !c.Disabled && c.Offered {
 				d.Available = append(d.Available, vodCategory{ListVODCategoriesAdminRow: c, Language: categoryLanguage(c.Name)})
 			}
 		}

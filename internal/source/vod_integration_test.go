@@ -253,3 +253,97 @@ func TestRefreshVOD(t *testing.T) {
 		t.Errorf("m3u: err = %v", err)
 	}
 }
+
+func TestRefreshVODCategoryFilter(t *testing.T) {
+	w, q := newTestDB(t)
+	ctx := context.Background()
+	panel := newFakeVODPanel(t)
+	for i := range 2 {
+		panel.movies = append(panel.movies, movie(fmt.Sprint(100+i), fmt.Sprintf("Action %d", i), "1"))
+	}
+	for i := range 10 {
+		panel.movies = append(panel.movies, movie(fmt.Sprint(200+i), fmt.Sprintf("Comedy %d", i), "2"))
+	}
+	panel.shows = []map[string]any{{"series_id": 7, "name": "Show A", "category_id": "10"}, {"series_id": 8, "name": "Show B", "category_id": "10"}}
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "Panel", Type: "xtream", Url: panel.srv.URL,
+		Username: "u", Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetProviderVODEnabled(ctx, db.SetProviderVODEnabledParams{ID: p.ID, VodEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	ref := NewRefresher(slog.New(slog.DiscardHandler), w.pool, 80)
+
+	// Categories load alone, without any titles.
+	if n, err := ref.RefreshVODCategories(ctx, p); err != nil || n != 3 {
+		t.Fatalf("load categories = %d, %v", n, err)
+	}
+	var items int
+	w.pool.QueryRow(ctx, `SELECT count(*) FROM vod_items`).Scan(&items)
+	if items != 0 {
+		t.Fatalf("loading categories imported %d movies", items)
+	}
+	var action int64
+	if err := w.pool.QueryRow(ctx, `SELECT id FROM vod_categories WHERE provider_id=$1 AND kind='movie' AND external_id='1'`, p.ID).Scan(&action); err != nil {
+		t.Fatal(err)
+	}
+	select1 := func(filter bool) db.Provider {
+		t.Helper()
+		if err := q.SetVODCategorySelection(ctx, db.SetVODCategorySelectionParams{ProviderID: p.ID, Ids: []int64{action}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.SetProviderVODCategoryFilter(ctx, db.SetProviderVODCategoryFilterParams{ID: p.ID, VodCategoryFilter: filter}); err != nil {
+			t.Fatal(err)
+		}
+		pr, err := q.GetProvider(ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pr
+	}
+
+	// First import with only Action ticked: the rest is never stored.
+	res, err := ref.RefreshVOD(ctx, select1(true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Movies != 2 || res.MoviesSkipped != 10 || res.Series != 0 || res.SeriesSkipped != 2 {
+		t.Fatalf("filtered import = %+v", res)
+	}
+	w.pool.QueryRow(ctx, `SELECT count(*) FROM vod_items`).Scan(&items)
+	if items != 2 {
+		t.Errorf("stored movies = %d, want 2", items)
+	}
+	cats, err := q.ListUserVODCategories(ctx, db.ListUserVODCategoriesParams{Kind: "movie", IsAdmin: true})
+	if err != nil || len(cats) != 1 || cats[0].ID != action {
+		t.Errorf("customer categories = %+v, %v; want Action only", cats, err)
+	}
+	if cats, _ := q.ListUserVODCategories(ctx, db.ListUserVODCategoriesParams{Kind: "series", IsAdmin: true}); len(cats) != 0 {
+		t.Errorf("unticked series category offered: %+v", cats)
+	}
+
+	// Filter off: everything imports.
+	if res, err = ref.RefreshVOD(ctx, select1(false), false); err != nil || res.Movies != 12 || res.Series != 2 {
+		t.Fatalf("unfiltered import = %+v, %v", res, err)
+	}
+	// Filter back on: 10 of 12 movies go, past the 80% guard, which must
+	// not read a chosen selection as a truncated answer.
+	res, err = ref.RefreshVOD(ctx, select1(true), false)
+	if err != nil {
+		t.Fatalf("refiltered import refused: %v", err)
+	}
+	if res.MoviesDisabled != 10 || res.SeriesDisabled != 2 || res.MoviesSkipped != 10 {
+		t.Errorf("refiltered import = %+v", res)
+	}
+
+	// Deselecting everything clears the catalog, rather than (with a NULL
+	// id list) leaving it all in place.
+	if err := q.SetVODCategorySelection(ctx, db.SetVODCategorySelectionParams{ProviderID: p.ID, Ids: []int64{}}); err != nil {
+		t.Fatal(err)
+	}
+	pr, _ := q.GetProvider(ctx, p.ID)
+	if res, err = ref.RefreshVOD(ctx, pr, true); err != nil || res.Movies != 0 || res.MoviesDisabled != 2 {
+		t.Errorf("empty selection import = %+v, %v", res, err)
+	}
+}

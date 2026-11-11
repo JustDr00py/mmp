@@ -94,6 +94,34 @@ UPDATE series SET episodes_fetched_at = now(), info = sqlc.narg('info') WHERE id
 -- name: ListSeriesEpisodes :many
 SELECT * FROM series_episodes WHERE series_id = $1 ORDER BY season, episode_num, id;
 
+-- Category selection (vod_category_filter).
+
+-- name: SetProviderVODCategoryFilter :exec
+UPDATE providers SET vod_category_filter = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetVODCategorySelection :exec
+-- Selects exactly the listed categories of the provider.
+UPDATE vod_categories SET selected = (id = ANY(sqlc.arg('ids')::bigint[]))
+WHERE provider_id = sqlc.arg('provider_id')
+  AND selected IS DISTINCT FROM (id = ANY(sqlc.arg('ids')::bigint[]));
+
+-- name: ListSelectedVODCategories :many
+-- The panel ids of the provider's selected categories, for the import.
+SELECT kind, external_id FROM vod_categories WHERE provider_id = $1 AND selected;
+
+-- name: DisableUnselectedVODItems :execrows
+-- Applies a selection at once: movies outside the selected categories go.
+UPDATE vod_items i SET disabled = TRUE
+WHERE i.provider_id = $1 AND NOT i.disabled
+  AND NOT EXISTS (SELECT 1 FROM vod_categories c WHERE c.provider_id = i.provider_id AND c.kind = 'movie'
+                  AND c.external_id = i.category_external_id AND c.selected);
+
+-- name: DisableUnselectedSeries :execrows
+UPDATE series s SET disabled = TRUE
+WHERE s.provider_id = $1 AND NOT s.disabled
+  AND NOT EXISTS (SELECT 1 FROM vod_categories c WHERE c.provider_id = s.provider_id AND c.kind = 'series'
+                  AND c.external_id = s.category_external_id AND c.selected);
+
 -- name: SetProviderVODEnabled :exec
 UPDATE providers SET vod_enabled = $2, updated_at = now() WHERE id = $1;
 
@@ -101,7 +129,9 @@ UPDATE providers SET vod_enabled = $2, updated_at = now() WHERE id = $1;
 
 -- name: ListVODCategoriesAdmin :many
 -- Categories of one kind with their active item counts; provider_id NULL = all.
-SELECT c.id, c.provider_id, pr.name AS provider_name, c.kind, c.external_id, c.name, c.disabled,
+-- offered: not hidden by the provider's category selection.
+SELECT c.id, c.provider_id, pr.name AS provider_name, c.kind, c.external_id, c.name, c.disabled, c.selected,
+       (NOT pr.vod_category_filter OR c.selected)::boolean AS offered,
        (CASE WHEN c.kind = 'movie'
              THEN (SELECT count(*) FROM vod_items i WHERE i.provider_id = c.provider_id AND i.category_external_id = c.external_id AND NOT i.disabled)
              ELSE (SELECT count(*) FROM series s WHERE s.provider_id = c.provider_id AND s.category_external_id = c.external_id AND NOT s.disabled)
@@ -147,9 +177,11 @@ ON CONFLICT DO NOTHING;
 DELETE FROM bouquet_vod_categories WHERE bouquet_id = $1 AND vod_category_id = $2;
 
 -- name: ListBouquetVODCategories :many
-SELECT c.id, c.provider_id, c.kind, c.name, c.disabled
+SELECT c.id, c.provider_id, c.kind, c.name, c.disabled,
+       (NOT pr.vod_category_filter OR c.selected)::boolean AS offered
 FROM bouquet_vod_categories b
 JOIN vod_categories c ON c.id = b.vod_category_id
+JOIN providers pr ON pr.id = c.provider_id
 WHERE b.bouquet_id = $1
 ORDER BY c.kind, c.name;
 
@@ -161,7 +193,7 @@ ORDER BY c.kind, c.name;
 SELECT c.id, c.kind, c.name
 FROM vod_categories c
 JOIN providers pr ON pr.id = c.provider_id AND pr.enabled AND pr.vod_enabled
-WHERE c.kind = sqlc.arg('kind') AND NOT c.disabled
+WHERE c.kind = sqlc.arg('kind') AND NOT c.disabled AND (NOT pr.vod_category_filter OR c.selected)
   AND (sqlc.arg('is_admin')::bool OR EXISTS (
         SELECT 1 FROM bouquet_vod_categories bv
         JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id

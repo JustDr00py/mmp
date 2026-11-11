@@ -133,6 +133,37 @@ func (q *Queries) DeleteProviderVOD(ctx context.Context, providerID int64) (Dele
 	return i, err
 }
 
+const disableUnselectedSeries = `-- name: DisableUnselectedSeries :execrows
+UPDATE series s SET disabled = TRUE
+WHERE s.provider_id = $1 AND NOT s.disabled
+  AND NOT EXISTS (SELECT 1 FROM vod_categories c WHERE c.provider_id = s.provider_id AND c.kind = 'series'
+                  AND c.external_id = s.category_external_id AND c.selected)
+`
+
+func (q *Queries) DisableUnselectedSeries(ctx context.Context, providerID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, disableUnselectedSeries, providerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const disableUnselectedVODItems = `-- name: DisableUnselectedVODItems :execrows
+UPDATE vod_items i SET disabled = TRUE
+WHERE i.provider_id = $1 AND NOT i.disabled
+  AND NOT EXISTS (SELECT 1 FROM vod_categories c WHERE c.provider_id = i.provider_id AND c.kind = 'movie'
+                  AND c.external_id = i.category_external_id AND c.selected)
+`
+
+// Applies a selection at once: movies outside the selected categories go.
+func (q *Queries) DisableUnselectedVODItems(ctx context.Context, providerID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, disableUnselectedVODItems, providerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getSeries = `-- name: GetSeries :one
 SELECT id, provider_id, external_id, name, category_external_id, cover, plot, "cast", director, genre, release_date, rating, last_modified, info, episodes_fetched_at, disabled, last_seen, created_at FROM series WHERE id = $1
 `
@@ -366,9 +397,11 @@ func (q *Queries) GetVODItem(ctx context.Context, id int64) (VodItem, error) {
 }
 
 const listBouquetVODCategories = `-- name: ListBouquetVODCategories :many
-SELECT c.id, c.provider_id, c.kind, c.name, c.disabled
+SELECT c.id, c.provider_id, c.kind, c.name, c.disabled,
+       (NOT pr.vod_category_filter OR c.selected)::boolean AS offered
 FROM bouquet_vod_categories b
 JOIN vod_categories c ON c.id = b.vod_category_id
+JOIN providers pr ON pr.id = c.provider_id
 WHERE b.bouquet_id = $1
 ORDER BY c.kind, c.name
 `
@@ -379,6 +412,7 @@ type ListBouquetVODCategoriesRow struct {
 	Kind       string `json:"kind"`
 	Name       string `json:"name"`
 	Disabled   bool   `json:"disabled"`
+	Offered    bool   `json:"offered"`
 }
 
 func (q *Queries) ListBouquetVODCategories(ctx context.Context, bouquetID int64) ([]ListBouquetVODCategoriesRow, error) {
@@ -396,7 +430,38 @@ func (q *Queries) ListBouquetVODCategories(ctx context.Context, bouquetID int64)
 			&i.Kind,
 			&i.Name,
 			&i.Disabled,
+			&i.Offered,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSelectedVODCategories = `-- name: ListSelectedVODCategories :many
+SELECT kind, external_id FROM vod_categories WHERE provider_id = $1 AND selected
+`
+
+type ListSelectedVODCategoriesRow struct {
+	Kind       string `json:"kind"`
+	ExternalID string `json:"external_id"`
+}
+
+// The panel ids of the provider's selected categories, for the import.
+func (q *Queries) ListSelectedVODCategories(ctx context.Context, providerID int64) ([]ListSelectedVODCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listSelectedVODCategories, providerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSelectedVODCategoriesRow
+	for rows.Next() {
+		var i ListSelectedVODCategoriesRow
+		if err := rows.Scan(&i.Kind, &i.ExternalID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -649,7 +714,7 @@ const listUserVODCategories = `-- name: ListUserVODCategories :many
 SELECT c.id, c.kind, c.name
 FROM vod_categories c
 JOIN providers pr ON pr.id = c.provider_id AND pr.enabled AND pr.vod_enabled
-WHERE c.kind = $1 AND NOT c.disabled
+WHERE c.kind = $1 AND NOT c.disabled AND (NOT pr.vod_category_filter OR c.selected)
   AND ($2::bool OR EXISTS (
         SELECT 1 FROM bouquet_vod_categories bv
         JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id
@@ -756,7 +821,8 @@ func (q *Queries) ListUserVODItems(ctx context.Context, arg ListUserVODItemsPara
 
 const listVODCategoriesAdmin = `-- name: ListVODCategoriesAdmin :many
 
-SELECT c.id, c.provider_id, pr.name AS provider_name, c.kind, c.external_id, c.name, c.disabled,
+SELECT c.id, c.provider_id, pr.name AS provider_name, c.kind, c.external_id, c.name, c.disabled, c.selected,
+       (NOT pr.vod_category_filter OR c.selected)::boolean AS offered,
        (CASE WHEN c.kind = 'movie'
              THEN (SELECT count(*) FROM vod_items i WHERE i.provider_id = c.provider_id AND i.category_external_id = c.external_id AND NOT i.disabled)
              ELSE (SELECT count(*) FROM series s WHERE s.provider_id = c.provider_id AND s.category_external_id = c.external_id AND NOT s.disabled)
@@ -781,11 +847,14 @@ type ListVODCategoriesAdminRow struct {
 	ExternalID   string `json:"external_id"`
 	Name         string `json:"name"`
 	Disabled     bool   `json:"disabled"`
+	Selected     bool   `json:"selected"`
+	Offered      bool   `json:"offered"`
 	Items        int64  `json:"items"`
 }
 
 // Admin browsing.
 // Categories of one kind with their active item counts; provider_id NULL = all.
+// offered: not hidden by the provider's category selection.
 func (q *Queries) ListVODCategoriesAdmin(ctx context.Context, arg ListVODCategoriesAdminParams) ([]ListVODCategoriesAdminRow, error) {
 	rows, err := q.db.Query(ctx, listVODCategoriesAdmin, arg.Kind, arg.ProviderID)
 	if err != nil {
@@ -803,6 +872,8 @@ func (q *Queries) ListVODCategoriesAdmin(ctx context.Context, arg ListVODCategor
 			&i.ExternalID,
 			&i.Name,
 			&i.Disabled,
+			&i.Selected,
+			&i.Offered,
 			&i.Items,
 		); err != nil {
 			return nil, err
@@ -945,6 +1016,22 @@ func (q *Queries) RemoveVODCategoryFromBouquet(ctx context.Context, arg RemoveVO
 	return result.RowsAffected(), nil
 }
 
+const setProviderVODCategoryFilter = `-- name: SetProviderVODCategoryFilter :exec
+
+UPDATE providers SET vod_category_filter = $2, updated_at = now() WHERE id = $1
+`
+
+type SetProviderVODCategoryFilterParams struct {
+	ID                int64 `json:"id"`
+	VodCategoryFilter bool  `json:"vod_category_filter"`
+}
+
+// Category selection (vod_category_filter).
+func (q *Queries) SetProviderVODCategoryFilter(ctx context.Context, arg SetProviderVODCategoryFilterParams) error {
+	_, err := q.db.Exec(ctx, setProviderVODCategoryFilter, arg.ID, arg.VodCategoryFilter)
+	return err
+}
+
 const setProviderVODEnabled = `-- name: SetProviderVODEnabled :exec
 UPDATE providers SET vod_enabled = $2, updated_at = now() WHERE id = $1
 `
@@ -956,6 +1043,23 @@ type SetProviderVODEnabledParams struct {
 
 func (q *Queries) SetProviderVODEnabled(ctx context.Context, arg SetProviderVODEnabledParams) error {
 	_, err := q.db.Exec(ctx, setProviderVODEnabled, arg.ID, arg.VodEnabled)
+	return err
+}
+
+const setVODCategorySelection = `-- name: SetVODCategorySelection :exec
+UPDATE vod_categories SET selected = (id = ANY($1::bigint[]))
+WHERE provider_id = $2
+  AND selected IS DISTINCT FROM (id = ANY($1::bigint[]))
+`
+
+type SetVODCategorySelectionParams struct {
+	Ids        []int64 `json:"ids"`
+	ProviderID int64   `json:"provider_id"`
+}
+
+// Selects exactly the listed categories of the provider.
+func (q *Queries) SetVODCategorySelection(ctx context.Context, arg SetVODCategorySelectionParams) error {
+	_, err := q.db.Exec(ctx, setVODCategorySelection, arg.Ids, arg.ProviderID)
 	return err
 }
 

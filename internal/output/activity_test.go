@@ -64,7 +64,14 @@ func TestActivityRecorded(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	stop()
 	deadline := time.Now().Add(3 * time.Second)
-	for len(hs.Access.Viewers()) != 0 && time.Now().Before(deadline) {
+	// The viewer leaves the list just before the end hook queues the
+	// record, so wait for the record itself before stopping the tracker.
+	recorded := func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return len(st.watched) > 0
+	}
+	for (len(hs.Access.Viewers()) != 0 || !recorded()) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()

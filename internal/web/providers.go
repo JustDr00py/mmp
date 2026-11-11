@@ -40,6 +40,8 @@ func (ui *UI) mountProviders(r chi.Router) {
 		r.Get("/streams", ui.streamsPage)
 		r.Get("/groups", ui.providerGroupsPage)
 		r.Post("/groups", ui.providerGroupsSave)
+		r.Get("/vod-categories", ui.providerVODCategoriesPage)
+		r.Post("/vod-categories", ui.providerVODCategoriesSave)
 	})
 }
 

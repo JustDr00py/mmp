@@ -179,6 +179,7 @@ type Provider struct {
 	CheckedAt            *time.Time `json:"checked_at"`
 	EpgEnabled           bool       `json:"epg_enabled"`
 	VpnUrl               string     `json:"vpn_url"`
+	VodCategoryFilter    bool       `json:"vod_category_filter"`
 }
 
 type ProviderGroup struct {
@@ -310,6 +311,7 @@ type VodCategory struct {
 	Name       string    `json:"name"`
 	Disabled   bool      `json:"disabled"`
 	LastSeen   time.Time `json:"last_seen"`
+	Selected   bool      `json:"selected"`
 }
 
 type VodItem struct {

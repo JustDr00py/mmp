@@ -22,11 +22,18 @@ type VODResult struct {
 	Categories     int `json:"categories"`
 	MoviesDisabled int `json:"movies_disabled"`
 	SeriesDisabled int `json:"series_disabled"`
+	// Titles in categories the provider's selection leaves out: not
+	// imported (and disabled if stored before).
+	MoviesSkipped int `json:"movies_skipped"`
+	SeriesSkipped int `json:"series_skipped"`
 }
 
 // RefreshVOD imports the provider's movie and series catalogs (not
 // episodes, which load lazily per series) in one transaction. The
-// disable-threshold guard of live refreshes applies to each catalog.
+// disable-threshold guard of live refreshes applies to each catalog. With
+// the provider's category filter on, only titles in selected categories
+// are kept; the guard still weighs the panel's whole answer, so leaving
+// categories out on purpose never reads as a truncated catalog.
 func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (VODResult, error) {
 	var res VODResult
 	if p.Type != "xtream" {
@@ -56,7 +63,6 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 
 	mp := movieParams(p.ID, movies)
 	sp := seriesParams(p.ID, shows)
-	res.Movies, res.Series = len(mp.ExternalIds), len(sp.ExternalIds)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -78,18 +84,25 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 		}
 	}
 
-	for kind, cats := range map[string][]xtream.VODCategory{"movie": movieCats, "series": seriesCats} {
-		ids, names := categoryParams(cats)
-		res.Categories += len(ids)
-		if err := q.UpsertVODCategories(ctx, db.UpsertVODCategoriesParams{ProviderID: p.ID, Kind: kind, ExternalIds: ids, Names: names}); err != nil {
-			return res, fmt.Errorf("refresh vod %d: %s categories: %w", p.ID, kind, err)
-		}
-		if len(ids) > 0 { // an empty category list is a panel hiccup, not "all gone"
-			if _, err := q.SoftDisableMissingVODCategories(ctx, db.SoftDisableMissingVODCategoriesParams{ProviderID: p.ID, Kind: kind, ExternalIds: ids}); err != nil {
-				return res, fmt.Errorf("refresh vod %d: %s categories: %w", p.ID, kind, err)
-			}
-		}
+	if res.Categories, err = storeCategories(ctx, q, p.ID, movieCats, seriesCats); err != nil {
+		return res, fmt.Errorf("refresh vod %d: %w", p.ID, err)
 	}
+	if p.VodCategoryFilter {
+		sel, err := q.ListSelectedVODCategories(ctx, p.ID)
+		if err != nil {
+			return res, fmt.Errorf("refresh vod %d: selection: %w", p.ID, err)
+		}
+		keep := map[string]map[string]bool{"movie": {}, "series": {}}
+		for _, c := range sel {
+			keep[c.Kind][c.ExternalID] = true
+		}
+		var skipped int
+		mp, skipped = keepMovies(mp, keep["movie"])
+		res.MoviesSkipped = skipped
+		sp, skipped = keepSeries(sp, keep["series"])
+		res.SeriesSkipped = skipped
+	}
+	res.Movies, res.Series = len(mp.ExternalIds), len(sp.ExternalIds)
 	if err := q.UpsertVODItems(ctx, mp); err != nil {
 		return res, fmt.Errorf("refresh vod %d: movies: %w", p.ID, err)
 	}
@@ -112,8 +125,95 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 		return res, fmt.Errorf("refresh vod %d: commit: %w", p.ID, err)
 	}
 	r.log.Info("vod refreshed", "provider_id", p.ID, "movies", res.Movies, "series", res.Series,
-		"movies_disabled", res.MoviesDisabled, "series_disabled", res.SeriesDisabled)
+		"movies_disabled", res.MoviesDisabled, "series_disabled", res.SeriesDisabled,
+		"movies_skipped", res.MoviesSkipped, "series_skipped", res.SeriesSkipped)
 	return res, nil
+}
+
+// RefreshVODCategories imports only the provider's movie and series
+// category lists (two small panel calls), so they can be chosen before a
+// first, possibly huge, catalog import. It returns how many it stored.
+func (r *Refresher) RefreshVODCategories(ctx context.Context, p db.Provider) (int, error) {
+	if p.Type != "xtream" {
+		return 0, ErrVODUnsupported
+	}
+	client, err := xtream.New(ProviderURL(p), p.Username, p.Password, p.UserAgent)
+	if err != nil {
+		return 0, fmt.Errorf("vod categories %d: %w", p.ID, err)
+	}
+	movieCats, err := client.VODCategories(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("vod categories %d: get_vod_categories: %w", p.ID, err)
+	}
+	seriesCats, err := client.SeriesCategories(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("vod categories %d: get_series_categories: %w", p.ID, err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("vod categories %d: begin: %w", p.ID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+	n, err := storeCategories(ctx, db.New(tx), p.ID, movieCats, seriesCats)
+	if err != nil {
+		return 0, fmt.Errorf("vod categories %d: %w", p.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("vod categories %d: commit: %w", p.ID, err)
+	}
+	r.log.Info("vod categories refreshed", "provider_id", p.ID, "categories", n)
+	return n, nil
+}
+
+// storeCategories upserts both category lists and disables the ones the
+// panel no longer lists. It returns how many categories the panel listed.
+func storeCategories(ctx context.Context, q *db.Queries, providerID int64, movieCats, seriesCats []xtream.VODCategory) (int, error) {
+	n := 0
+	for kind, cats := range map[string][]xtream.VODCategory{"movie": movieCats, "series": seriesCats} {
+		ids, names := categoryParams(cats)
+		n += len(ids)
+		if err := q.UpsertVODCategories(ctx, db.UpsertVODCategoriesParams{ProviderID: providerID, Kind: kind, ExternalIds: ids, Names: names}); err != nil {
+			return n, fmt.Errorf("%s categories: %w", kind, err)
+		}
+		if len(ids) > 0 { // an empty category list is a panel hiccup, not "all gone"
+			if _, err := q.SoftDisableMissingVODCategories(ctx, db.SoftDisableMissingVODCategoriesParams{ProviderID: providerID, Kind: kind, ExternalIds: ids}); err != nil {
+				return n, fmt.Errorf("%s categories: %w", kind, err)
+			}
+		}
+	}
+	return n, nil
+}
+
+// keepMovies drops the movies outside the kept categories, returning how
+// many it dropped.
+func keepMovies(p db.UpsertVODItemsParams, keep map[string]bool) (db.UpsertVODItemsParams, int) {
+	// ExternalIds is never nil: a NULL list would disable nothing.
+	out := db.UpsertVODItemsParams{ProviderID: p.ProviderID, ExternalIds: []string{}}
+	for i, cat := range p.CategoryIds {
+		if !keep[cat] {
+			continue
+		}
+		out.ExternalIds, out.Names, out.CategoryIds = append(out.ExternalIds, p.ExternalIds[i]), append(out.Names, p.Names[i]), append(out.CategoryIds, cat)
+		out.Icons, out.Ratings = append(out.Icons, p.Icons[i]), append(out.Ratings, p.Ratings[i])
+		out.ContainerExtensions, out.TmdbIds, out.Added = append(out.ContainerExtensions, p.ContainerExtensions[i]), append(out.TmdbIds, p.TmdbIds[i]), append(out.Added, p.Added[i])
+	}
+	return out, len(p.ExternalIds) - len(out.ExternalIds)
+}
+
+// keepSeries is keepMovies for series.
+func keepSeries(p db.UpsertSeriesParams, keep map[string]bool) (db.UpsertSeriesParams, int) {
+	// ExternalIds is never nil: a NULL list would disable nothing.
+	out := db.UpsertSeriesParams{ProviderID: p.ProviderID, ExternalIds: []string{}}
+	for i, cat := range p.CategoryIds {
+		if !keep[cat] {
+			continue
+		}
+		out.ExternalIds, out.Names, out.CategoryIds = append(out.ExternalIds, p.ExternalIds[i]), append(out.Names, p.Names[i]), append(out.CategoryIds, cat)
+		out.Covers, out.Plots, out.Casts = append(out.Covers, p.Covers[i]), append(out.Plots, p.Plots[i]), append(out.Casts, p.Casts[i])
+		out.Directors, out.Genres, out.ReleaseDates = append(out.Directors, p.Directors[i]), append(out.Genres, p.Genres[i]), append(out.ReleaseDates, p.ReleaseDates[i])
+		out.Ratings, out.LastModified = append(out.Ratings, p.Ratings[i]), append(out.LastModified, p.LastModified[i])
+	}
+	return out, len(p.ExternalIds) - len(out.ExternalIds)
 }
 
 // vodGuard refuses an import that would disable more than the provider's

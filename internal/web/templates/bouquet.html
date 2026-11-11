@@ -19,7 +19,7 @@
   <h2>Movie &amp; series categories</h2>
   {{if $d.VOD.Granted}}
   <ul class="pick-list">{{range $d.VOD.Granted}}
-    <li class="row"><span class="what">{{.Name}} <span class="sub">{{if eq .Kind "movie"}}movies{{else}}series{{end}}{{if .Disabled}} · gone from the provider{{end}}</span></span>
+    <li class="row"><span class="what">{{.Name}} <span class="sub">{{if eq .Kind "movie"}}movies{{else}}series{{end}}{{if .Disabled}} · gone from the provider{{else if not .Offered}} · not chosen on the provider, hidden{{end}}</span></span>
       <form method="post" action="/admin/bouquets/{{$d.Bouquet.ID}}/vod-categories/{{.ID}}/remove"><button type="submit" class="small secondary">Remove</button></form></li>
   {{end}}</ul>
   {{else}}<p class="muted">No movie or series categories: customers with this bouquet see no movies or series.</p>{{end}}
