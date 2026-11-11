@@ -97,7 +97,7 @@ func profileSaveErr(err error) (string, bool) {
 }
 
 func (ui *UI) profileNew(w http.ResponseWriter, r *http.Request) {
-	ui.render(w, r, http.StatusOK, "profile_form", "New profile", profileForm{Mode: "ffmpeg", FFmpegArgs: "-c copy"})
+	ui.render(w, r, http.StatusOK, "profile_form", "New profile", profileForm{Mode: "ffmpeg", FFmpegArgs: "-map 0 -dn -c copy"})
 }
 
 func (ui *UI) profileCreate(w http.ResponseWriter, r *http.Request) {
