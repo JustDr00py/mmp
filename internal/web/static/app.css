@@ -110,6 +110,15 @@ main.center { flex: 1; display: grid; place-items: center; padding: 1.25rem; }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--accent); text-decoration: underline; }
 .lede { color: var(--muted); max-width: 72ch; margin: 0 0 1.25rem; }
+/* details.help: the rest of a page's introduction, one click away. */
+.lede:has(+ details.help) { margin-bottom: .3rem; }
+details.help { max-width: 72ch; margin: 0 0 1.25rem; color: var(--muted); font-size: .88rem; }
+details.help > summary { display: inline-flex; align-items: center; gap: .35rem; margin: 0; color: var(--accent); font-size: .82rem; font-weight: 550; list-style: none; }
+details.help > summary::-webkit-details-marker { display: none; }
+details.help > summary::after { content: ""; width: .4rem; height: .4rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); transition: transform .15s; }
+details.help[open] > summary::after { transform: rotate(-135deg) translateY(-1px); }
+details.help[open] > summary { margin-bottom: .35rem; }
+details.help p { margin: 0; }
 .head + .lede, h1 + .lede { margin-top: .15rem; }
 main.page > p.muted:first-of-type { max-width: 80ch; }
 
@@ -237,6 +246,7 @@ img.logo { width: 28px; height: 28px; object-fit: contain; vertical-align: middl
 td.name-col { min-width: 13rem; }
 .sub.url { overflow-wrap: normal; word-break: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22rem; }
 td.check, th.check { width: 1%; }
+label.phone-only { display: none; }
 /* Tables become stacked cards on phones. */
 @media (max-width: 700px) {
   table.stack thead { display: none; }
@@ -256,6 +266,8 @@ td.check, th.check { width: 1%; }
   table.stack td.cell-actions .actions { justify-content: flex-start; padding-top: .45rem; }
   table.stack .sub.url { max-width: 100%; }
   .table-wrap:has(table.stack) { overflow-x: visible; }
+  /* The header row (and its select-all box) is hidden: the toolbar offers one. */
+  label.phone-only { display: flex; }
 }
 
 /* ---------- Pills ---------- */
@@ -432,7 +444,8 @@ ul.plain-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .25
 .proposal .name-edit { flex: 1; min-width: 0; font-weight: 600; padding: .25rem .5rem; min-height: 32px; }
 .proposal .streams { margin: 0; padding-left: 1.2rem; font-size: .87rem; }
 .proposal .streams li { margin: .12rem 0; }
-.proposal .streams label.check { gap: .45rem; }
+/* inline, so a stream's ▶ preview button stays on its line */
+.proposal .streams label.check { display: inline-flex; gap: .45rem; }
 .rules { margin-top: 2rem; }
 .rules summary { cursor: pointer; display: flex; gap: .75rem; align-items: baseline; }
 .rules summary h2 { display: inline; margin: 0; }
@@ -635,8 +648,9 @@ details.restore[open] .restore-form { position: absolute; right: 0; top: calc(10
 .bulk { padding: .45rem .6rem; margin-bottom: .6rem; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); gap: .45rem; font-size: .85rem; }
 .bulk select, .bulk input { min-height: 30px; padding: .25rem .5rem; font-size: .85rem; }
 .bulk-label { color: var(--faint); font-weight: 600; min-width: 5.5rem; }
-#providers:has(input[name=provider]:checked) .bulk { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
-#providers:has(input[name=provider]:checked) .bulk-label { color: var(--accent); }
+#providers:has(input[name=provider]:checked) .bulk, #channels:has(input[name=channel]:checked) .bulk { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+#providers:has(input[name=provider]:checked) .bulk-label, #channels:has(input[name=channel]:checked) .bulk-label { color: var(--accent); }
+.bulk .push { margin-left: auto; }
 
 .providers-table td { vertical-align: top; }
 .providers-table td.check, .providers-table th.check { width: 1%; }

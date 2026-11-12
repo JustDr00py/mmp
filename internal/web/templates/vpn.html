@@ -3,8 +3,9 @@
 <div class="head">
   <div><h1>VPN</h1>
     <p class="lede">MMP reaches your providers (playlists, streams, guides, movies) through gluetun{{with $d.Settings.Provider}}
-      with <strong>{{.}}</strong>{{with $d.TypeLabel}} over {{.}}{{end}}{{end}}. If the tunnel goes down, gluetun blocks MMP's internet until it is back.
-      Players on your network still connect to MMP directly.</p></div>
+      with <strong>{{.}}</strong>{{with $d.TypeLabel}} over {{.}}{{end}}{{end}}.</p>
+    <details class="help"><summary>How this works</summary><p>If the tunnel goes down, gluetun blocks MMP's internet until it is back.
+      Players on your network still connect to MMP directly.</p></details></div>
   <form method="post" action="/admin/vpn/reconnect" data-confirm="Reconnect the VPN? Streams pause for a few seconds.">
     <button type="submit" class="secondary">Reconnect</button></form>
 </div>

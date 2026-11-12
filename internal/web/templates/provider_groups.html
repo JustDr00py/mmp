@@ -5,8 +5,9 @@
 {{template "provider-tabs" (provtabs $d.Provider.ID $d.Provider.Type "groups")}}
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <p class="lede">Choose the groups you want from this provider. Only streams in the chosen groups show up in
-  <a href="/admin/match">Match</a> and when adding streams to a channel. Groups the provider adds later stay hidden until you
-  tick them. Channels that already use a stream keep it.</p>
+  <a href="/admin/match">Match</a> and when adding streams to a channel.</p>
+<details class="help"><summary>How this works</summary><p>Groups the provider adds later stay hidden until you
+  tick them. Channels that already use a stream keep it.</p></details>
 <p class="muted small">Save keeps the choice only. Save and match also builds channels from the chosen groups now, with the
   options on the <a href="/admin/settings">Settings</a> page, even when automatic matching is off. To pick channels one by one, use
   <a href="/admin/match">Match</a>.</p>

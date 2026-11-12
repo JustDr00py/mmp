@@ -90,6 +90,7 @@
   <input type="hidden" name="q" value="{{.Filter.Query}}"><input type="hidden" name="backbone" value="{{.Filter.Backbone}}"><input type="hidden" name="status" value="{{.Filter.Status}}">
   <div class="row bulk">
     <span class="bulk-label" data-count-of="provider" data-count-label="selected">0 selected</span>
+    <label class="check small phone-only"><input type="checkbox" form="bulk" data-check-all="provider"> all on this page</label>
     <select name="scope" aria-label="Apply to">
       <option value="">Selected providers</option>
       <option value="all">All {{.Matching}} {{if .Filter.Active}}matching{{else}}providers{{end}}</option>
