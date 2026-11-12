@@ -23,7 +23,7 @@ type providerFilter struct {
 
 func parseProviderFilter(v url.Values) providerFilter {
 	f := providerFilter{Query: strings.TrimSpace(v.Get("q")), Backbone: v.Get("backbone"), Offset: max(atoi(v.Get("offset")), 0)}
-	if s := v.Get("status"); s == "enabled" || s == "disabled" {
+	if s := v.Get("status"); s == "enabled" || s == "disabled" || s == "attention" {
 		f.Status = s
 	}
 	return f
@@ -32,12 +32,14 @@ func parseProviderFilter(v url.Values) providerFilter {
 // Active reports whether the filter hides anything.
 func (f providerFilter) Active() bool { return f.Query != "" || f.Backbone != "" || f.Status != "" }
 
-func (f providerFilter) keep(p db.Provider) bool {
+func (f providerFilter) keep(r providerRow) bool {
+	p := r.Provider
 	switch {
 	case f.Backbone == source.NoBackbone && p.Backbone != "",
 		f.Backbone != "" && f.Backbone != source.NoBackbone && p.Backbone != f.Backbone,
 		f.Status == "enabled" && !p.Enabled,
-		f.Status == "disabled" && p.Enabled:
+		f.Status == "disabled" && p.Enabled,
+		f.Status == "attention" && !r.NeedsAttention():
 		return false
 	}
 	if f.Query == "" {
@@ -140,7 +142,7 @@ func (ui *UI) providersBulk(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var ids []int64
 	if pf.Get("scope") == "all" {
-		ps, err := ui.Store.ListProviders(ctx)
+		ps, err := ui.providerRows(r, 0)
 		if err != nil {
 			ui.fail(w, "list providers", err)
 			return

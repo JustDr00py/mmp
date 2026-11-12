@@ -1,26 +1,49 @@
 {{define "content"}}
+{{$d := .Data}}
 <div class="head">
-  <div><h1>Providers</h1><p class="lede">Your IPTV sources. MMP imports their streams on a schedule, and fails over between them when a stream stops. Use <strong>Groups</strong> to hide regional groups you don't need.</p></div>
+  <div><h1>Providers</h1><p class="lede">Your IPTV sources. MMP imports their streams on a schedule and fails over between them when a stream stops.</p></div>
   <a class="button" href="/admin/providers/new">Add provider</a>
 </div>
-{{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-{{if .Data.Refreshing}}<p class="hint" role="status">A bulk refresh is running in the background.</p>{{end}}
-{{if .Data.Total}}
-{{with .Data.Mixed}}<div class="card" role="note">
-  <p><strong>Backbones with mixed priorities.</strong> Providers on one backbone share an upstream; giving them one priority keeps their streams together in failover lists.
-    Leave a backbone mixed if you prefer one reseller (more connections, a longer account).</p>
-  {{range .}}
-  <form class="row" method="post" action="/admin/providers/align-backbone">
-    <input type="hidden" name="q" value="{{$.Data.Filter.Query}}"><input type="hidden" name="backbone" value="{{$.Data.Filter.Backbone}}"><input type="hidden" name="status" value="{{$.Data.Filter.Status}}">
-    <input type="hidden" name="align" value="{{.Backbone}}">
-    <span><strong>{{.Backbone}}</strong>: priorities {{.Min}} to {{.Max}}</span>
-    <label class="check small"><input type="checkbox" name="resort_channels" checked> re-sort their channels</label>
-    <button type="submit" class="small secondary">Align to {{.Min}}</button>
-  </form>
-  {{end}}
-</div>{{end}}
-{{with .Data.BackboneRows}}<div class="card">
-  <p><strong>Backbone health</strong> <span class="muted small">out of 100, from the last 7 days of stream attempts. Its providers' results pooled together.</span></p>
+{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
+{{if $d.Refreshing}}<p class="hint" role="status">A bulk refresh is running in the background.</p>{{end}}
+{{if $d.Total}}
+<section class="stats">
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-server"/></svg></span><span class="num">{{$d.Enabled}}<span class="of"> / {{$d.Total}}</span></span><span class="label">providers enabled</span></div>
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-play"/></svg></span><span class="num">{{$d.ActiveStreams}}</span><span class="label">active streams</span></div>
+  <div class="card stat"><span class="ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></span><span class="num">{{$d.SlotsInUse}}<span class="of"> / {{if $d.Unlimited}}∞{{else}}{{$d.SlotsMax}}{{end}}</span></span><span class="label">connections in use</span></div>
+  {{if $d.Attention}}<a class="card stat attn" href="/admin/providers?status=attention"><span class="ico"><svg aria-hidden="true"><use href="#i-alert"/></svg></span><span class="num">{{len $d.Attention}}</span><span class="label">need attention</span></a>
+  {{else}}<div class="card stat calm"><span class="ico"><svg aria-hidden="true"><use href="#i-check"/></svg></span><span class="num">0</span><span class="label">need attention</span></div>{{end}}
+</section>
+
+{{if or $d.Attention $d.Mixed}}<section class="card attention" aria-labelledby="attention-h">
+  <h2 id="attention-h">Needs attention</h2>
+  {{with $d.Attention}}<ul class="attention-list">
+    {{range .}}<li>
+      {{if .NotAnswering}}<span class="pill bad">Not answering</span>
+      <span class="what"><strong>{{.Name}}</strong> <span class="muted small">first failed {{ago .FailingSince}}: {{.LastError}}</span></span>
+      <a class="button small secondary" href="/admin/providers/{{.ID}}/edit">Check settings</a>
+      {{else}}<span class="pill warn">No groups chosen</span>
+      <span class="what"><strong>{{.Name}}</strong> <span class="muted small">none of its {{.Groups}} groups reach Match yet</span></span>
+      <a class="button small secondary" href="/admin/providers/{{.ID}}/groups">Choose groups</a>{{end}}
+    </li>{{end}}
+  </ul>{{end}}
+  {{with $d.Mixed}}<div class="mixed">
+    <p><strong>Backbones with mixed priorities.</strong> <span class="muted small">Providers on one backbone share an upstream; one priority keeps their streams together in failover lists.
+      Leave a backbone mixed if you prefer one reseller (more connections, a longer account).</span></p>
+    {{range .}}
+    <form class="row" method="post" action="/admin/providers/align-backbone">
+      <input type="hidden" name="q" value="{{$d.Filter.Query}}"><input type="hidden" name="backbone" value="{{$d.Filter.Backbone}}"><input type="hidden" name="status" value="{{$d.Filter.Status}}">
+      <input type="hidden" name="align" value="{{.Backbone}}">
+      <span><strong>{{.Backbone}}</strong>: priorities {{.Min}} to {{.Max}}</span>
+      <label class="check small"><input type="checkbox" name="resort_channels" checked> re-sort their channels</label>
+      <button type="submit" class="small secondary">Align to {{.Min}}</button>
+    </form>
+    {{end}}
+  </div>{{end}}
+</section>{{end}}
+
+{{with $d.BackboneRows}}<details class="rules backbones">
+  <summary><h2>Backbone health</h2> <span class="muted">{{len .}} backbones · out of 100, from the last 7 days of their providers' stream attempts</span></summary>
   <div class="table-wrap"><table class="stack">
     <thead><tr><th>Backbone</th><th class="num">Providers</th><th class="num">Health</th><th class="num">Attempts</th></tr></thead>
     <tbody>
@@ -32,23 +55,25 @@
     </tr>{{end}}
     </tbody>
   </table></div>
-</div>{{end}}
-<form class="search row" method="get" action="/admin/providers"
+</details>{{end}}
+
+<form class="search row toolbar" method="get" action="/admin/providers"
   hx-get="/admin/providers" hx-target="#providers" hx-swap="outerHTML" hx-push-url="true"
   hx-trigger="input changed delay:300ms from:find input, change, submit">
-  <input type="search" name="q" value="{{.Data.Filter.Query}}" placeholder="Search providers" aria-label="Search providers">
+  <input type="search" name="q" value="{{$d.Filter.Query}}" placeholder="Search name, URL or backbone" aria-label="Search providers">
   <select name="backbone" aria-label="Backbone">
     <option value="">All backbones</option>
-    {{range .Data.Backbones}}<option value="{{.Backbone}}"{{if eq .Backbone $.Data.Filter.Backbone}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
-    {{if .Data.Unlabeled}}<option value="-"{{if eq .Data.Filter.Backbone "-"}} selected{{end}}>No backbone ({{.Data.Unlabeled}})</option>{{end}}
+    {{range $d.Backbones}}<option value="{{.Backbone}}"{{if eq .Backbone $d.Filter.Backbone}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
+    {{if $d.Unlabeled}}<option value="-"{{if eq $d.Filter.Backbone "-"}} selected{{end}}>No backbone ({{$d.Unlabeled}})</option>{{end}}
   </select>
   <select name="status" aria-label="Status">
-    <option value="">Enabled and disabled</option>
-    <option value="enabled"{{if eq .Data.Filter.Status "enabled"}} selected{{end}}>Enabled</option>
-    <option value="disabled"{{if eq .Data.Filter.Status "disabled"}} selected{{end}}>Disabled</option>
+    <option value="">Any status</option>
+    <option value="enabled"{{if eq $d.Filter.Status "enabled"}} selected{{end}}>Enabled</option>
+    <option value="disabled"{{if eq $d.Filter.Status "disabled"}} selected{{end}}>Disabled</option>
+    <option value="attention"{{if eq $d.Filter.Status "attention"}} selected{{end}}>Needs attention</option>
   </select>
 </form>
-{{template "providers-table" .Data}}
+{{template "providers-table" $d}}
 {{else}}
 <div class="card empty">
   <p>No providers yet.</p>
@@ -64,7 +89,7 @@
 <form id="bulk" method="post" action="/admin/providers/bulk">
   <input type="hidden" name="q" value="{{.Filter.Query}}"><input type="hidden" name="backbone" value="{{.Filter.Backbone}}"><input type="hidden" name="status" value="{{.Filter.Status}}">
   <div class="row bulk">
-    <label class="check small"><input type="checkbox" data-check-all="provider"> all on this page</label>
+    <span class="bulk-label" data-count-of="provider" data-count-label="selected">0 selected</span>
     <select name="scope" aria-label="Apply to">
       <option value="">Selected providers</option>
       <option value="all">All {{.Matching}} {{if .Filter.Active}}matching{{else}}providers{{end}}</option>
@@ -93,10 +118,10 @@
   </div>
 </form>
 <div class="table-wrap">
-<table class="stack">
+<table class="stack providers-table">
   <thead><tr>
-    <th class="check" aria-label="Select"></th><th>Name</th><th>Backbone</th><th>Type</th><th class="num">Priority</th><th class="num">Slots</th>
-    <th class="num">Streams</th><th class="num">Health</th><th>Last refresh</th><th>Status</th><th></th>
+    <th class="check"><input type="checkbox" form="bulk" data-check-all="provider" aria-label="Select all on this page"></th>
+    <th>Provider</th><th>Status</th><th class="num">Health</th><th class="num">Streams</th><th>Connections</th><th>Refreshed</th><th></th>
   </tr></thead>
   <tbody>
   {{range .Rows}}{{template "provider-row" .}}{{end}}
@@ -115,37 +140,49 @@
 {{end}}
 
 {{define "provider-row"}}
-<tr id="provider-{{.ID}}">
+<tr id="provider-{{.ID}}"{{if not .Enabled}} class="disabled"{{end}}>
   <td class="check"><input type="checkbox" form="bulk" name="provider" value="{{.ID}}" aria-label="Select {{.Name}}"></td>
-  <td class="name-col cell-title"><a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a><div class="sub url">{{redact .Url}}</div>
-    {{if and .Enabled .LastError}}<div class="sub errmsg">{{.LastError}}</div>{{end}}</td>
-  <td data-label="Backbone">{{if .Backbone}}<a href="/admin/providers?backbone={{.Backbone}}">{{.Backbone}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
-  <td data-label="Type">{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</td>
-  <td class="num" data-label="Priority">{{.Priority}}</td>
-  <td class="num" data-label="Slots">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</td>
-  <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
-    {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if not .GroupFilter}}all {{.Groups}} groups{{else if .GroupsSelected}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}<span class="pill warn">choose groups</span>{{end}}</a></div>{{end}}</td>
-  <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}" title="{{.Health.Failures}} of {{.Health.Attempts}} attempts failed in the last 7 days">{{.Health.Value}}</span>{{else}}<span class="muted" title="Fewer than 10 attempts in the last 7 days">—</span>{{end}}</td>
-  <td data-label="Last refresh">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series{{if or .Result.MoviesSkipped .Result.SeriesSkipped}} ({{.Result.MoviesSkipped}} + {{.Result.SeriesSkipped}} in other categories skipped){{end}} · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
-    {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}{{if .VodCategoryFilter}} · <a href="/admin/providers/{{.ID}}/vod-categories">chosen categories</a>{{end}}{{if and .VodPooled .Backbone}} · <a href="/admin/providers/{{.ID}}/vod-categories#pool">pooled</a>{{end}}</div>{{end}}</td>
-  <td data-label="Status">
+  <td class="name-col cell-title">
+    <a href="/admin/providers/{{.ID}}/streams">{{.Name}}</a>
+    <div class="meta">
+      <span class="tag">{{if eq .Type "xtream"}}Xtream{{else}}M3U{{end}}</span>
+      {{if .Backbone}}<a class="chip" href="/admin/providers?backbone={{.Backbone}}" title="Show this backbone's providers">{{.Backbone}}</a>{{end}}
+      <span class="tag" title="Failover priority: lower is preferred">priority {{.Priority}}</span>
+    </div>
+    <div class="sub url">{{redact .Url}}</div>
+    {{if .NotAnswering}}<div class="sub errmsg" title="{{.LastError}}">{{.LastError}}</div>{{end}}</td>
+  <td data-label="Status"><div class="state-col">
     <form method="post" action="/admin/providers/{{.ID}}/toggle" hx-post="/admin/providers/{{.ID}}/toggle" hx-target="#provider-{{.ID}}" hx-swap="outerHTML">
       <button type="submit" class="pill {{if .Enabled}}ok{{else}}off{{end}}" title="Click to {{if .Enabled}}disable{{else}}enable{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</button>
     </form>
-    {{if and .Enabled .LastError}}<span class="pill bad" title="First failed {{ago .FailingSince}}; last checked {{ago .CheckedAt}}">Not answering</span>
-    <div class="sub">first failed {{ago .FailingSince}}</div>{{end}}
-  </td>
+    {{if .NotAnswering}}<span class="pill bad" title="First failed {{ago .FailingSince}}; last checked {{ago .CheckedAt}}">Not answering</span>{{end}}
+  </div></td>
+  <td class="num" data-label="Health">{{if .Health.Enough}}<span class="pill {{.Health.Tone}}" title="{{.Health.Failures}} of {{.Health.Attempts}} attempts failed in the last 7 days">{{.Health.Value}}</span>{{else}}<span class="muted" title="Fewer than 10 attempts in the last 7 days">—</span>{{end}}</td>
+  <td class="num" data-label="Streams">{{.Active}}{{if ne .Active .Streams}} <span class="sub">of {{.Streams}}</span>{{end}}{{if .Cooling}} <span class="pill warn" title="streams in cooldown">{{.Cooling}} cooling</span>{{end}}
+    {{if .Groups}}<div class="sub"><a href="/admin/providers/{{.ID}}/groups">{{if not .GroupFilter}}all {{.Groups}} groups{{else if .GroupsSelected}}{{.GroupsSelected}} of {{.Groups}} groups{{else}}<span class="pill warn">choose groups</span>{{end}}</a></div>{{end}}</td>
+  <td data-label="Connections"><div class="slots">
+    <span class="slots-num">{{.SlotsInUse}} / {{if eq .MaxConnections 0}}∞{{else}}{{.MaxConnections}}{{end}}</span>
+    {{if gt .MaxConnections 0}}<span class="bar{{if ge .SlotsPct 100}} full{{else if ge .SlotsPct 75}} busy{{end}}" aria-hidden="true"><span data-pct="{{.SlotsPct}}"></span></span>{{end}}
+  </div></td>
+  <td data-label="Refreshed">{{ago .LastRefreshedAt}}<div class="sub" aria-live="polite">{{with .Refresh}}{{template "refresh-result" .}}{{end}}{{with .VODRefresh}}{{if .OK}}<span class="okmsg">{{.Result.Movies}} movies, {{.Result.Series}} series{{if or .Result.MoviesSkipped .Result.SeriesSkipped}} ({{.Result.MoviesSkipped}} + {{.Result.SeriesSkipped}} in other categories skipped){{end}} · {{.Elapsed}}</span>{{else}}<span class="errmsg">{{.Error}}</span>{{end}}{{end}}</div>
+    {{if .VodEnabled}}<div class="sub">movies &amp; series: {{ago .VodRefreshedAt}}{{if .VodCategoryFilter}} · chosen categories{{end}}{{if and .VodPooled .Backbone}} · <a href="/admin/providers/{{.ID}}/vod-categories#pool">pooled</a>{{end}}</div>{{end}}</td>
   <td class="cell-actions"><div class="actions">
+    <span id="refresh-{{.ID}}-busy" class="htmx-indicator sub">refreshing…</span>
     <form method="post" action="/admin/providers/{{.ID}}/refresh" hx-post="/admin/providers/{{.ID}}/refresh" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
       <button type="submit" class="small secondary">Refresh</button>
     </form>
-    {{if .VodEnabled}}<form method="post" action="/admin/providers/{{.ID}}/vod" hx-post="/admin/providers/{{.ID}}/vod" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
-      <button type="submit" class="small secondary" title="Import movies &amp; series now">Import catalog</button>
-    </form>{{end}}
-    <a class="button small secondary" href="/admin/providers/{{.ID}}/groups">Groups</a>
-    {{if eq .Type "xtream"}}<a class="button small secondary" href="/admin/providers/{{.ID}}/vod-categories" title="Choose the movie &amp; series categories to import">VOD categories</a>{{end}}
-    <a class="button small secondary" href="/admin/providers/{{.ID}}/edit">Edit</a>
-    <span id="refresh-{{.ID}}-busy" class="htmx-indicator sub">refreshing…</span>
+    <details class="menu">
+      <summary class="button small secondary" aria-label="More actions for {{.Name}}" title="More actions">⋯</summary>
+      <div class="menu-panel">
+        {{if .VodEnabled}}<form method="post" action="/admin/providers/{{.ID}}/vod" hx-post="/admin/providers/{{.ID}}/vod" hx-target="#provider-{{.ID}}" hx-swap="outerHTML" hx-indicator="#refresh-{{.ID}}-busy" hx-disabled-elt="find button">
+          <button type="submit" title="Import movies &amp; series now">Import catalog</button>
+        </form><hr>{{end}}
+        <a href="/admin/providers/{{.ID}}/streams">Streams</a>
+        <a href="/admin/providers/{{.ID}}/groups">Groups</a>
+        {{if eq .Type "xtream"}}<a href="/admin/providers/{{.ID}}/vod-categories" title="Choose the movie &amp; series categories to import">Movies &amp; series</a>{{end}}
+        <hr><a href="/admin/providers/{{.ID}}/edit">Settings</a>
+      </div>
+    </details>
   </div></td>
 </tr>
 {{end}}

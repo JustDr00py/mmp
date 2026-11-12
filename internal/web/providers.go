@@ -56,6 +56,26 @@ type providerRow struct {
 	VODRefresh               *vodRefreshData // outcome of a catalog import just run from this row
 }
 
+// NotAnswering reports an enabled provider whose last check failed.
+func (p providerRow) NotAnswering() bool { return p.Enabled && p.LastError != "" }
+
+// NeedsGroups reports an enabled provider that imported groups but has none
+// chosen, so none of its streams reach Match.
+func (p providerRow) NeedsGroups() bool {
+	return p.Enabled && p.GroupFilter && p.Groups > 0 && p.GroupsSelected == 0
+}
+
+// NeedsAttention reports a provider the Needs attention card lists.
+func (p providerRow) NeedsAttention() bool { return p.NotAnswering() || p.NeedsGroups() }
+
+// SlotsPct is the share of its connection limit in use, 0 when unlimited.
+func (p providerRow) SlotsPct() int {
+	if p.MaxConnections <= 0 {
+		return 0
+	}
+	return min(100, p.SlotsInUse*100/int(p.MaxConnections))
+}
+
 // flashes are the fixed messages ?msg= may select: never reflected text.
 var flashes = map[string]string{
 	"created": "Provider added. Refresh it to import its streams, then choose its groups: none of its streams are matched until you do.",
@@ -110,6 +130,14 @@ type providersData struct {
 	Prev         int  // offset of the previous page, -1 = none
 	Next         int  // offset of the next page, -1 = none
 	Refreshing   bool // a bulk refresh is running
+
+	// The summary strip, over every provider.
+	Enabled       int
+	ActiveStreams int64
+	SlotsInUse    int
+	SlotsMax      int           // sum of the enabled providers' limits
+	Unlimited     bool          // an enabled provider has no limit
+	Attention     []providerRow // providers that need a look, by name
 }
 
 func (ui *UI) providerRows(r *http.Request, only int64) ([]providerRow, error) {
@@ -176,6 +204,19 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 		if p.Backbone == "" {
 			d.Unlabeled++
 		}
+		if p.NeedsAttention() {
+			d.Attention = append(d.Attention, p)
+		}
+		if !p.Enabled {
+			continue
+		}
+		d.Enabled++
+		d.ActiveStreams += p.Active
+		d.SlotsInUse += p.SlotsInUse
+		if p.MaxConnections <= 0 {
+			d.Unlimited = true
+		}
+		d.SlotsMax += int(p.MaxConnections)
 	}
 	d.Mixed = mixedBackbones(rows)
 	hs, err := ui.healthScores(r.Context())
@@ -184,7 +225,7 @@ func (ui *UI) providersPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.BackboneRows = backboneRows(backbones, hs.Backbones)
-	shown := slices.DeleteFunc(rows, func(p providerRow) bool { return !f.keep(p.Provider) })
+	shown := slices.DeleteFunc(rows, func(p providerRow) bool { return !f.keep(p) })
 	d.Matching = len(shown)
 	if f.Offset >= len(shown) {
 		f.Offset = max(0, (len(shown)-1)/providersPerPage*providersPerPage)
