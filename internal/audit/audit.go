@@ -169,7 +169,7 @@ var resources = map[string]string{
 
 // verbs describe the URL word after a target.
 var verbs = map[string]string{
-	"delete": "deleted", "remove": "removed from", "edit": "updated", "refresh": "refreshed",
+	"delete": "deleted", "clone": "cloned", "remove": "removed from", "edit": "updated", "refresh": "refreshed",
 	"toggle": "turned on or off", "password": "reset the password of", "token": "rotated the stream token of",
 	"rotate-token": "rotated the stream token of", "restore": "restored", "download": "downloaded",
 	"stop": "stopped", "switch": "switched the stream of", "kick": "disconnected", "add": "added channels to",

@@ -1,0 +1,37 @@
+{{define "content"}}
+{{$f := .Data}}{{$s := $f.Source}}
+<p class="crumbs"><a href="/admin/providers">Providers</a> / <a href="/admin/providers/{{$s.ID}}/edit">{{$s.Name}}</a> /</p>
+<div class="head"><div><h1>Clone {{$s.Name}}</h1>
+    <p class="lede">A new provider with this one's settings, chosen groups and movie &amp; series categories. Give it a name and the other account's login.</p></div></div>
+<div class="split">
+<form class="card form" method="post" action="/admin/providers/{{$s.ID}}/clone">
+  {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+  <label>Name<input name="name" value="{{$f.Name}}" required autofocus></label>
+  <div class="grid2">
+    <label>Username<input name="username" value="{{$f.Username}}" autocomplete="off"{{if eq $s.Type "xtream"}} required{{end}}></label>
+    <label>Password<input name="password" type="password" autocomplete="new-password"{{if eq $s.Type "xtream"}} required{{end}}></label>
+  </div>
+  <label><span>URL <span class="muted">(optional)</span></span><input name="url" type="url" value="{{$f.URL}}" placeholder="{{redact $s.Url}}">
+    <span class="hint">Blank keeps {{$s.Name}}'s URL.{{if eq $s.Type "m3u"}} An M3U playlist's URL usually holds the account's login: enter the other account's playlist URL here.{{end}}</span></label>
+  <div class="row"><button type="submit">Clone provider</button><a href="/admin/providers">Cancel</a></div>
+</form>
+<section>
+  <h2>Copied from {{$s.Name}}</h2>
+  <ul class="plain-list clone-copies">
+    <li><span class="muted">Type</span> {{if eq $s.Type "xtream"}}Xtream Codes{{else}}M3U playlist{{end}}</li>
+    <li><span class="muted">Backbone</span> {{with $s.Backbone}}{{.}}{{else}}none{{end}}</li>
+    <li><span class="muted">Priority</span> {{$s.Priority}}</li>
+    <li><span class="muted">Max connections</span> {{if $s.MaxConnections}}{{$s.MaxConnections}}{{else}}unlimited{{end}}</li>
+    <li><span class="muted">Refresh every</span> {{$f.RefreshMinutes}} minutes</li>
+    <li><span class="muted">Groups</span> {{if $s.GroupFilter}}{{$f.Summary.GroupsChosen}} chosen{{else}}all{{end}}</li>
+    {{if eq $s.Type "xtream"}}<li><span class="muted">Movies &amp; series</span> {{if not $s.VodEnabled}}not imported{{else}}{{if $s.VodCategoryFilter}}{{$f.Summary.CategoriesChosen}} of {{$f.Summary.Categories}} categories{{else}}all categories{{end}}{{if $s.VodPooled}}, pooled{{end}}{{if $f.Summary.Bouquets}}; in {{$f.Summary.Bouquets}} bouquet{{if ne $f.Summary.Bouquets 1}}s{{end}}{{end}}{{end}}</li>{{end}}
+    <li><span class="muted">Guide</span> {{if $s.EpgEnabled}}downloaded{{else}}not downloaded{{end}}</li>
+    {{with $s.VpnUrl}}<li><span class="muted">VPN URL</span> <span class="mono">{{redact .}}</span></li>{{end}}
+    {{with $s.UserAgent}}<li><span class="muted">User agent</span> <span class="mono">{{.}}</span></li>{{end}}
+    <li><span class="muted">Status</span> {{if $s.Enabled}}enabled{{else}}disabled{{end}}</li>
+  </ul>
+  <p class="hint">The clone's streams arrive when you refresh it. Its chosen groups apply from then on; its movie &amp; series import brings in
+    the same categories. Change any of this later on the clone's own pages.</p>
+</section>
+</div>
+{{end}}
