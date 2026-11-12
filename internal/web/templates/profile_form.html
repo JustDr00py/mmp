@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$f := .Data}}
 <p class="crumbs"><a href="/admin/profiles">Profiles</a> /</p>
-<h1>{{.Title}}</h1>
+<div class="head"><h1>{{.Title}}</h1></div>
 <form class="card form" method="post" action="{{if $f.ID}}/admin/profiles/{{$f.ID}}{{else}}/admin/profiles/new{{end}}">
   {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
   <div class="grid2">

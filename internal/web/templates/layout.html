@@ -35,6 +35,17 @@
 {{template "content" .}}
 </main>
 {{if .User}}<footer class="foot">MMP {{.Version}}</footer>{{end}}
+{{if .User}}
+<dialog class="modal confirm" id="confirm" aria-labelledby="confirm-msg">
+  <form method="dialog">
+    <p id="confirm-msg" class="confirm-msg"></p>
+    <div class="row">
+      <button type="submit" value="cancel" class="secondary" autofocus>Cancel</button>
+      <button type="submit" value="ok" data-confirm-ok>OK</button>
+    </div>
+  </form>
+</dialog>
+{{end}}
 {{if and .User preview}}
 <div class="pip" id="pip" data-lib="{{asset "mpegts.min.js"}}" role="dialog" aria-labelledby="pip-title" hidden>
   <div class="pip-bar" data-pip-drag>

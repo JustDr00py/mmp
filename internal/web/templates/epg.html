@@ -1,12 +1,12 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>EPG</h1><a class="button secondary" href="#extra">Add a guide source</a></div>
+<div class="head"><div><h1>EPG</h1>
+    <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
+      A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
+      with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
+      rank guides without changing the failover order. Connections to the same service serve the same guide: turn off all but one
+      so it is downloaded and stored once.</p></div><a class="button secondary" href="#extra">Add a guide source</a></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-<p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
-  A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
-  with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
-  rank guides without changing the failover order. Connections to the same service serve the same guide: turn off all but one
-  so it is downloaded and stored once.</p>
 {{with $d.Share}}
 <div class="card creds">
   <h3>Share the guide <span class="hint">every enabled channel, a day back and a week ahead</span></h3>
@@ -164,6 +164,7 @@
 </table>
 </div>
 <nav class="pager">
+  <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Guide)}}</span>
   {{if .Offset}}<a href="/admin/epg?q={{.Query}}{{if .MissingOnly}}&missing=1{{end}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
   {{if .NextOffset}}<a href="/admin/epg?q={{.Query}}{{if .MissingOnly}}&missing=1{{end}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>

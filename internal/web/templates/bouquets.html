@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Bouquets</h1></div>
+<div class="head"><div><h1>Bouquets</h1>
+    <p class="lede">A bouquet is a set of channels. Customers see exactly the channels in the bouquets granted to them on the <a href="/admin/users">Users</a> page; admins see everything.</p></div></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-<p class="lede">A bouquet is a set of channels. Customers see exactly the channels in the bouquets granted to them on the <a href="/admin/users">Users</a> page; admins see everything.</p>
 {{if $d.Rows}}
 <div class="table-wrap">
 <table class="stack">

@@ -1,9 +1,9 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Guide</h1></div>
-<p class="lede">The schedule each channel's customers get in their guide. Press ▶ beside a channel to watch it, a program for
-  its details. Empty rows have no guide: open the channel to set its <span class="mono">tvg-id</span>, or see the
-  <a href="/admin/epg">EPG</a> page for the sources.</p>
+<div class="head"><div><h1>Guide</h1>
+    <p class="lede">The schedule each channel's customers get in their guide. Press ▶ beside a channel to watch it, a program for
+      its details. Empty rows have no guide: open the channel to set its <span class="mono">tvg-id</span>, or see the
+      <a href="/admin/epg">EPG</a> page for the sources.</p></div></div>
 <form class="search row" method="get" action="/admin/guide" hx-get="/admin/guide" hx-target="#guide-grid" hx-swap="outerHTML" hx-push-url="true"
   hx-trigger="input changed delay:300ms from:find input[type=search], change, submit">
   <input type="hidden" name="start" value="{{$d.StartUnix}}">
@@ -67,6 +67,7 @@
 </div>
 </div>
 <nav class="pager">
+  <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Rows)}}</span>
   {{if .Offset}}<a href="{{.Link .StartUnix .PrevOffset}}">← Previous</a>{{end}}
   {{if .NextOffset}}<a href="{{.Link .StartUnix .NextOffset}}">Next →</a>{{end}}
 </nav>

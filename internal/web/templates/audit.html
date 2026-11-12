@@ -28,6 +28,7 @@
     </span></li>{{end}}
 </ul>
 <nav class="pager">
+  <span class="muted small">{{inc $d.Offset}}–{{add $d.Offset (len $d.Rows)}}</span>
   {{if $d.Offset}}<a href="{{call $d.Query $d.PrevOffset}}">← Newer</a>{{end}}
   {{if $d.NextOffset}}<a href="{{call $d.Query $d.NextOffset}}">Older →</a>{{end}}
 </nav>

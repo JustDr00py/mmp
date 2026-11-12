@@ -137,11 +137,68 @@
     document.querySelector(btn.dataset.dialog)?.showModal();
   });
 
-  // <form data-confirm="question"> (or its clicked button) asks before submitting.
+  // Confirmations use the #confirm dialog instead of the browser's
+  // confirm(). <form data-confirm="question"> (or its clicked button) asks
+  // before submitting; hx-confirm asks before htmx sends its request. The
+  // confirm button takes the label of the button that was pressed, and is
+  // red when that button (or its form) is a danger one.
+  const confirmDlg = document.getElementById('confirm');
+  let confirmed = null; // the form whose next submit was already confirmed
+  const ask = (msg, from, then) => {
+    if (!confirmDlg) { if (window.confirm(msg)) then(); return; }
+    const ok = confirmDlg.querySelector('[data-confirm-ok]');
+    const btn = from?.matches?.('button, input[type=submit]') ? from : null;
+    const label = btn ? (btn.textContent || btn.value || '').trim() || btn.getAttribute('aria-label') || '' : '';
+    ok.textContent = label && label.length <= 40 ? label : 'OK';
+    ok.classList.toggle('danger', !!from?.closest('.danger, form.danger') || !!from?.querySelector?.('.danger'));
+    confirmDlg.querySelector('.confirm-msg').textContent = msg;
+    confirmDlg.returnValue = '';
+    confirmDlg.addEventListener('close', () => { if (confirmDlg.returnValue === 'ok') then(); }, { once: true });
+    confirmDlg.showModal();
+  };
   document.addEventListener('submit', (e) => {
-    const msg = e.submitter?.dataset?.confirm || e.target.dataset?.confirm;
-    if (msg && !window.confirm(msg)) e.preventDefault();
+    const form = e.target;
+    if (confirmed === form) { confirmed = null; return; }
+    const msg = e.submitter?.dataset?.confirm || form.dataset?.confirm;
+    if (!msg) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const by = e.submitter;
+    ask(msg, by || form, () => {
+      confirmed = form;
+      if (by && by.form === form) form.requestSubmit(by); else form.requestSubmit();
+    });
   }, true);
+  document.addEventListener('htmx:confirm', (e) => {
+    const q = e.detail.question;
+    if (!q) return;
+    e.preventDefault();
+    const elt = e.detail.elt;
+    ask(q, elt.querySelector?.('button[type=submit], button:not([type])') || elt, () => e.detail.issueRequest(true));
+  });
+
+  // Result messages (.flash) get a close button, and the ?msg=… that
+  // asked for them leaves the address bar so a reload does not repeat
+  // them. [data-keep] flashes describe a state and stay.
+  const dismissible = (root) => root.querySelectorAll?.('.flash:not([data-keep]):not(:has(> .dismiss))').forEach((el) => {
+    const text = document.createElement('span');
+    text.append(...el.childNodes);
+    const btn = document.createElement('button');
+    Object.assign(btn, { type: 'button', className: 'dismiss', title: 'Dismiss' });
+    btn.setAttribute('aria-label', 'Dismiss');
+    btn.innerHTML = '<svg aria-hidden="true"><use href="#i-x"/></svg>';
+    el.append(text, btn);
+  });
+  dismissible(document);
+  document.addEventListener('htmx:load', (e) => dismissible(e.target));
+  document.addEventListener('click', (e) => { if (e.target.closest?.('.flash > .dismiss')) e.target.closest('.flash').remove(); });
+  {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('msg') || url.searchParams.has('vod_deleted')) {
+      ['msg', 'n', 'of', 'vod_deleted'].forEach((k) => url.searchParams.delete(k));
+      history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    }
+  }
 
   // <button data-copy="#id"> copies that input's value. Clipboard access
   // needs a secure context (https or localhost); elsewhere the text is
@@ -355,7 +412,8 @@
     // release loses the click.
     let pending = null;
     let pressed = false;
-    const busy = () => pressed || (el.contains(document.activeElement) && document.activeElement.matches('select'));
+    // An open confirmation holds too: its form must still be there to submit.
+    const busy = () => pressed || !!confirmDlg?.open || (el.contains(document.activeElement) && document.activeElement.matches('select'));
     // [data-keep-scroll="key"] boxes keep their scroll position across
     // re-renders, so a table scrolled sideways stays where it was.
     // Bars start at the width they had before the re-render, so only a
@@ -381,6 +439,7 @@
     };
     const flush = () => { if (pending !== null && !busy()) { apply(pending); pending = null; } };
     el.addEventListener('pointerdown', () => { pressed = true; });
+    confirmDlg?.addEventListener('close', () => setTimeout(flush, 0));
     // Released after the click event has run, so the click lands first.
     const release = () => { if (pressed) { pressed = false; setTimeout(flush, 0); } };
     document.addEventListener('pointerup', release);
