@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -206,5 +207,54 @@ func TestTokenGuideGzip(t *testing.T) {
 	}
 	if code, _, _ := get(t, h, "/epg/nope.xml.gz"); code != http.StatusUnauthorized {
 		t.Errorf("bad token = %d, want 401", code)
+	}
+}
+
+// TestGuideCompressedOnRequest: a player that accepts gzip gets the plain
+// guide gzip-encoded on the wire (the same document once decoded); one
+// that does not, or refuses it with q=0, gets it as before.
+func TestGuideCompressedOnRequest(t *testing.T) {
+	_, h := newGuideHandlers(t)
+	_, _, plain := get(t, h, "/xmltv.php?username=root&password=root-pw1")
+	for _, path := range []string{"/xmltv.php?username=root&password=root-pw1", "/epg/tok-root.xml"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Accept-Encoding", "br;q=1.0, gzip;q=0.8")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != 200 || rec.Header().Get("Content-Encoding") != "gzip" || !strings.Contains(rec.Header().Get("Vary"), "Accept-Encoding") ||
+			!strings.HasPrefix(rec.Header().Get("Content-Type"), "application/xml") {
+			t.Fatalf("%s = %d %v", path, rec.Code, rec.Header())
+		}
+		zr, err := gzip.NewReader(rec.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := io.ReadAll(zr)
+		if path == "/xmltv.php?username=root&password=root-pw1" && string(got) != plain {
+			t.Errorf("decoded guide differs from the plain one")
+		}
+		if !strings.HasPrefix(string(got), "<?xml") {
+			t.Errorf("%s: decoded body = %.40q", path, got)
+		}
+	}
+	for _, ae := range []string{"", "identity", "gzip;q=0", "br"} {
+		req := httptest.NewRequest(http.MethodGet, "/xmltv.php?username=root&password=root-pw1", nil)
+		req.Header.Set("Accept-Encoding", ae)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Header().Get("Content-Encoding") != "" || rec.Body.String() != plain {
+			t.Errorf("Accept-Encoding %q: encoded %q", ae, rec.Header().Get("Content-Encoding"))
+		}
+	}
+}
+
+func TestAcceptsGzip(t *testing.T) {
+	for h, want := range map[string]bool{
+		"gzip": true, "gzip, deflate, br": true, "GZIP": true, "x-gzip": true, "*": true, "deflate, gzip;q=0.5": true,
+		"": false, "identity": false, "br, deflate": false, "gzip;q=0": false, "gzip; q=0.0": false, "*;q=0": false,
+	} {
+		if got := acceptsGzip(h); got != want {
+			t.Errorf("acceptsGzip(%q) = %v, want %v", h, got, want)
+		}
 	}
 }
