@@ -3,8 +3,9 @@
 <div class="head">
   <div><h1>Audit log</h1>
     <p class="lede">Who did what: admin sign-ins (and failed attempts), every change made in this admin or through the API, and
-      backup downloads. What was typed into forms, such as passwords, is never stored. Kept for the days set under
-      <a href="/admin/settings">Settings → History</a>.</p></div>
+      backup downloads.</p>
+    <details class="help"><summary>How this works</summary><p>What was typed into forms, such as passwords, is never stored. Kept for the days set under
+      <a href="/admin/settings">Settings → History</a>.</p></details></div>
 </div>
 <form class="search row" method="get" action="/admin/audit">
   <select name="admin" aria-label="Admin" data-autosubmit>

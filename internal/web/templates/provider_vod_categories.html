@@ -5,9 +5,10 @@
 {{template "provider-tabs" (provtabs $d.Provider.ID $d.Provider.Type "vod")}}
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
-<p class="lede">Choose the categories you want from this provider. Titles in other categories are not imported, and their
+<p class="lede">Choose the categories you want from this provider.</p>
+<details class="help"><summary>How this works</summary><p>Titles in other categories are not imported, and their
   categories don't show up in <a href="/admin/vod">Movies &amp; series</a>, in <a href="/admin/bouquets">bouquets</a> or for
-  customers. Categories the provider adds later stay hidden until you tick them.</p>
+  customers. Categories the provider adds later stay hidden until you tick them.</p></details>
 <p class="muted small">Save hides titles outside the chosen categories at once. Save and import also imports the catalog
   now, which brings in titles from newly ticked categories. Type a language (e.g. English) in the filter, then
   “tick all shown”, to choose a whole language.</p>

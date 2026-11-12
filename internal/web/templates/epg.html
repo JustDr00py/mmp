@@ -1,11 +1,11 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><div><h1>EPG</h1>
-    <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.
-      A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
+    <p class="lede">Program data comes from your providers: Xtream panels serve it themselves, M3U providers need an EPG URL.</p>
+    <details class="help"><summary>How this works</summary><p>A channel shows a guide when its <span class="mono">tvg-id</span> matches a channel id in a source. When several guides have it, the one
       with the lowest priority number wins. A provider's guide uses the provider's priority unless you give it its own here, so you can
       rank guides without changing the failover order. Connections to the same service serve the same guide: turn off all but one
-      so it is downloaded and stored once.</p></div><a class="button secondary" href="#extra">Add a guide source</a></div>
+      so it is downloaded and stored once.</p></details></div><a class="button secondary" href="#extra">Add a guide source</a></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Share}}
 <div class="card creds">

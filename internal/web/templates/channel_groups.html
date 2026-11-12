@@ -1,7 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}
 <div class="head"><div><h1>Groups</h1>
-    <p class="lede">Groups are the categories customers see in their player, sorted by sort order then name. A channel without a group shows as “Uncategorized”. Which channels a customer gets is up to their <a href="/admin/bouquets">bouquets</a>; groups only arrange them.</p></div></div>
+    <p class="lede">Groups are the categories customers see in their player, sorted by sort order then name.</p>
+    <details class="help"><summary>How this works</summary><p>A channel without a group shows as “Uncategorized”. Which channels a customer gets is up to their <a href="/admin/bouquets">bouquets</a>; groups only arrange them.</p></details></div></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
 

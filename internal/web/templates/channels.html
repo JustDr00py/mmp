@@ -1,6 +1,7 @@
 {{define "content"}}
 <div class="head">
-  <div><h1>Channels</h1><p class="lede">What customers watch. Each channel plays the first working stream of its failover list. Customers see a channel once it is in one of their <a href="/admin/bouquets">bouquets</a>.</p></div>
+  <div><h1>Channels</h1><p class="lede">What customers watch. Each channel plays the first working stream of its failover list. Customers see a channel once it is in one of their <a href="/admin/bouquets">bouquets</a>.</p>
+    <details class="help"><summary>How this works</summary><p>Drag rows (or use the arrows) to change the order customers see. The channels on this page swap their numbers between them, so filter to a group to arrange it without moving others. <strong>Sort A–Z</strong> sorts everything the list is filtered to, on all its pages.</p></details></div>
   <div class="row"><a class="button secondary" href="/admin/match">Build with Match</a><a class="button" href="/admin/channels/new">New channel</a></div>
 </div>
 {{with .Data.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
@@ -32,13 +33,9 @@
 </form>
 <form method="post" action="/admin/channels/group">
 <input type="hidden" name="q" value="{{.Query}}"><input type="hidden" name="group" value="{{.GroupID}}"><input type="hidden" name="bouquet" value="{{.BouquetID}}"><input type="hidden" name="offset" value="{{.Offset}}">
-<p class="hint">Drag rows (or use the arrows) to change the order customers see. The channels on this page swap their numbers between
-  them, so filter to a group to arrange it without moving others.
-  <button type="submit" class="small secondary" formaction="/admin/channels/sort-names" formnovalidate
-    title="Ignores the ticked boxes: sorts everything the list is filtered to, on all its pages"
-    data-confirm="Sort every channel in this list from A to Z, on all its pages? They swap the numbers they hold, so the order customers see changes, and the current order cannot be restored.">Sort A–Z</button></p>
 <div class="row bulk">
-  <label class="check small"><input type="checkbox" data-check-all="channel"> all on this page</label>
+  <span class="bulk-label" data-count-of="channel" data-count-label="selected">0 selected</span>
+  <label class="check small phone-only"><input type="checkbox" data-check-all="channel"> all on this page</label>
   <select name="to" aria-label="Move selected channels to" required>
     <option value="">Move selected to…</option>
     {{range .Groups}}<option value="{{.ID}}">group “{{.Name}}”</option>{{end}}
@@ -50,10 +47,13 @@
     title="Streams from preferred providers first; same-priority streams keep their order">Sort streams by provider</button>
   <button type="submit" class="small danger" formaction="/admin/channels/delete" formnovalidate
     data-confirm="Delete the selected channels? Their failover lists and bouquet places go with them; the streams stay at their providers, and Match can build them again.">Delete selected</button>
+  <span class="push"><button type="submit" class="small secondary" formaction="/admin/channels/sort-names" formnovalidate
+      title="Ignores the ticked boxes: sorts everything the list is filtered to, on all its pages"
+      data-confirm="Sort every channel in this list from A to Z, on all its pages? They swap the numbers they hold, so the order customers see changes, and the current order cannot be restored.">Sort A–Z</button></span>
 </div>
 <div class="table-wrap">
 <table class="stack">
-  <thead><tr><th class="check" aria-label="Select"></th><th class="grip-cell" aria-label="Order"></th><th class="num">#</th><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Streams</th><th class="num">Bouquets</th><th>Status</th></tr></thead>
+  <thead><tr><th class="check"><input type="checkbox" data-check-all="channel" aria-label="Select all on this page"></th><th class="grip-cell" aria-label="Order"></th><th class="num">#</th><th>Name</th><th>Group</th><th>tvg-id</th><th class="num">Streams</th><th class="num">Bouquets</th><th>Status</th></tr></thead>
   <tbody data-sortable data-sortable-submit="#reorder">
   {{range .Rows}}
   <tr{{if not .Enabled}} class="dim"{{end}}>

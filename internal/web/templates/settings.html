@@ -2,8 +2,9 @@
 {{$d := .Data}}
 <div class="head">
   <div><h1>Settings</h1>
-    <p class="lede">Settings that apply while MMP runs, without a restart. They are stored with your data, so backups include them.
-      Values in <span class="mono">.env</span> or the config file are only used the first time MMP starts; after that, change them here.</p></div>
+    <p class="lede">Settings that apply while MMP runs, without a restart.</p>
+    <details class="help"><summary>How this works</summary><p>They are stored with your data, so backups include them.
+      Values in <span class="mono">.env</span> or the config file are only used the first time MMP starts; after that, change them here.</p></details></div>
 </div>
 <nav class="tabs page-index" aria-label="On this page" data-spy>
   <a href="#match">Automatic matching</a><a href="#prefixes">Name prefixes</a><a href="#nameguide">Guide from stream names</a><a href="#group-icons">Group icons</a><a href="#routes">Game routing</a><a href="#history">History</a>
