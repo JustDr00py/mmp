@@ -355,6 +355,7 @@ func New(d Deps) (*UI, error) {
 		"inc":        func(i int) int { return i + 1 },
 		"list":       func(xs ...int) []int { return xs },
 		"field":      func(id, label, value string) copyField { return copyField{id, label, value} },
+		"provtabs":   func(id int64, typ, current string) providerTabs { return providerTabs{id, typ, current} },
 		"last":       func(i, n int) bool { return i == n-1 },
 		"mbps":       mbps,
 		"bytesize":   byteSize,
@@ -516,6 +517,13 @@ func (ui *UI) execute(w http.ResponseWriter, status int, page, name string, data
 
 // copyField is a read-only value with a copy button.
 type copyField struct{ ID, Label, Value string }
+
+// providerTabs is a provider's sub-page navigation; Current is "streams",
+// "groups", "vod" or "settings".
+type providerTabs struct {
+	ID            int64
+	Type, Current string
+}
 
 // formError is a validation message shown to the admin as written (a
 // sentence, unlike Go error strings).

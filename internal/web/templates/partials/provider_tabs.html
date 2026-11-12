@@ -1,0 +1,8 @@
+{{define "provider-tabs"}}
+<nav class="tabs" aria-label="Provider pages">
+  <a href="/admin/providers/{{.ID}}/streams"{{if eq .Current "streams"}} aria-current="page"{{end}}>Streams</a>
+  <a href="/admin/providers/{{.ID}}/groups"{{if eq .Current "groups"}} aria-current="page"{{end}}>Groups</a>
+  {{if eq .Type "xtream"}}<a href="/admin/providers/{{.ID}}/vod-categories"{{if eq .Current "vod"}} aria-current="page"{{end}}>Movies &amp; series</a>{{end}}
+  <a href="/admin/providers/{{.ID}}/edit"{{if eq .Current "settings"}} aria-current="page"{{end}}>Settings</a>
+</nav>
+{{end}}

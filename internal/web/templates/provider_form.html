@@ -2,59 +2,78 @@
 {{$f := .Data}}
 <p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
 <h1>{{.Title}}</h1>
+{{if $f.ID}}{{template "provider-tabs" (provtabs $f.ID $f.Type "settings")}}{{end}}
 <p class="lede">{{if $f.ID}}Changes apply from the next refresh.{{else}}Enter what your IPTV supplier gave you. After saving, press <strong>Refresh</strong> to import the streams, then choose the groups you want.{{end}}</p>
-<form class="card form" method="post" action="{{if $f.ID}}/admin/providers/{{$f.ID}}/edit{{else}}/admin/providers/new{{end}}">
+<form class="card form provider-form" method="post" action="{{if $f.ID}}/admin/providers/{{$f.ID}}/edit{{else}}/admin/providers/new{{end}}">
   {{with $f.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
-  <div class="grid2">
-    <label>Name<input name="name" value="{{$f.Name}}" required></label>
-    <label>Type
-      <select name="type">
-        <option value="xtream"{{if eq $f.Type "xtream"}} selected{{end}}>Xtream Codes</option>
-        <option value="m3u"{{if eq $f.Type "m3u"}} selected{{end}}>M3U playlist</option>
-      </select>
-    </label>
-  </div>
-  <div class="grid2">
-    <label>Backbone
-      <select name="backbone" data-reveal>
-        <option value="">None</option>
-        {{range $f.Backbones}}<option value="{{.Backbone}}"{{if and (not $f.NewBackbone) (eq .Backbone $f.Backbone)}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
-        <option value="+new"{{if $f.NewBackbone}} selected{{end}}>Add new backbone…</option>
-      </select>
-      <span class="hint">Providers reselling the same upstream network share a backbone. Use it to filter and manage providers in bulk.</span></label>
-    <label data-reveal-for="+new"{{if not $f.NewBackbone}} hidden{{end}}>New backbone<input name="backbone_new" value="{{if $f.NewBackbone}}{{$f.Backbone}}{{end}}" maxlength="60" placeholder="e.g. the network this reseller uses"></label>
-  </div>
-  <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
-    <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
-  <label>VPN URL <span class="muted">(optional)</span><input name="vpn_url" type="url" value="{{$f.VPNURL}}" placeholder="the address this provider gives VPN users">
-    <span class="hint">Some providers refuse VPN addresses on their regular URL and give VPN users another one. MMP uses this one
-      instead of URL while it runs behind the VPN{{if $f.BehindVPN}} (it does now){{else}} (it does not now){{end}}; blank always uses URL.</span></label>
-  <div class="grid2">
-    <label>Username<input name="username" value="{{$f.Username}}" autocomplete="off"></label>
-    <label>Password<input name="password" type="password" autocomplete="new-password"
-      placeholder="{{if $f.HasPassword}}unchanged{{end}}">
-      {{if $f.HasPassword}}<span class="hint">Leave blank to keep the current password.</span>{{end}}</label>
-  </div>
-  <label>EPG URL<input name="epg_url" type="url" value="{{$f.EPGURL}}" placeholder="optional; Xtream panels provide one">
-  </label>
-  <label class="check"><input type="checkbox" name="epg_enabled"{{if $f.GuideEnabled}} checked{{end}}> Download this provider's guide
-    <span class="hint">Untick for a second connection to a service whose guide another provider already downloads: channels find their guide in any source.
-      {{- if and $f.ID $f.GuideEnabled}} Unticking deletes the guide downloaded for this provider.{{end}}</span></label>
-  <div class="grid3">
-    <label>Max connections<input name="max_connections" type="number" min="0" value="{{$f.MaxConnections}}">
-      <span class="hint">0 = unlimited</span></label>
-    <label>Priority<input name="priority" type="number" value="{{$f.Priority}}">
-      <span class="hint">lower is preferred</span></label>
+
+  <fieldset>
+    <legend>Connection</legend>
+    <div class="grid2">
+      <label>Name<input name="name" value="{{$f.Name}}" required></label>
+      <label>Type
+        <select name="type">
+          <option value="xtream"{{if eq $f.Type "xtream"}} selected{{end}}>Xtream Codes</option>
+          <option value="m3u"{{if eq $f.Type "m3u"}} selected{{end}}>M3U playlist</option>
+        </select>
+      </label>
+    </div>
+    <label>URL<input name="url" type="url" value="{{$f.URL}}" placeholder="http://panel.example:8080 or a playlist URL" required>
+      <span class="hint">Xtream: the panel's base URL. M3U: the full playlist URL.</span></label>
+    <div class="grid2">
+      <label>Username<input name="username" value="{{$f.Username}}" autocomplete="off"></label>
+      <label>Password<input name="password" type="password" autocomplete="new-password"
+        placeholder="{{if $f.HasPassword}}unchanged{{end}}">
+        {{if $f.HasPassword}}<span class="hint">Leave blank to keep the current password.</span>{{end}}</label>
+    </div>
+    <label class="check"><input type="checkbox" name="enabled"{{if $f.Enabled}} checked{{end}}> Enabled</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Failover</legend>
+    <div class="grid2">
+      <label>Backbone
+        <select name="backbone" data-reveal>
+          <option value="">None</option>
+          {{range $f.Backbones}}<option value="{{.Backbone}}"{{if and (not $f.NewBackbone) (eq .Backbone $f.Backbone)}} selected{{end}}>{{.Backbone}} ({{.Providers}})</option>{{end}}
+          <option value="+new"{{if $f.NewBackbone}} selected{{end}}>Add new backbone…</option>
+        </select>
+        <span class="hint">Providers reselling the same upstream network share a backbone.</span></label>
+      <label data-reveal-for="+new"{{if not $f.NewBackbone}} hidden{{end}}>New backbone<input name="backbone_new" value="{{if $f.NewBackbone}}{{$f.Backbone}}{{end}}" maxlength="60" placeholder="e.g. the network this reseller uses"></label>
+    </div>
+    <div class="grid2">
+      <label>Priority<input name="priority" type="number" value="{{$f.Priority}}">
+        <span class="hint">Lower is tried first in failover lists.</span></label>
+      <label>Max connections<input name="max_connections" type="number" min="0" value="{{$f.MaxConnections}}">
+        <span class="hint">0 = unlimited</span></label>
+    </div>
+    {{if $f.ID}}<label class="check"><input type="checkbox" name="resort_channels"{{if $f.ResortChannels}} checked{{end}}> Re-sort channels that use this provider
+      <span class="hint">Orders their failover lists by provider priority after saving; streams whose providers tie keep their order.</span></label>{{end}}
+  </fieldset>
+
+  <fieldset>
+    <legend>Importing</legend>
     <label>Refresh every (minutes)<input name="refresh_minutes" type="number" min="1" value="{{$f.RefreshMinutes}}"></label>
-  </div>
-  {{if $f.ID}}<label class="check"><input type="checkbox" name="resort_channels"{{if $f.ResortChannels}} checked{{end}}> Re-sort channels that use this provider
-    <span class="hint">Orders their failover lists by provider priority after saving; streams whose providers tie keep their order.</span></label>{{end}}
-  <label>Max % of streams a refresh may disable<input name="max_disable_pct" type="number" min="0" max="100" value="{{$f.MaxDisablePct}}" placeholder="default: 80">
-    <span class="hint">A refresh that would disable more is refused (a truncated provider answer); blank uses the server default, 100 disables the guard.</span></label>
-  <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="default: VLC/3.0.20 LibVLC/3.0.20"></label>
-  <label class="check"><input type="checkbox" name="vod_enabled"{{if $f.VODEnabled}} checked{{end}}> Import movies &amp; series
-    <span class="hint">Xtream panels only. Catalogs can be large; they import on the refresh schedule or with “Import catalog”.</span></label>
-  <label class="check"><input type="checkbox" name="enabled"{{if $f.Enabled}} checked{{end}}> Enabled</label>
+    <label class="check"><input type="checkbox" name="vod_enabled"{{if $f.VODEnabled}} checked{{end}}> Import movies &amp; series
+      <span class="hint">Xtream panels only. Catalogs can be large: choose categories first on the provider's Movies &amp; series tab.</span></label>
+    <label>EPG URL<input name="epg_url" type="url" value="{{$f.EPGURL}}" placeholder="optional; Xtream panels provide one"></label>
+    <label class="check"><input type="checkbox" name="epg_enabled"{{if $f.GuideEnabled}} checked{{end}}> Download this provider's guide
+      <span class="hint">Untick for a second account on a service whose guide another provider already downloads: channels find their guide in any source.
+        {{- if and $f.ID $f.GuideEnabled}} Unticking deletes the guide downloaded for this provider.{{end}}</span></label>
+  </fieldset>
+
+  <details class="advanced"{{if or $f.Error $f.VPNURL $f.UserAgent $f.MaxDisablePct}} open{{end}}>
+    <summary>Advanced</summary>
+    <div class="form">
+      <label>VPN URL <span class="muted">(optional)</span><input name="vpn_url" type="url" value="{{$f.VPNURL}}" placeholder="the address this provider gives VPN users">
+        <span class="hint">For providers that refuse VPN addresses on their regular URL. MMP uses this one instead of URL while it runs
+          behind the VPN{{if $f.BehindVPN}} (it does now){{else}} (it does not now){{end}}; blank always uses URL.</span></label>
+      <label>User agent<input name="user_agent" value="{{$f.UserAgent}}" placeholder="default: VLC/3.0.20 LibVLC/3.0.20"></label>
+      <label>Max % of streams a refresh may disable<input name="max_disable_pct" type="number" min="0" max="100" value="{{$f.MaxDisablePct}}" placeholder="default: 80">
+        <span class="hint">A refresh that would disable more is refused (a truncated provider answer); blank uses the server default, 100 disables the guard.</span></label>
+    </div>
+  </details>
+
   <div class="row">
     <button type="submit">{{if $f.ID}}Save{{else}}Add provider{{end}}</button>
     <a href="/admin/providers">Cancel</a>

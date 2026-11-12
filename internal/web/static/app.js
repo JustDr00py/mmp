@@ -79,12 +79,22 @@
     if (order(li.parentNode) !== before) submitOrder(li.parentNode);
   });
 
-  // [data-count-of="name"] shows how many name checkboxes are ticked.
+  // [data-count-of="name"] shows how many name checkboxes of its form are
+  // ticked, including ones outside it that join it with form="…".
   const counts = () => document.querySelectorAll('[data-count-of]').forEach((el) => {
-    const n = el.closest('form').querySelectorAll(`input[type=checkbox][name="${el.dataset.countOf}"]:checked`).length;
+    const n = Array.from(el.closest('form').elements).filter((c) => c.type === 'checkbox' && c.name === el.dataset.countOf && c.checked).length;
     el.textContent = `${n} ${el.dataset.countLabel || ''}`.trim();
   });
   document.addEventListener('htmx:afterSwap', counts);
+
+  // details.menu: one open at a time; a click outside or Escape closes it.
+  const closeMenus = (except) => document.querySelectorAll('details.menu[open]').forEach((m) => { if (m !== except) m.open = false; });
+  document.addEventListener('click', (e) => closeMenus(e.target.closest?.('details.menu')));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const open = document.querySelector('details.menu[open]');
+    if (open) { open.open = false; open.querySelector('summary').focus(); }
+  });
   document.addEventListener('input', (e) => {
     const row = e.target.closest?.('[data-row]');
     if (row && e.target.matches('input[type=text], input:not([type])')) { const k = row.querySelector('input[name=key]'); if (k) { k.checked = true; counts(); } }
