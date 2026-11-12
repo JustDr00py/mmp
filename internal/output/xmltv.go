@@ -197,23 +197,72 @@ func (h *Handlers) serveGuide(w http.ResponseWriter, r *http.Request, u db.User,
 	fetch := func(ctx context.Context, keys []string) ([]db.ListGuideProgramsRow, error) {
 		return h.Store.ListGuidePrograms(ctx, db.ListGuideProgramsParams{TvgKeys: keys, Since: since, Until: until, Now: now})
 	}
-	var out io.Writer = w
+	// The .xml.gz file is gzip by name; the plain guide is gzipped on the
+	// wire when the player accepts it (nearly all do), which cuts a large
+	// guide to about a tenth for the same document.
+	encoded := !gz && acceptsGzip(r.Header.Get("Accept-Encoding"))
+	w.Header().Add("Vary", "Accept-Encoding")
 	if gz {
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", `attachment; filename="epg.xml.gz"`)
-		zw := gzip.NewWriter(w)
-		defer zw.Close()
-		out = zw
 	} else {
 		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 		w.Header().Set("Content-Disposition", `inline; filename="epg.xml"`)
 	}
+	if encoded {
+		w.Header().Set("Content-Encoding", "gzip")
+	}
 	w.Header().Set("Cache-Control", "no-store")
+	var out io.Writer = w
+	if gz || encoded {
+		zw := gzip.NewWriter(w)
+		defer zw.Close()
+		out = zw
+	}
+	xmlBytes := &countingWriter{w: out}
 	// Headers are gone once the first byte is written, so a failure past
 	// this point can only cut the document short; log it.
-	if err := WriteXMLTV(r.Context(), out, chans, fetch, h.nameGuideFor(r.Context(), now), since, until); err != nil {
+	err = WriteXMLTV(r.Context(), xmlBytes, chans, fetch, h.nameGuideFor(r.Context(), now), since, until)
+	if err != nil {
 		h.Log.Warn("output: write guide", "user_id", u.ID, "err", err)
 	}
+	// Whether the player took the guide compressed (the request log has the
+	// bytes actually sent and the time).
+	h.Log.Info("guide served", "user_id", u.ID, "username", u.Username, "compressed", gz || encoded,
+		"xml_bytes", xmlBytes.n, "accept_encoding", r.Header.Get("Accept-Encoding"), "user_agent", r.UserAgent(),
+		"complete", err == nil)
+}
+
+// acceptsGzip reports whether an Accept-Encoding header allows gzip
+// ("gzip", "x-gzip" or "*", without q=0).
+func acceptsGzip(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(part, ";")
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "gzip", "x-gzip", "*":
+		default:
+			continue
+		}
+		if q, ok := strings.CutPrefix(strings.ReplaceAll(params, " ", ""), "q="); ok {
+			if v, err := strconv.ParseFloat(q, 64); err == nil && v == 0 {
+				continue
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// countingWriter counts what passes through it.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 func (h *Handlers) now() time.Time {
