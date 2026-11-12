@@ -48,6 +48,7 @@ type settingsData struct {
 	GroupMissing  bool           // the chosen group was deleted
 	Flash         string
 	Error         string
+	Section       string // id of the section the flash or error belongs to
 }
 
 // GroupValue is the group select's value for the settings.
@@ -109,13 +110,27 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 	return d, nil
 }
 
+// settingsSection is the section (its id on the page) each save message
+// and validation error belongs to.
+var settingsSection = map[string]string{
+	"match": "match", "prefixes": "prefixes", "events": "history", "nameguide": "nameguide",
+	"routes": "routes", "groupicons": "group-icons",
+}
+
+// settingsSaved redirects to the settings page, at the section just saved.
+func (ui *UI) settingsSaved(w http.ResponseWriter, r *http.Request, msg string) {
+	ui.redirect(w, r, Prefix+"/settings?msg="+msg+"#"+settingsSection[msg])
+}
+
 func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 	d, err := ui.settingsData(r, nil)
 	if err != nil {
 		ui.fail(w, "settings", err)
 		return
 	}
-	switch r.URL.Query().Get("msg") {
+	msg := r.URL.Query().Get("msg")
+	d.Section = settingsSection[msg]
+	switch msg {
 	case "match":
 		d.Flash = "Matching settings saved. They apply from the next provider refresh."
 	case "prefixes":
@@ -158,7 +173,7 @@ func (ui *UI) settingsMatchSave(w http.ResponseWriter, r *http.Request) {
 		err = formError("That group no longer exists. Choose another.")
 	}
 	if err != nil {
-		d.Error = err.Error()
+		d.Error, d.Section = err.Error(), "match"
 		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
 		return
 	}
@@ -167,7 +182,7 @@ func (ui *UI) settingsMatchSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: match settings saved", "auto", m.Auto, "new_channels", m.NewChannels)
-	ui.redirect(w, r, Prefix+"/settings?msg=match")
+	ui.settingsSaved(w, r, "match")
 }
 
 func (ui *UI) settingsPrefixesSave(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +197,7 @@ func (ui *UI) settingsPrefixesSave(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "settings", derr)
 			return
 		}
-		d.Prefixes, d.Error = r.PostForm.Get("prefixes"), "Name prefixes: "+err.Error()+"."
+		d.Prefixes, d.Error, d.Section = r.PostForm.Get("prefixes"), "Name prefixes: "+err.Error()+".", "prefixes"
 		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
 		return
 	}
@@ -191,7 +206,7 @@ func (ui *UI) settingsPrefixesSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: ignored name prefixes saved", "count", len(prefixes))
-	ui.redirect(w, r, Prefix+"/settings?msg=prefixes")
+	ui.settingsSaved(w, r, "prefixes")
 }
 
 func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +221,7 @@ func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "settings", derr)
 			return
 		}
-		d.Events, d.Error = ret, err.Error()
+		d.Events, d.Error, d.Section = ret, err.Error(), "history"
 		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
 		return
 	}
@@ -215,7 +230,7 @@ func (ui *UI) settingsEventsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: event retention saved", "keep_days", ret.KeepDays)
-	ui.redirect(w, r, Prefix+"/settings?msg=events")
+	ui.settingsSaved(w, r, "events")
 }
 
 // commonZones are offered for the stream-name guide's zone (any IANA name
@@ -236,7 +251,7 @@ func (ui *UI) settingsNameGuideSave(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "settings", derr)
 			return
 		}
-		d.NameGuide, d.Error = s, err.Error()
+		d.NameGuide, d.Error, d.Section = s, err.Error(), "nameguide"
 		ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
 		return
 	}
@@ -245,7 +260,7 @@ func (ui *UI) settingsNameGuideSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: stream-name guide saved", "enabled", s.Enabled, "all", s.All, "zone", s.Zone)
-	ui.redirect(w, r, Prefix+"/settings?msg=nameguide")
+	ui.settingsSaved(w, r, "nameguide")
 }
 
 func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +292,7 @@ func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
 			ui.fail(w, "settings", derr)
 			return
 		}
-		d.Routes, d.Error = s, msg
+		d.Routes, d.Error, d.Section = s, msg, "routes"
 		d.RouteSource, d.RouteTarget = map[int64]bool{}, map[int64]bool{}
 		for _, id := range rule.SourceGroupIDs {
 			d.RouteSource[id] = true
@@ -298,7 +313,7 @@ func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
 	ui.Log.Info("web: game routing saved", "enabled", s.Enabled, "rules", s.Rules,
 		"before_mins", s.BeforeMins, "after_mins", s.AfterMins)
 	if ui.Routes == nil {
-		ui.redirect(w, r, Prefix+"/settings?msg=routes")
+		ui.settingsSaved(w, r, "routes")
 		return
 	}
 	res, err := ui.Routes.Run(r.Context(), time.Now()) // apply at once rather than at the next tick
@@ -312,7 +327,7 @@ func (ui *UI) settingsRoutesSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.RouteResult = &res
-	d.Flash = "Game routing saved and run."
+	d.Flash, d.Section = "Game routing saved and run.", "routes"
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
 
@@ -327,5 +342,5 @@ func (ui *UI) settingsGroupIconsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ui.Log.Info("web: group icon setting saved", "enabled", s.Enabled)
-	ui.redirect(w, r, Prefix+"/settings?msg=groupicons")
+	ui.settingsSaved(w, r, "groupicons")
 }

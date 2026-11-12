@@ -289,19 +289,19 @@ type navItem struct {
 }
 
 var nav = []navItem{
-	{Prefix + "/", "Dashboard", "home", ""},
+	{Prefix + "/", "Dashboard", "home", "Overview"},
 	{Prefix + "/events", "Events", "clock", ""},
 	{Prefix + "/guide", "Guide", "guide", ""},
 	{Prefix + "/providers", "Providers", "server", "Sources"},
 	{Prefix + "/epg", "EPG", "epg", ""},
 	{Prefix + "/match", "Match", "match", "Lineup"},
 	{Prefix + "/channels", "Channels", "tv", ""},
-	{Prefix + "/logos", "Logos", "image", ""},
 	{Prefix + "/groups", "Groups", "folder", ""},
+	{Prefix + "/logos", "Logos", "image", ""},
 	{Prefix + "/bouquets", "Bouquets", "stack", ""},
 	{Prefix + "/vod", "Movies & Series", "film", ""},
 	{Prefix + "/users", "Users", "users", "Customers"},
-	{Prefix + "/settings", "Settings", "gear", "Settings"},
+	{Prefix + "/settings", "Settings", "gear", "System"},
 	{Prefix + "/vpn", "VPN", "globe", ""},
 	{Prefix + "/profiles", "Profiles", "sliders", ""},
 	{Prefix + "/backups", "Backups", "archive", ""},

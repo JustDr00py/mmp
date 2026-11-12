@@ -52,7 +52,7 @@ func TestSettingsMatch(t *testing.T) {
 
 	resp, _ := b.post("/admin/settings/match", url.Values{"min_providers": {"1"}, "group": {"source"}, "bouquets": {"auto"},
 		"bq": {strconv.FormatInt(kids.ID, 10)}}, b.base)
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/settings?msg=match" {
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/settings?msg=match#match" {
 		t.Fatalf("save = %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	m, _ = svc.MatchSettings(ctx)
@@ -62,6 +62,11 @@ func TestSettingsMatch(t *testing.T) {
 	if _, body := b.get("/admin/settings?msg=match"); !strings.Contains(body, "Matching settings saved.") ||
 		strings.Contains(body, `name="auto" checked`) {
 		t.Errorf("after save:\n%s", body)
+	}
+	// The message shows in the section that was saved, not at the top.
+	if _, body := b.get("/admin/settings?msg=match"); !(strings.Index(body, `id="match"`) < strings.Index(body, "Matching settings saved.") &&
+		strings.Index(body, "Matching settings saved.") < strings.Index(body, `id="prefixes"`)) {
+		t.Error("the save message is not inside the Automatic matching section")
 	}
 
 	for _, tt := range []struct {
@@ -106,7 +111,7 @@ func TestSettingsGroupIcons(t *testing.T) {
 		t.Fatal("settings page lacks the group icons form")
 	}
 	resp, _ := b.post("/admin/settings/groupicons", url.Values{"enabled": {"on"}}, b.base)
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/settings?msg=groupicons" {
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/admin/settings?msg=groupicons#group-icons" {
 		t.Fatalf("save = %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if s, _ := output.LoadGroupIcons(ctx, q); !s.Enabled {

@@ -109,6 +109,31 @@
     document.querySelectorAll(`${box.dataset.filter} > li`).forEach((li) => { li.hidden = q !== '' && !li.textContent.toLowerCase().includes(q); });
   });
 
+  // nav[data-spy]: its #links mark (aria-current) the section being read.
+  document.querySelectorAll('nav[data-spy]').forEach((nav) => {
+    const links = [...nav.querySelectorAll('a[href^="#"]')];
+    const sections = links.map((a) => document.getElementById(a.hash.slice(1))).filter(Boolean);
+    const mark = () => {
+      // A section jumped to sits a little below the index (scroll-margin-top).
+      const top = nav.getBoundingClientRect().bottom + 32;
+      let cur = sections[0];
+      sections.forEach((s) => { if (s.getBoundingClientRect().top <= top) cur = s; });
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = sections[sections.length - 1];
+      links.forEach((a) => {
+        if (a.hash !== `#${cur?.id}`) { a.removeAttribute('aria-current'); return; }
+        if (a.hasAttribute('aria-current')) return;
+        a.setAttribute('aria-current', 'true');
+        // On phones the index scrolls sideways: keep the marked link in it.
+        nav.scrollTo({ left: a.offsetLeft - (nav.clientWidth - a.offsetWidth) / 2, behavior: 'smooth' });
+      });
+    };
+    mark();
+    window.addEventListener('scroll', mark, { passive: true });
+  });
+  // [data-scroll-here]: a message shown in the middle of a long page (the
+  // section just saved) is scrolled to when the page opens without #anchor.
+  if (!window.location.hash) document.querySelector('[data-scroll-here]')?.closest('section')?.scrollIntoView();
+
   // [data-nav-toggle] opens and closes the sidebar on small screens.
   document.addEventListener('click', (e) => {
     const t = e.target.closest?.('[data-nav-toggle]');

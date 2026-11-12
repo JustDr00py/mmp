@@ -5,11 +5,14 @@
     <p class="lede">Settings that apply while MMP runs, without a restart. They are stored with your data, so backups include them.
       Values in <span class="mono">.env</span> or the config file are only used the first time MMP starts; after that, change them here.</p></div>
 </div>
-{{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
-{{with $d.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<nav class="tabs page-index" aria-label="On this page" data-spy>
+  <a href="#match">Automatic matching</a><a href="#prefixes">Name prefixes</a><a href="#nameguide">Guide from stream names</a><a href="#group-icons">Group icons</a><a href="#routes">Game routing</a><a href="#history">History</a>
+</nav>
+{{if and $d.Error (not $d.Section)}}<p class="error" role="alert">{{$d.Error}}</p>{{end}}
 
-<section class="settings-section">
+<section class="settings-section" id="match">
   <h2>Automatic matching</h2>
+  {{if eq $d.Section "match"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form" method="post" action="/admin/settings/match">
     <label class="check"><input type="checkbox" name="auto"{{if $d.Match.Auto}} checked{{end}}> Match channels after each provider refresh</label>
     <span class="hint">New streams are added as failover streams to the channels they match. Existing channels keep their group and bouquets.</span>
@@ -43,6 +46,7 @@
 
 <section class="settings-section" id="prefixes">
   <h2>Name prefixes to ignore</h2>
+  {{if eq $d.Section "prefixes"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form" method="post" action="/admin/settings/prefixes">
     <label>Source labels some providers put before every stream name
       <textarea name="prefixes" rows="4" placeholder="AT&amp;T&#10;SLING&#10;DIRECTV" spellcheck="false">{{$d.Prefixes}}</textarea>
@@ -54,8 +58,9 @@
   </form>
 </section>
 
-<section class="settings-section">
+<section class="settings-section" id="nameguide">
   <h2>Guide from stream names</h2>
+  {{if eq $d.Section "nameguide"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form" method="post" action="/admin/settings/nameguide">
     <label class="check"><input type="checkbox" name="enabled"{{if $d.NameGuide.Enabled}} checked{{end}}> Give channels without a guide one made from their stream name</label>
     <span class="hint">Event feeds are often named like <span class="mono">Next | Jets @ Patriots | NFL Game Pass | 2026-10-18 | 17:00</span>.
@@ -71,6 +76,7 @@
 
 <section class="settings-section" id="group-icons">
   <h2>Group icons</h2>
+  {{if eq $d.Section "group-icons"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form" method="post" action="/admin/settings/groupicons">
     <label class="check"><input type="checkbox" name="enabled"{{if $d.GroupIcons.Enabled}} checked{{end}}> Send group icons to Xtream clients</label>
     <span class="hint">Groups with an icon (set on the <a href="/admin/groups">Groups</a> page) get an extra
@@ -83,6 +89,7 @@
 
 <section class="settings-section" id="routes">
   <h2>Game routing</h2>
+  {{if eq $d.Section "routes"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form" method="post" action="/admin/settings/routes">
     <label class="check"><input type="checkbox" name="enabled"{{if $d.Routes.Enabled}} checked{{end}}> Let team channels play the game slot that carries their game</label>
     <span class="hint">Slot channels like <span class="mono">NBA 06</span> are renamed for each game, e.g.
@@ -120,8 +127,9 @@
   </div>{{end}}
 </section>
 
-<section class="settings-section">
+<section class="settings-section" id="history">
   <h2>History</h2>
+  {{if eq $d.Section "history"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
   <form class="card form narrow" method="post" action="/admin/settings/events">
     <label>Keep events for
       <input class="short" type="number" name="keep_days" min="1" max="3650" value="{{$d.Events.KeepDays}}" required>
