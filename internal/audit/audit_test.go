@@ -14,6 +14,7 @@ func TestDescribe(t *testing.T) {
 		{"POST", "/admin/providers/7/edit", "updated", "provider", "7"},
 		{"POST", "/admin/providers/7/delete", "deleted", "provider", "7"},
 		{"POST", "/admin/providers/7/refresh", "refreshed", "provider", "7"},
+		{"POST", "/admin/providers/7/clone", "cloned", "provider", "7"},
 		{"POST", "/admin/channels/5", "updated", "channel", "5"},
 		{"POST", "/admin/channels/5/streams/77/remove", "removed from", "channel", "5"},
 		{"POST", "/admin/channels/5/streams/order", "reordered the streams of", "channel", "5"},

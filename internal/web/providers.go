@@ -35,6 +35,8 @@ func (ui *UI) mountProviders(r chi.Router) {
 		r.Get("/edit", ui.providerEdit)
 		r.Post("/edit", ui.providerUpdate)
 		r.Post("/delete", ui.providerDelete)
+		r.Get("/clone", ui.providerClonePage)
+		r.Post("/clone", ui.providerClone)
 		r.Post("/toggle", ui.providerToggle)
 		r.Post("/refresh", ui.providerRefresh)
 		r.Get("/streams", ui.streamsPage)
@@ -81,6 +83,7 @@ var flashes = map[string]string{
 	"created": "Provider added. Refresh it to import its streams, then choose its groups: none of its streams are matched until you do.",
 	"saved":   "Provider saved.",
 	"deleted": "Provider deleted.",
+	"cloned":  "Provider cloned with the same settings, groups and movie & series categories. Refresh it to import its streams.",
 }
 
 // mixedBackbone is a backbone whose providers do not share one priority.
