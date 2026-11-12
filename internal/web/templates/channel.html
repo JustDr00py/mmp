@@ -48,7 +48,7 @@
 
 {{define "stream-list"}}
 <div id="stream-list">
-{{with .Game}}<p class="flash" role="status">Game on: <strong>{{.Title}}</strong>. Until <time datetime="{{.EndsAt.Format "2006-01-02T15:04:05Z07:00"}}" data-local="clock">{{.EndsAt.Format "15:04"}}</time>
+{{with .Game}}<p class="flash" role="status" data-keep>Game on: <strong>{{.Title}}</strong>. Until <time datetime="{{.EndsAt.Format "2006-01-02T15:04:05Z07:00"}}" data-local="clock">{{.EndsAt.Format "15:04"}}</time>
   this channel plays <a href="/admin/channels/{{.SourceChannelID}}">{{.SourceName}}</a>'s {{len $.Slot}} streams in order, then this channel's own
   (<a href="/admin/settings#routes">game routing</a>).</p>
 <h3 class="small">From <a href="/admin/channels/{{.SourceChannelID}}">{{.SourceName}}</a> <span class="muted">· edit them on that channel</span></h3>

@@ -1,9 +1,9 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Match</h1></div>
-<p class="lede">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
-  Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
-  <a href="/admin/providers">Groups</a> first. Placeholder entries such as <code>##### ABC IDAHO #####</code> are left out.</p>
+<div class="head"><div><h1>Match</h1>
+    <p class="lede">Match finds the same channel at your different providers and builds a channel with failover from them in one step.
+      Search or pick a provider group, check the suggestions, then apply. Too many regional groups? Choose each provider's
+      <a href="/admin/providers">Groups</a> first. Placeholder entries such as <code>##### ABC IDAHO #####</code> are left out.</p></div></div>
 {{with $d.Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 {{with $d.Applied}}<p class="flash" role="status">Done: {{.Created}} channel{{if ne .Created 1}}s{{end}} created, {{.Attached}} stream{{if ne .Attached 1}}s{{end}} added{{with .Bouquets}}, all in bouquet{{if gt (len .) 1}}s{{end}} {{range $i, $b := .}}{{if $i}}, {{end}}“{{$b}}”{{end}}{{end}}.
   <a href="/admin/channels">View channels</a></p>{{end}}
@@ -153,6 +153,7 @@
   {{end}}
   </ul>
   <nav class="pager">
+    <span class="muted small">{{.From}}–{{.To}} of {{.Matching}}</span>
     {{if ge .Prev 0}}<a href="{{.Filter.PageURL .Prev}}">← Previous</a>{{end}}
     {{if ge .Next 0}}<a href="{{.Filter.PageURL .Next}}">Next →</a>{{end}}
   </nav>

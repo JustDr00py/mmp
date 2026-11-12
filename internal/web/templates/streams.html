@@ -1,6 +1,6 @@
 {{define "content"}}
 <p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
-<h1>{{.Data.Provider.Name}}</h1>
+<div class="head"><h1>{{.Data.Provider.Name}}</h1></div>
 {{template "provider-tabs" (provtabs .Data.Provider.ID .Data.Provider.Type "streams")}}
 <p class="lede">Every stream this provider lists. “Gone” streams disappeared in the last refresh and are skipped.</p>
 <form class="search" method="get" action="/admin/providers/{{.Data.Provider.ID}}/streams"
@@ -40,7 +40,7 @@
 </div>
 <nav class="pager">
   {{if $d.Offset}}<a href="{{streamsURL $d.Provider.ID $d.Query $d.PrevOffset}}" hx-get="{{streamsURL $d.Provider.ID $d.Query $d.PrevOffset}}" hx-target="#streams" hx-swap="outerHTML" hx-push-url="true">← Previous</a>{{end}}
-  <span class="muted">{{$d.First}}–{{len $d.Streams | add $d.Offset}}</span>
+  <span class="muted small">{{$d.First}}–{{len $d.Streams | add $d.Offset}}</span>
   {{if $d.NextOffset}}<a href="{{streamsURL $d.Provider.ID $d.Query $d.NextOffset}}" hx-get="{{streamsURL $d.Provider.ID $d.Query $d.NextOffset}}" hx-target="#streams" hx-swap="outerHTML" hx-push-url="true">Next →</a>{{end}}
 </nav>
 {{else if $d.Query}}

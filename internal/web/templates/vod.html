@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}
-<div class="head"><h1>Movies &amp; series</h1></div>
-<p class="lede">Imported from Xtream providers with “Import movies &amp; series” turned on. Customers see the categories granted in their
-  <a href="/admin/bouquets">bouquets</a>; each title they play uses one of their connections and one of the provider's.</p>
+<div class="head"><div><h1>Movies &amp; series</h1>
+    <p class="lede">Imported from Xtream providers with “Import movies &amp; series” turned on. Customers see the categories granted in their
+      <a href="/admin/bouquets">bouquets</a>; each title they play uses one of their connections and one of the provider's.</p></div></div>
 <nav class="tabs">
   <a href="/admin/vod?kind=movie"{{if eq $d.Kind "movie"}} aria-current="page"{{end}}>Movies</a>
   <a href="/admin/vod?kind=series"{{if eq $d.Kind "series"}} aria-current="page"{{end}}>Series</a>
@@ -42,6 +42,7 @@
   </tr>{{end}}</tbody>
 </table></div>
 <nav class="pager">
+  <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Rows)}}</span>
   {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
   {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>

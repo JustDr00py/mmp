@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$f := .Data}}
 <p class="crumbs"><a href="/admin/providers">Providers</a> /</p>
-<h1>{{.Title}}</h1>
+<div class="head"><h1>{{.Title}}</h1></div>
 {{if $f.ID}}{{template "provider-tabs" (provtabs $f.ID $f.Type "settings")}}{{end}}
 <p class="lede">{{if $f.ID}}Changes apply from the next refresh.{{else}}Enter what your IPTV supplier gave you. After saving, press <strong>Refresh</strong> to import the streams, then choose the groups you want.{{end}}</p>
 <form class="card form provider-form" method="post" action="{{if $f.ID}}/admin/providers/{{$f.ID}}/edit{{else}}/admin/providers/new{{end}}">

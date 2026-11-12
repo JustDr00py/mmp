@@ -76,6 +76,7 @@
 </div>
 </form>
 <nav class="pager">
+  <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Rows)}}</span>
   {{if .Offset}}<a href="/admin/channels?q={{.Query}}&group={{.GroupID}}&bouquet={{.BouquetID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
   {{if .NextOffset}}<a href="/admin/channels?q={{.Query}}&group={{.GroupID}}&bouquet={{.BouquetID}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>
