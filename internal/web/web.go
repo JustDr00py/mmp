@@ -33,6 +33,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
 	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 //go:embed templates
@@ -226,6 +227,14 @@ type Refresher interface {
 	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
 
+// VODLibrary is the TMDB matcher, as the Settings page uses it.
+type VODLibrary interface {
+	Trigger() bool
+	Status() vodmeta.MatchStatus
+	Counts(ctx context.Context) (db.VODMatchCountsRow, error)
+	CheckKey(ctx context.Context, key string) error
+}
+
 // Deps are the UI's collaborators.
 type Deps struct {
 	Auth       *auth.Authenticator
@@ -271,6 +280,9 @@ type Deps struct {
 	Routes interface {
 		Run(ctx context.Context, now time.Time) (eventroute.Result, error)
 	}
+	// VODLibrary runs TMDB matching (Settings → VOD library); nil hides
+	// the matching status.
+	VODLibrary VODLibrary
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger

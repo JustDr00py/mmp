@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/events"
 	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/output"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 // The Settings page holds settings that apply while MMP runs (stored in
@@ -29,6 +32,7 @@ func (ui *UI) mountSettings(r chi.Router) {
 	r.Post("/settings/nameguide", ui.settingsNameGuideSave)
 	r.Post("/settings/routes", ui.settingsRoutesSave)
 	r.Post("/settings/groupicons", ui.settingsGroupIconsSave)
+	r.Post("/settings/vodlibrary", ui.settingsVODLibrarySave)
 }
 
 type settingsData struct {
@@ -46,6 +50,10 @@ type settingsData struct {
 	Bouquets      []db.Bouquet
 	Picked        map[int64]bool // ticked bouquets
 	GroupMissing  bool           // the chosen group was deleted
+	VODLib        vodmeta.Settings
+	VODKeyHint    string // the saved TMDB key's last characters, never the key
+	VODStatus     *vodmeta.MatchStatus
+	VODCounts     *db.VODMatchCountsRow
 	Flash         string
 	Error         string
 	Section       string // id of the section the flash or error belongs to
@@ -104,6 +112,17 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 	for _, id := range d.Match.BouquetIDs {
 		d.Picked[id] = true
 	}
+	if d.VODLib, err = vodmeta.LoadSettings(r.Context(), ui.Store); err != nil {
+		return d, err
+	}
+	d.VODKeyHint = keyHint(d.VODLib.TMDBKey)
+	if ui.VODLibrary != nil {
+		st := ui.VODLibrary.Status()
+		d.VODStatus = &st
+		if c, err := ui.VODLibrary.Counts(r.Context()); err == nil {
+			d.VODCounts = &c
+		}
+	}
 	if d.Match.Group == channel.GroupFixed {
 		d.GroupMissing = !slices.ContainsFunc(d.ChannelGroups, func(g db.ChannelGroup) bool { return g.ID == d.Match.GroupID })
 	}
@@ -114,7 +133,8 @@ func (ui *UI) settingsData(r *http.Request, m *channel.MatchSettings) (settingsD
 // and validation error belongs to.
 var settingsSection = map[string]string{
 	"match": "match", "prefixes": "prefixes", "events": "history", "nameguide": "nameguide",
-	"routes": "routes", "groupicons": "group-icons",
+	"routes": "routes", "groupicons": "group-icons", "vodlibrary": "vod-library", "vodmatch": "vod-library",
+	"vodmatch-busy": "vod-library",
 }
 
 // settingsSaved redirects to the settings page, at the section just saved.
@@ -143,6 +163,12 @@ func (ui *UI) settingsPage(w http.ResponseWriter, r *http.Request) {
 		d.Flash = "Game routing saved."
 	case "groupicons":
 		d.Flash = "Group icon setting saved. Players get it the next time they load their categories."
+	case "vodlibrary":
+		d.Flash = "VOD library settings saved."
+	case "vodmatch":
+		d.Flash = "TMDB matching started. It runs in the background; reload to see its progress."
+	case "vodmatch-busy":
+		d.Flash = "TMDB matching is already running, or is off (it needs a key and the option ticked)."
 	}
 	ui.render(w, r, http.StatusOK, "settings", "Settings", d)
 }
@@ -343,4 +369,67 @@ func (ui *UI) settingsGroupIconsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	ui.Log.Info("web: group icon setting saved", "enabled", s.Enabled)
 	ui.settingsSaved(w, r, "groupicons")
+}
+
+// keyHint shows which key is saved without showing it: "…a1b2".
+func keyHint(key string) string {
+	if len(key) < 8 {
+		return ""
+	}
+	return "…" + key[len(key)-4:]
+}
+
+func (ui *UI) settingsVODLibrarySave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	if f.Get("action") == "match" {
+		if ui.VODLibrary != nil && ui.VODLibrary.Trigger() {
+			ui.Log.Info("web: tmdb matching started")
+			ui.settingsSaved(w, r, "vodmatch")
+			return
+		}
+		ui.settingsSaved(w, r, "vodmatch-busy")
+		return
+	}
+	old, err := vodmeta.LoadSettings(r.Context(), ui.Store)
+	if err != nil {
+		ui.fail(w, "settings", err)
+		return
+	}
+	s := vodmeta.Settings{TMDBKey: strings.TrimSpace(f.Get("tmdb_key")), Match: f.Get("match") != "", CleanTitles: f.Get("clean_titles") != ""}
+	switch {
+	case f.Get("clear_key") != "":
+		s.TMDBKey = ""
+	case s.TMDBKey == "": // the field is never filled in: empty keeps the saved key
+		s.TMDBKey = old.TMDBKey
+	case s.TMDBKey != old.TMDBKey && ui.VODLibrary != nil:
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		err := ui.VODLibrary.CheckKey(ctx, s.TMDBKey)
+		cancel()
+		if errors.Is(err, vodmeta.ErrTMDBAuth) {
+			d, derr := ui.settingsData(r, nil)
+			if derr != nil {
+				ui.fail(w, "settings", derr)
+				return
+			}
+			s.TMDBKey = old.TMDBKey
+			d.VODLib, d.Error, d.Section = s, "TMDB refused that key. Paste the API key (v3) or the API read access token from your TMDB account settings.", "vod-library"
+			ui.render(w, r, http.StatusUnprocessableEntity, "settings", "Settings", d)
+			return
+		} else if err != nil {
+			ui.Log.Warn("web: could not check the TMDB key; saved unchecked", "err", err)
+		}
+	}
+	if err := vodmeta.SaveSettings(r.Context(), ui.Store, s); err != nil {
+		ui.fail(w, "save vod library settings", err)
+		return
+	}
+	ui.Log.Info("web: vod library settings saved", "tmdb_key", s.TMDBKey != "", "match", s.Match, "clean_titles", s.CleanTitles)
+	if s.Matching() && ui.VODLibrary != nil {
+		ui.VODLibrary.Trigger()
+	}
+	ui.settingsSaved(w, r, "vodlibrary")
 }

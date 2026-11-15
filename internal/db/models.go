@@ -275,6 +275,22 @@ type StreamProfile struct {
 	UserAgent  string `json:"user_agent"`
 }
 
+type TmdbCache struct {
+	Kind      string    `json:"kind"`
+	TmdbID    string    `json:"tmdb_id"`
+	ImdbID    string    `json:"imdb_id"`
+	Data      []byte    `json:"data"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+type TmdbSearch struct {
+	Kind       string    `json:"kind"`
+	QueryKey   string    `json:"query_key"`
+	Year       int32     `json:"year"`
+	TmdbID     string    `json:"tmdb_id"`
+	SearchedAt time.Time `json:"searched_at"`
+}
+
 type User struct {
 	ID             int64      `json:"id"`
 	Username       string     `json:"username"`

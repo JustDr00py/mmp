@@ -7,7 +7,7 @@
       Values in <span class="mono">.env</span> or the config file are only used the first time MMP starts; after that, change them here.</p></details></div>
 </div>
 <nav class="tabs page-index" aria-label="On this page" data-spy>
-  <a href="#match">Automatic matching</a><a href="#prefixes">Name prefixes</a><a href="#nameguide">Guide from stream names</a><a href="#group-icons">Group icons</a><a href="#routes">Game routing</a><a href="#history">History</a>
+  <a href="#match">Automatic matching</a><a href="#prefixes">Name prefixes</a><a href="#nameguide">Guide from stream names</a><a href="#group-icons">Group icons</a><a href="#routes">Game routing</a><a href="#vod-library">VOD library</a><a href="#history">History</a>
 </nav>
 {{if and $d.Error (not $d.Section)}}<p class="error" role="alert">{{$d.Error}}</p>{{end}}
 
@@ -126,6 +126,30 @@
     {{else if .Ran}}<p class="muted">No games on now or within {{$d.Routes.BeforeMins}} minutes{{if .Unlinked}}; {{.Unlinked}} hand-added slot stream(s) taken off team channels{{end}}.</p>
     {{else}}<p class="muted">Routing is off; no team channel is routed.</p>{{end}}
   </div>{{end}}
+</section>
+
+<section class="settings-section" id="vod-library">
+  <h2>VOD library</h2>
+  {{if eq $d.Section "vod-library"}}{{with $d.Error}}<p class="error" role="alert" data-scroll-here>{{.}}</p>{{end}}{{with $d.Flash}}<p class="flash" role="status" data-scroll-here>{{.}}</p>{{end}}{{end}}
+  <form class="card form" method="post" action="/admin/settings/vodlibrary">
+    <p class="hint">Copies of a movie or series on several providers list once for customers and play from whichever copy is free.
+      Titles are told apart by their TMDB id when the panel sends one, else by title and year. With a TMDB key, MMP looks up
+      the titles panels send no id for, after each VOD refresh.</p>
+    <label>TMDB API key
+      <input type="password" name="tmdb_key" autocomplete="off" spellcheck="false" placeholder="{{if $d.VODLib.TMDBKey}}Saved {{$d.VODKeyHint}}, leave empty to keep it{{else}}API key or read access token{{end}}">
+      <span class="hint">Free from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org → Settings → API</a>.
+        Only titles and years are sent to TMDB.</span></label>
+    {{if $d.VODLib.TMDBKey}}<label class="check"><input type="checkbox" name="clear_key"> Remove the saved key</label>{{end}}
+    <label class="check"><input type="checkbox" name="match"{{if $d.VODLib.Match}} checked{{end}}> Look up titles without a TMDB id on TMDB</label>
+    <label class="check"><input type="checkbox" name="clean_titles"{{if $d.VODLib.CleanTitles}} checked{{end}}> Show customers clean titles, like <span class="mono">The Matrix (1999)</span>, instead of the panel's names</label>
+    {{with $d.VODCounts}}<p class="hint">Movies: {{.MoviesMatched}} with a TMDB id, {{.MoviesUnmatched}} without.
+      Series: {{.SeriesMatched}} with, {{.SeriesUnmatched}} without.</p>{{end}}
+    {{with $d.VODStatus}}{{if .Running}}<p class="hint">Matching now: {{.Searched}} titles looked up, {{.Matched}} found.</p>
+    {{else if not .Finished.IsZero}}<p class="hint">Last matched {{.Finished.Format "2006-01-02 15:04"}}: {{.Searched}} titles looked up,
+      {{.Matched}} found, {{.Missed}} not on TMDB{{with .Err}}; stopped: {{.}}{{end}}.</p>{{end}}{{end}}
+    <div class="row"><button type="submit">Save</button>
+      {{if $d.VODLib.Matching}}<button type="submit" name="action" value="match" class="secondary">Match now</button>{{end}}</div>
+  </form>
 </section>
 
 <section class="settings-section" id="history">

@@ -127,6 +127,9 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 		return res, fmt.Errorf("refresh vod %d: commit: %w", p.ID, err)
 	}
 	r.inheritTmdbIDs(ctx)
+	if r.AfterVODRefresh != nil {
+		r.AfterVODRefresh(p)
+	}
 	r.log.Info("vod refreshed", "provider_id", p.ID, "movies", res.Movies, "series", res.Series,
 		"movies_disabled", res.MoviesDisabled, "series_disabled", res.SeriesDisabled,
 		"movies_skipped", res.MoviesSkipped, "series_skipped", res.SeriesSkipped)
