@@ -9,6 +9,19 @@ import (
 	"context"
 )
 
+const forgetTMDBMisses = `-- name: ForgetTMDBMisses :exec
+WITH misses AS (DELETE FROM tmdb_search WHERE tmdb_id = '' RETURNING 1),
+     items AS (UPDATE vod_items SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL RETURNING 1)
+UPDATE series SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL
+`
+
+// After the matching rules change: titles TMDB had no match for are
+// searched again.
+func (q *Queries) ForgetTMDBMisses(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, forgetTMDBMisses)
+	return err
+}
+
 const getTMDBCache = `-- name: GetTMDBCache :one
 SELECT kind, tmdb_id, imdb_id, data, fetched_at FROM tmdb_cache WHERE kind = $1 AND tmdb_id = $2
 `
@@ -55,6 +68,50 @@ func (q *Queries) GetTMDBSearch(ctx context.Context, arg GetTMDBSearchParams) (s
 	var tmdb_id string
 	err := row.Scan(&tmdb_id)
 	return tmdb_id, err
+}
+
+const listSeriesToParse = `-- name: ListSeriesToParse :many
+SELECT s.id, s.name, s.release_date, COALESCE(c.name, '')::text AS category
+FROM series s
+LEFT JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series' AND c.external_id = s.category_external_id
+WHERE s.id > $1 ORDER BY s.id LIMIT $2
+`
+
+type ListSeriesToParseParams struct {
+	AfterID int64 `json:"after_id"`
+	Limit   int32 `json:"limit"`
+}
+
+type ListSeriesToParseRow struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	ReleaseDate string `json:"release_date"`
+	Category    string `json:"category"`
+}
+
+func (q *Queries) ListSeriesToParse(ctx context.Context, arg ListSeriesToParseParams) ([]ListSeriesToParseRow, error) {
+	rows, err := q.db.Query(ctx, listSeriesToParse, arg.AfterID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSeriesToParseRow
+	for rows.Next() {
+		var i ListSeriesToParseRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ReleaseDate,
+			&i.Category,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUnmatchedMovieTitles = `-- name: ListUnmatchedMovieTitles :many
@@ -146,6 +203,45 @@ func (q *Queries) ListUnmatchedSeriesTitles(ctx context.Context, arg ListUnmatch
 			&i.Title,
 			&i.Copies,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVODItemsToParse = `-- name: ListVODItemsToParse :many
+SELECT i.id, i.name, COALESCE(c.name, '')::text AS category
+FROM vod_items i
+LEFT JOIN vod_categories c ON c.provider_id = i.provider_id AND c.kind = 'movie' AND c.external_id = i.category_external_id
+WHERE i.id > $1 ORDER BY i.id LIMIT $2
+`
+
+type ListVODItemsToParseParams struct {
+	AfterID int64 `json:"after_id"`
+	Limit   int32 `json:"limit"`
+}
+
+type ListVODItemsToParseRow struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+}
+
+// A page of movies with their category names, to parse again.
+func (q *Queries) ListVODItemsToParse(ctx context.Context, arg ListVODItemsToParseParams) ([]ListVODItemsToParseRow, error) {
+	rows, err := q.db.Query(ctx, listVODItemsToParse, arg.AfterID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListVODItemsToParseRow
+	for rows.Next() {
+		var i ListVODItemsToParseRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Category); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -278,6 +374,66 @@ func (q *Queries) SetSeriesTitleMatch(ctx context.Context, arg SetSeriesTitleMat
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateSeriesParsed = `-- name: UpdateSeriesParsed :exec
+UPDATE series s SET title = u.title, title_norm = u.norm, year = u.year, quality = u.quality, lang = u.lang,
+    match_tried_at = CASE WHEN s.title_norm IS DISTINCT FROM u.norm OR s.year IS DISTINCT FROM u.year THEN NULL ELSE s.match_tried_at END
+FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::text[]) AS title, unnest($3::text[]) AS norm,
+             unnest($4::int[]) AS year, unnest($5::text[]) AS quality, unnest($6::text[]) AS lang) AS u
+WHERE s.id = u.id
+`
+
+type UpdateSeriesParsedParams struct {
+	Ids        []int64  `json:"ids"`
+	Titles     []string `json:"titles"`
+	TitleNorms []string `json:"title_norms"`
+	Years      []int32  `json:"years"`
+	Qualities  []string `json:"qualities"`
+	Langs      []string `json:"langs"`
+}
+
+func (q *Queries) UpdateSeriesParsed(ctx context.Context, arg UpdateSeriesParsedParams) error {
+	_, err := q.db.Exec(ctx, updateSeriesParsed,
+		arg.Ids,
+		arg.Titles,
+		arg.TitleNorms,
+		arg.Years,
+		arg.Qualities,
+		arg.Langs,
+	)
+	return err
+}
+
+const updateVODItemsParsed = `-- name: UpdateVODItemsParsed :exec
+UPDATE vod_items i SET title = u.title, title_norm = u.norm, year = u.year, quality = u.quality, lang = u.lang,
+    match_tried_at = CASE WHEN i.title_norm IS DISTINCT FROM u.norm OR i.year IS DISTINCT FROM u.year THEN NULL ELSE i.match_tried_at END
+FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::text[]) AS title, unnest($3::text[]) AS norm,
+             unnest($4::int[]) AS year, unnest($5::text[]) AS quality, unnest($6::text[]) AS lang) AS u
+WHERE i.id = u.id
+`
+
+type UpdateVODItemsParsedParams struct {
+	Ids        []int64  `json:"ids"`
+	Titles     []string `json:"titles"`
+	TitleNorms []string `json:"title_norms"`
+	Years      []int32  `json:"years"`
+	Qualities  []string `json:"qualities"`
+	Langs      []string `json:"langs"`
+}
+
+// Stores titles parsed again; a changed title or year is worth a new
+// TMDB search.
+func (q *Queries) UpdateVODItemsParsed(ctx context.Context, arg UpdateVODItemsParsedParams) error {
+	_, err := q.db.Exec(ctx, updateVODItemsParsed,
+		arg.Ids,
+		arg.Titles,
+		arg.TitleNorms,
+		arg.Years,
+		arg.Qualities,
+		arg.Langs,
+	)
+	return err
 }
 
 const vODMatchCounts = `-- name: VODMatchCounts :one

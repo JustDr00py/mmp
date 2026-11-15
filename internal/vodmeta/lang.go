@@ -73,8 +73,9 @@ var (
 	// leadingLang: a short label at the start, after any symbols and a
 	// generic word ("VOD |", "4K -"), followed by a separator: "EN | x",
 	// "|FR| x", "[DE] x", "EN: x", "(ES) x". A separator is required, so
-	// a title word ("IT Crowd") is not read as a language.
-	leadingLang = regexp.MustCompile(`^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]*\s*)?(\pL{2,4})\s*[|:\-\]\)/»]`)
+	// a title word ("IT Crowd") is not read as a language. Symbols count
+	// as separators too: "EN ★ Action", "FR • Films", "DE ► Serien".
+	leadingLang = regexp.MustCompile(`^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]*\s*)?(\pL{2,4})\s*[|:\-\]\)/»•·\p{S}\p{Pd}]`)
 	// taggedLang: a short label joined to a generic word by a separator
 	// needs none after it: "4K-EN Action", "VOD|FR Films".
 	taggedLang = regexp.MustCompile(`^[^\pL\pN]*(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]+\s*(\pL{2,4})\b`)

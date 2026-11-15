@@ -26,6 +26,8 @@ func TestCategoryLanguage(t *testing.T) {
 		"ACTION | Spider-Man":   "",
 		"XX | Unknown code":     "",
 		"  en | lower case ok ": "English",
+		"EN ★ Action":           "English",
+		"FR • Films":            "French",
 	} {
 		if got := categoryLanguage(name); got != want {
 			t.Errorf("categoryLanguage(%q) = %q, want %q", name, got, want)

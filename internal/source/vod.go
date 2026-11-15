@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -373,7 +372,7 @@ func seriesParams(providerID int64, shows []xtream.Series, catNames map[string]s
 		cat := string(s.CategoryID)
 		t := vodmeta.Parse(s.Name, catNames[cat])
 		if t.Year == 0 {
-			t.Year = releaseYear(s.Released())
+			t.Year = vodmeta.ReleaseYear(s.Released())
 		}
 		p.Names[i], p.CategoryIds[i], p.Covers[i], p.Plots[i] = s.Name, cat, s.Cover, s.Plot
 		p.Casts[i], p.Directors[i], p.Genres[i] = s.Cast, s.Director, s.Genre
@@ -382,20 +381,6 @@ func seriesParams(providerID int64, shows []xtream.Series, catNames map[string]s
 		p.Years[i], p.Qualities[i], p.Langs[i] = int32(t.Year), t.Quality, t.Lang
 	}
 	return p
-}
-
-// releaseYear is the year a panel release date ("2008-01-20", "2008")
-// starts with, or 0.
-func releaseYear(date string) int {
-	date = strings.TrimSpace(date)
-	if len(date) < 4 {
-		return 0
-	}
-	y, err := strconv.Atoi(date[:4])
-	if err != nil || y < 1900 || y > time.Now().Year()+1 {
-		return 0
-	}
-	return y
 }
 
 // categoryNames maps category ids to names.

@@ -51,9 +51,9 @@ var noise = map[string]bool{
 
 var (
 	// titleLeadingLang: a language label opening a title: "EN | x",
-	// "|FR| x", "[DE] x", "EN - x", "4K-EN x". Unlike category names a
+	// "|FR| x", "[DE] x", "EN - x", "EN ★ x", "4K-EN x". Unlike category names a
 	// colon does not count ("It: Chapter Two" is no Italian film).
-	titleLeadingLang = regexp.MustCompile(`(?i)^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]+\s*)?(\pL{2,4})\s*(?:[|\]\)/»]|\s-\s)\s*`)
+	titleLeadingLang = regexp.MustCompile(`(?i)^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]+\s*)?(\pL{2,4})\s*(?:[|\]\)/»•·\p{S}]|\s[-\p{Pd}]\s)\s*`)
 	// titleTrailingLang: "x (EN)", "x [FR]", "x - DE", "x | ES".
 	titleTrailingLang = regexp.MustCompile(`(?i)\s*(?:[\[(]\s*(\pL{2,4})\s*[\])]|\s[|\-]\s*(\pL{2,4}))\s*$`)
 	bracketed         = regexp.MustCompile(`[\[(]([^\[\]()]*)[\])]`)
@@ -136,7 +136,7 @@ func Parse(raw, category string) Parsed {
 	words := strings.Fields(s)
 	kept := words[:0]
 	for _, w := range words {
-		lw := strings.ToLower(strings.Trim(w, "-|:,"))
+		lw := strings.ToLower(strings.Trim(w, "-–—|:,★•·"))
 		if q, ok := qualityOf[lw]; ok && len(words) > 1 {
 			p.Quality = best(p.Quality, q)
 			continue
@@ -148,21 +148,21 @@ func Parse(raw, category string) Parsed {
 	}
 	// A bare trailing year ("Dune Part Two 2024", "Avatar - 2009") when no
 	// bracketed one was found; a title of only a year ("1917") keeps it.
-	for len(kept) > 1 && strings.Trim(kept[len(kept)-1], "-|:,") == "" {
+	for len(kept) > 1 && strings.Trim(kept[len(kept)-1], "-–—|:,★•·") == "" {
 		kept = kept[:len(kept)-1]
 	}
 	if p.Year == 0 && len(kept) > 1 {
-		last := strings.Trim(kept[len(kept)-1], "-|:,")
+		last := strings.Trim(kept[len(kept)-1], "-–—|:,★•·")
 		if yearRe.MatchString(last) && plausibleYear(last) {
 			p.Year, _ = strconv.Atoi(last)
 			kept = kept[:len(kept)-1]
 		}
 	}
 	s = strings.Join(kept, " ")
-	if t := seriesNoise.ReplaceAllString(s, ""); strings.TrimSpace(strings.Trim(t, " -|:,.")) != "" {
+	if t := seriesNoise.ReplaceAllString(s, ""); strings.TrimSpace(strings.Trim(t, " -–—|:,.★•·")) != "" {
 		s = t
 	}
-	s = strings.Trim(spaces.ReplaceAllString(s, " "), " -|:,.")
+	s = strings.Trim(spaces.ReplaceAllString(s, " "), " -–—|:,.★•·")
 	if s == "" {
 		s = strings.TrimSpace(raw)
 	}
@@ -206,3 +206,18 @@ func Key(title string) string {
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
 }
+
+// ReleaseYear is the year a release date ("2008-01-20", "2008") starts
+// with, or 0.
+func ReleaseYear(date string) int {
+	date = strings.TrimSpace(date)
+	if len(date) < 4 || !yearRe.MatchString(date[:4]) || !plausibleYear(date[:4]) {
+		return 0
+	}
+	y, _ := strconv.Atoi(date[:4])
+	return y
+}
+
+// ParseVersion changes whenever Parse reads names differently; titles
+// stored by an older parser are parsed again at startup (see Reparse).
+const ParseVersion = 2

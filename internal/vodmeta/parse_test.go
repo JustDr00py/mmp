@@ -25,6 +25,12 @@ func TestParse(t *testing.T) {
 		{"Gladiator (Extended Cut) (2000) HEVC", "", Parsed{"Gladiator (Extended Cut)", 2000, "", ""}},
 		{"Amélie (2001) - FR", "", Parsed{"Amélie", 2001, "", "French"}},
 		{"Up (2009)", "|FR| Animation", Parsed{"Up", 2009, "", "French"}},
+		{"EN ★ Flamin' Hot - 2023 [4K]", "", Parsed{"Flamin' Hot", 2023, "4k", "English"}},
+		{"EN  ★ Five Blind Dates - 2024 [FHD]", "", Parsed{"Five Blind Dates", 2024, "fhd", "English"}},
+		{"EN ★ Jurassic World  Fallen Kingdom - 2018 [4K]", "", Parsed{"Jurassic World Fallen Kingdom", 2018, "4k", "English"}},
+		{"EN ★ A Merry Little Ex-Mas - 2025 [4K]", "", Parsed{"A Merry Little Ex-Mas", 2025, "4k", "English"}},
+		{"FR • Le Parrain (1972)", "", Parsed{"Le Parrain", 1972, "", "French"}},
+		{"DE ► Der Untergang – 2004", "", Parsed{"Der Untergang", 2004, "", "German"}},
 		{"HD", "", Parsed{"HD", 0, "", ""}},
 		{"  ", "", Parsed{"", 0, "", ""}},
 	} {

@@ -60,3 +60,39 @@ SELECT (SELECT count(*) FROM vod_items WHERE NOT disabled AND tmdb_id <> '')::bi
        (SELECT count(*) FROM vod_items WHERE NOT disabled AND tmdb_id = '')::bigint AS movies_unmatched,
        (SELECT count(*) FROM series WHERE NOT disabled AND tmdb_id <> '')::bigint AS series_matched,
        (SELECT count(*) FROM series WHERE NOT disabled AND tmdb_id = '')::bigint AS series_unmatched;
+
+-- name: ListVODItemsToParse :many
+-- A page of movies with their category names, to parse again.
+SELECT i.id, i.name, COALESCE(c.name, '')::text AS category
+FROM vod_items i
+LEFT JOIN vod_categories c ON c.provider_id = i.provider_id AND c.kind = 'movie' AND c.external_id = i.category_external_id
+WHERE i.id > sqlc.arg('after_id') ORDER BY i.id LIMIT sqlc.arg('limit');
+
+-- name: ListSeriesToParse :many
+SELECT s.id, s.name, s.release_date, COALESCE(c.name, '')::text AS category
+FROM series s
+LEFT JOIN vod_categories c ON c.provider_id = s.provider_id AND c.kind = 'series' AND c.external_id = s.category_external_id
+WHERE s.id > sqlc.arg('after_id') ORDER BY s.id LIMIT sqlc.arg('limit');
+
+-- name: UpdateVODItemsParsed :exec
+-- Stores titles parsed again; a changed title or year is worth a new
+-- TMDB search.
+UPDATE vod_items i SET title = u.title, title_norm = u.norm, year = u.year, quality = u.quality, lang = u.lang,
+    match_tried_at = CASE WHEN i.title_norm IS DISTINCT FROM u.norm OR i.year IS DISTINCT FROM u.year THEN NULL ELSE i.match_tried_at END
+FROM (SELECT unnest(sqlc.arg('ids')::bigint[]) AS id, unnest(sqlc.arg('titles')::text[]) AS title, unnest(sqlc.arg('title_norms')::text[]) AS norm,
+             unnest(sqlc.arg('years')::int[]) AS year, unnest(sqlc.arg('qualities')::text[]) AS quality, unnest(sqlc.arg('langs')::text[]) AS lang) AS u
+WHERE i.id = u.id;
+
+-- name: UpdateSeriesParsed :exec
+UPDATE series s SET title = u.title, title_norm = u.norm, year = u.year, quality = u.quality, lang = u.lang,
+    match_tried_at = CASE WHEN s.title_norm IS DISTINCT FROM u.norm OR s.year IS DISTINCT FROM u.year THEN NULL ELSE s.match_tried_at END
+FROM (SELECT unnest(sqlc.arg('ids')::bigint[]) AS id, unnest(sqlc.arg('titles')::text[]) AS title, unnest(sqlc.arg('title_norms')::text[]) AS norm,
+             unnest(sqlc.arg('years')::int[]) AS year, unnest(sqlc.arg('qualities')::text[]) AS quality, unnest(sqlc.arg('langs')::text[]) AS lang) AS u
+WHERE s.id = u.id;
+
+-- name: ForgetTMDBMisses :exec
+-- After the matching rules change: titles TMDB had no match for are
+-- searched again.
+WITH misses AS (DELETE FROM tmdb_search WHERE tmdb_id = '' RETURNING 1),
+     items AS (UPDATE vod_items SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL RETURNING 1)
+UPDATE series SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL;

@@ -239,3 +239,93 @@ func TestVODFixMatch(t *testing.T) {
 		t.Errorf("unmatched only = %+v", rows)
 	}
 }
+
+// TestVODLibraryUpgrade: titles stored by an older parser ("EN ★ x" kept
+// whole) are parsed again at startup and older TMDB misses forgotten; a
+// pass then goes on past its batch size until every title was tried, and
+// a series is matched by its exact title when the panel's year is off.
+func TestVODLibraryUpgrade(t *testing.T) {
+	var searches atomic.Int32
+	tmdb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		searches.Add(1)
+		q := r.URL.Query().Get("query")
+		switch r.URL.Path {
+		case "/search/movie":
+			if strings.Contains(q, "★") {
+				t.Errorf("searched %q", q)
+			}
+			w.Write([]byte(`{"results":[{"id":` + map[string]string{"Moana": "277834", "Allied": "369885", "Red Eye": "9315"}[q] + `0,"title":"` + q + `","release_date":"2016-01-01"}]}`))
+		case "/search/tv":
+			if r.URL.Query().Get("first_air_date_year") != "" {
+				w.Write([]byte(`{"results":[]}`)) // the panel's year (2013) is not TMDB's (2008)
+				return
+			}
+			w.Write([]byte(`{"results":[{"id":1396,"name":"Breaking Bad","first_air_date":"2008-01-20"}]}`))
+		default:
+			w.Write([]byte(`{"id":1}`))
+		}
+	}))
+	defer tmdb.Close()
+	var m *vodmeta.Matcher
+	var pool *pgxpool.Pool
+	_, q := pgUI(t, func(d *Deps, p *pgxpool.Pool) {
+		pool = p
+		m = &vodmeta.Matcher{DB: p, Log: d.Log, Base: tmdb.URL, Gap: time.Millisecond, Batch: 1}
+	})
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: "Alpha", Type: "xtream", Url: "http://alpha.example/",
+		Username: "u", Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true})
+	must(err)
+	// As the first library build stored them: the prefix kept in the title.
+	names := []string{"EN ★  Moana - 2016 [FHD]", "EN ★  Allied - 2016 [FHD]", "EN ★  Red Eye - 2016 [4K]"}
+	arg := db.UpsertVODItemsParams{ProviderID: p.ID}
+	for i, n := range names {
+		arg.ExternalIds, arg.Names, arg.CategoryIds = append(arg.ExternalIds, strconv.Itoa(i)), append(arg.Names, n), append(arg.CategoryIds, "")
+		arg.Icons, arg.Ratings, arg.ContainerExtensions = append(arg.Icons, ""), append(arg.Ratings, -1), append(arg.ContainerExtensions, "mp4")
+		arg.TmdbIds, arg.Added = append(arg.TmdbIds, ""), append(arg.Added, 0)
+		old := strings.SplitN(n, " - ", 2)[0]
+		arg.Titles, arg.TitleNorms, arg.Years = append(arg.Titles, old), append(arg.TitleNorms, vodmeta.Key(old)), append(arg.Years, 2016)
+		arg.Qualities, arg.Langs = append(arg.Qualities, ""), append(arg.Langs, "")
+	}
+	must(q.UpsertVODItems(ctx, arg))
+	must(q.UpsertSeries(ctx, db.UpsertSeriesParams{ProviderID: p.ID, ExternalIds: []string{"9"}, Names: []string{"EN ★ Breaking Bad"},
+		CategoryIds: []string{""}, Covers: []string{""}, Plots: []string{""}, Casts: []string{""}, Directors: []string{""}, Genres: []string{""},
+		ReleaseDates: []string{"2013-08-11"}, Ratings: []float32{-1}, LastModified: []int64{0}, TmdbIds: []string{""},
+		Titles: []string{"EN ★ Breaking Bad"}, TitleNorms: []string{"en breaking bad"}, Years: []int32{2013}, Qualities: []string{""}, Langs: []string{""}}))
+	// An old miss, cached and marked tried.
+	must(q.PutTMDBSearch(ctx, db.PutTMDBSearchParams{Kind: "movie", QueryKey: "en moana", Year: 2016, TmdbID: ""}))
+	must(q.MarkMovieTitleTried(ctx, db.MarkMovieTitleTriedParams{TitleNorm: "en moana", Year: 2016}))
+
+	changed, err := vodmeta.Upgrade(ctx, pool, m.Log)
+	if err != nil || !changed {
+		t.Fatalf("upgrade = %v, %v", changed, err)
+	}
+	items, _ := q.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{Limit: 10})
+	for _, it := range items {
+		if strings.Contains(it.Title, "★") || it.Lang != "English" || it.Year != 2016 {
+			t.Errorf("after upgrade: %q lang %q year %d", it.Title, it.Lang, it.Year)
+		}
+	}
+	if changed, _ := vodmeta.Upgrade(ctx, pool, m.Log); changed {
+		t.Error("second upgrade changed something")
+	}
+	vodmeta.SaveSettings(ctx, q, vodmeta.Settings{TMDBKey: "k", Match: true})
+	st, err := m.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Batch 1: three movies and a series in one pass, every one found.
+	if st.Searched != 4 || st.Matched != 4 {
+		t.Errorf("pass = %+v, want 4 looked up and found", st)
+	}
+	shows, _ := q.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{Limit: 5})
+	if len(shows) != 1 || shows[0].TmdbID != "1396" || shows[0].Title != "Breaking Bad" {
+		t.Errorf("series = %+v", shows)
+	}
+}
