@@ -1,6 +1,7 @@
 package output
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,6 +29,8 @@ type VODSource interface {
 	ListUserSeriesCopies(ctx context.Context, arg db.ListUserSeriesCopiesParams) ([]db.ListUserSeriesCopiesRow, error)
 	ListUserEpisodeCopies(ctx context.Context, arg db.ListUserEpisodeCopiesParams) ([]db.ListUserEpisodeCopiesRow, error)
 	GetProvider(ctx context.Context, id int64) (db.Provider, error)
+	// GetTMDBCache is a matched title's cached TMDB details.
+	GetTMDBCache(ctx context.Context, arg db.GetTMDBCacheParams) (db.TmdbCache, error)
 	ListUserCachedEpisodes(ctx context.Context, arg db.ListUserCachedEpisodesParams) ([]db.ListUserCachedEpisodesRow, error)
 	// MovieInfo is the panel's get_vod_info "info" block (cached).
 	MovieInfo(ctx context.Context, itemID int64) (json.RawMessage, error)
@@ -262,11 +265,12 @@ func (h *Handlers) vodStreams(w http.ResponseWriter, ctx context.Context, u db.U
 	if err != nil {
 		return err
 	}
+	clean := h.vodSettings(ctx).CleanTitles
 	out := make([]xtreamVODStream, 0, len(rows))
 	for i, m := range rows {
 		rating, five := ratingStrings(m.Rating)
-		out = append(out, xtreamVODStream{Num: i + 1, Name: m.Name, StreamType: "movie", StreamID: m.ID,
-			StreamIcon: m.Icon, Rating: rating, Rating5: five, Added: unixPtr(m.AddedAt), IsAdult: "0",
+		out = append(out, xtreamVODStream{Num: i + 1, Name: vodName(m.Name, m.Title, m.Year, m.Quality, clean), StreamType: "movie", StreamID: m.ID,
+			StreamIcon: cmp.Or(m.Icon, tmdbImage(m.TmdbPoster, "w342")), Rating: rating, Rating5: five, Added: unixPtr(m.AddedAt), IsAdult: "0",
 			CategoryID: strconv.FormatInt(m.CategoryID, 10), CategoryIDs: []int64{m.CategoryID},
 			ContainerExtension: m.ContainerExtension})
 	}
@@ -284,10 +288,12 @@ func (h *Handlers) seriesList(w http.ResponseWriter, ctx context.Context, u db.U
 	if err != nil {
 		return err
 	}
+	clean := h.vodSettings(ctx).CleanTitles
 	out := make([]xtreamSeries, 0, len(rows))
 	for i, s := range rows {
 		rating, five := ratingStrings(s.Rating)
-		out = append(out, xtreamSeries{Num: i + 1, Name: s.Name, SeriesID: s.ID, Cover: s.Cover, Plot: s.Plot,
+		out = append(out, xtreamSeries{Num: i + 1, Name: vodName(s.Name, s.Title, s.Year, s.Quality, clean), SeriesID: s.ID,
+			Cover: cmp.Or(s.Cover, tmdbImage(s.TmdbPoster, "w342")), Plot: cmp.Or(s.Plot, s.TmdbPlot),
 			Cast: s.Cast, Director: s.Director, Genre: s.Genre, ReleaseDate: s.ReleaseDate,
 			LastModified: unixPtr(s.LastModified), Rating: rating, Rating5: five, BackdropPath: []string{},
 			CategoryID: strconv.FormatInt(s.CategoryID, 10), CategoryIDs: []int64{s.CategoryID}})
@@ -317,7 +323,8 @@ func (h *Handlers) vodInfo(w http.ResponseWriter, ctx context.Context, u db.User
 	}
 	info := scrubInfo(raw)
 	// Our own fields win where panels and players expect them.
-	info["name"] = m.Name
+	name := vodName(m.Name, m.Title, m.Year, m.Quality, h.vodSettings(ctx).CleanTitles)
+	info["name"] = name
 	if _, ok := info["movie_image"]; !ok && m.Icon != "" {
 		info["movie_image"] = m.Icon
 	}
@@ -331,9 +338,14 @@ func (h *Handlers) vodInfo(w http.ResponseWriter, ctx context.Context, u db.User
 			info["rating"] = rating
 		}
 	}
+	if m.TmdbID != "" { // what the panel left out, from TMDB
+		if c, err := h.VOD.GetTMDBCache(ctx, db.GetTMDBCacheParams{Kind: "movie", TmdbID: m.TmdbID}); err == nil {
+			fillFromTMDB(info, c.Data, false)
+		}
+	}
 	writeXtream(w, map[string]any{
 		"info": info,
-		"movie_data": xtreamMovieData{StreamID: m.ID, Name: m.Name, Added: unixPtr(m.AddedAt),
+		"movie_data": xtreamMovieData{StreamID: m.ID, Name: name, Added: unixPtr(m.AddedAt),
 			CategoryID: strconv.FormatInt(m.CategoryID, 10), ContainerExtension: m.ContainerExtension},
 	})
 	return nil
@@ -378,12 +390,17 @@ func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.U
 	info := scrubInfo(row.Info)
 	rating, five := ratingStrings(s.Rating)
 	for k, v := range map[string]any{
-		"name": s.Name, "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
+		"name": vodName(s.Name, s.Title, s.Year, s.Quality, h.vodSettings(ctx).CleanTitles), "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
 		"genre": s.Genre, "releaseDate": s.ReleaseDate, "last_modified": unixPtr(s.LastModified),
 		"rating": rating, "rating_5based": five, "category_id": strconv.FormatInt(s.CategoryID, 10),
 	} {
 		if cur, ok := info[k]; !ok || cur == "" || k == "name" || k == "category_id" {
 			info[k] = v
+		}
+	}
+	if s.TmdbID != "" { // what the panel left out, from TMDB
+		if c, err := h.VOD.GetTMDBCache(ctx, db.GetTMDBCacheParams{Kind: "series", TmdbID: s.TmdbID}); err == nil {
+			fillFromTMDB(info, c.Data, true)
 		}
 	}
 	if _, ok := info["backdrop_path"]; !ok {

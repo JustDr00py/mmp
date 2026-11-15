@@ -168,6 +168,10 @@ type Store interface {
 	SetProviderGuideEnabled(ctx context.Context, arg db.SetProviderGuideEnabledParams) error
 	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
 	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
+	SetVODItemMatch(ctx context.Context, arg db.SetVODItemMatchParams) error
+	SetSeriesMatch(ctx context.Context, arg db.SetSeriesMatchParams) error
+	ResetVODItemMatch(ctx context.Context, id int64) error
+	ResetSeriesMatch(ctx context.Context, id int64) error
 	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)
 	AddVODCategoriesToBouquet(ctx context.Context, arg db.AddVODCategoriesToBouquetParams) (int64, error)
 	RemoveVODCategoryFromBouquet(ctx context.Context, arg db.RemoveVODCategoryFromBouquetParams) (int64, error)
@@ -233,6 +237,9 @@ type VODLibrary interface {
 	Status() vodmeta.MatchStatus
 	Counts(ctx context.Context) (db.VODMatchCountsRow, error)
 	CheckKey(ctx context.Context, key string) error
+	// Fetch caches a title's TMDB details and returns TMDB's title for it
+	// ("" without a key to check with).
+	Fetch(ctx context.Context, kind, id string) (string, error)
 }
 
 // Deps are the UI's collaborators.

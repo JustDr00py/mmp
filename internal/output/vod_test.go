@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
 )
@@ -24,6 +26,7 @@ type fakeVOD struct {
 	// copies101, when set, are movie 101's copies (another panel's
 	// copies included), returned as given.
 	copies101 []db.ListUserVODItemCopiesRow
+	tmdb      map[string]string // cached TMDB details by "kind/id"
 }
 
 func f32(v float32) *float32 { return &v }
@@ -45,7 +48,8 @@ func (f *fakeVOD) ListUserVODCategories(_ context.Context, a db.ListUserVODCateg
 }
 
 var movies = []db.ListUserVODItemsRow{
-	{ID: 101, Name: "Die Hard", Icon: "http://img.example/dh.jpg", Rating: f32(7.5), ContainerExtension: "mkv", TmdbID: "562", AddedAt: tp(1700000000), CategoryID: 1},
+	{ID: 101, Name: "Die Hard", Icon: "http://img.example/dh.jpg", Rating: f32(7.5), ContainerExtension: "mkv", TmdbID: "562", AddedAt: tp(1700000000), CategoryID: 1,
+		Title: "Die Hard", Year: 1988},
 	{ID: 102, Name: "Cars", ContainerExtension: "mp4", CategoryID: 2},
 }
 
@@ -75,7 +79,8 @@ func (f *fakeVOD) ListUserVODItemCopies(_ context.Context, a db.ListUserVODItemC
 	for _, m := range movies {
 		if m.ID == a.ID && granted(a.UserID, a.IsAdmin, m.CategoryID) {
 			row := db.ListUserVODItemCopiesRow{ID: m.ID, ProviderID: 1, ExternalID: strconv.FormatInt(m.ID-90, 10), Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
-				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID}
+				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID,
+				Title: m.Title, Year: m.Year, Quality: m.Quality}
 			if m.ID == 101 && f.copies101 != nil {
 				return f.copies101, nil
 			}
@@ -113,6 +118,14 @@ func (f *fakeVOD) ListUserEpisodeCopies(_ context.Context, a db.ListUserEpisodeC
 // tests), allowing f.maxConns connections.
 func (f *fakeVOD) GetProvider(_ context.Context, id int64) (db.Provider, error) {
 	return db.Provider{ID: id, Type: "xtream", Url: f.panelURL, Username: "puser", Password: "ppass", MaxConnections: f.maxConns, Enabled: true}, nil
+}
+
+// GetTMDBCache serves tmdb, keyed by "kind/id".
+func (f *fakeVOD) GetTMDBCache(_ context.Context, a db.GetTMDBCacheParams) (db.TmdbCache, error) {
+	if raw, ok := f.tmdb[a.Kind+"/"+a.TmdbID]; ok {
+		return db.TmdbCache{Kind: a.Kind, TmdbID: a.TmdbID, Data: []byte(raw)}, nil
+	}
+	return db.TmdbCache{}, pgx.ErrNoRows
 }
 
 // MovieInfo is a panel info block, including a provider playback URL that

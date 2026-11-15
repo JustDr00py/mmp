@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -134,5 +135,107 @@ func TestVODTMDBMatching(t *testing.T) {
 	b.post("/admin/settings/vodlibrary", url.Values{"tmdb_key": {""}, "clean_titles": {"on"}}, b.base)
 	if s, _ := vodmeta.LoadSettings(ctx, q); s.TMDBKey != "good-key-1234" || s.Match || !s.CleanTitles {
 		t.Errorf("after saving with an empty key: %+v", s)
+	}
+}
+
+// TestVODFixMatch: the catalog page shows a title's copies and match, and
+// Set (checked on TMDB), Split and Reset fix it, locked against imports.
+func TestVODFixMatch(t *testing.T) {
+	tmdb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/movie/949":
+			w.Write([]byte(`{"id":949,"imdb_id":"tt0113277","title":"Heat","poster_path":"/heat.jpg"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer tmdb.Close()
+	b, q := pgUI(t, func(d *Deps, pool *pgxpool.Pool) {
+		d.VODLibrary = &vodmeta.Matcher{DB: pool, Log: d.Log, Base: tmdb.URL, Gap: time.Millisecond}
+	})
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(vodmeta.SaveSettings(ctx, q, vodmeta.Settings{TMDBKey: "k"}))
+	var ids []int64
+	for i, name := range []string{"Alpha", "Bravo"} {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "xtream", Url: "http://" + strings.ToLower(name) + ".example/",
+			Username: "u", Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true, Priority: int32(i), Backbone: name})
+		must(err)
+		must(q.UpsertVODItems(ctx, db.UpsertVODItemsParams{ProviderID: p.ID, ExternalIds: []string{"1"}, Names: []string{"EN | Heat (1995)"},
+			CategoryIds: []string{""}, Icons: []string{""}, Ratings: []float32{-1}, ContainerExtensions: []string{"mp4"},
+			TmdbIds: []string{"77"}, Added: []int64{0}, Titles: []string{"Heat"}, TitleNorms: []string{"heat"},
+			Years: []int32{1995}, Qualities: []string{""}, Langs: []string{"English"}}))
+		items, _ := q.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{Limit: 10})
+		for _, it := range items {
+			if it.ProviderID == p.ID {
+				ids = append(ids, it.ID)
+			}
+		}
+	}
+	_, body := b.get("/admin/vod?kind=movie")
+	for _, want := range []string{"Heat (1995)", "2 copies", "TMDB 77", "from the panel", "English"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("catalog lacks %q", want)
+		}
+	}
+	match := func(id int64, form url.Values) string {
+		t.Helper()
+		form.Set("back", "/admin/vod?kind=movie")
+		resp, _ := b.post("/admin/vod/movie/"+strconv.FormatInt(id, 10)+"/match", form, b.base)
+		return resp.Header.Get("Location")
+	}
+	// An id TMDB does not know is refused; a real one is saved with its details.
+	if loc := match(ids[0], url.Values{"action": {"set"}, "tmdb_id": {"404"}}); !strings.Contains(loc, "err=TMDB+has+no+movie") {
+		t.Errorf("unknown id: %s", loc)
+	}
+	if loc := match(ids[0], url.Values{"action": {"set"}, "tmdb_id": {"abc"}}); !strings.Contains(loc, "err=") {
+		t.Errorf("non-numeric id: %s", loc)
+	}
+	if loc := match(ids[0], url.Values{"action": {"set"}, "tmdb_id": {"949"}}); !strings.Contains(loc, "msg=matched") {
+		t.Fatalf("set: %s", loc)
+	}
+	it, _ := q.GetVODItem(ctx, ids[0])
+	if it.TmdbID != "949" || it.ImdbID != "tt0113277" || !it.MatchLocked || it.MatchSource != "manual" {
+		t.Errorf("after set: %q %q %v %q", it.TmdbID, it.ImdbID, it.MatchLocked, it.MatchSource)
+	}
+	// An import keeps it.
+	must(q.UpsertVODItems(ctx, db.UpsertVODItemsParams{ProviderID: it.ProviderID, ExternalIds: []string{"1"}, Names: []string{"EN | Heat (1995)"},
+		CategoryIds: []string{""}, Icons: []string{""}, Ratings: []float32{-1}, ContainerExtensions: []string{"mp4"},
+		TmdbIds: []string{"77"}, Added: []int64{0}}))
+	if it, _ := q.GetVODItem(ctx, ids[0]); it.TmdbID != "949" {
+		t.Errorf("import overwrote a manual match: %q", it.TmdbID)
+	}
+	_, body = b.get("/admin/vod?kind=movie&msg=matched")
+	for _, want := range []string{"set by hand", "locked", "Match saved and locked"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("catalog lacks %q", want)
+		}
+	}
+	// Split, then reset: the panel's id comes back with the next import.
+	if loc := match(ids[1], url.Values{"action": {"split"}}); !strings.Contains(loc, "msg=split") {
+		t.Errorf("split: %s", loc)
+	}
+	if it, _ := q.GetVODItem(ctx, ids[1]); it.TmdbID != "" || !it.MatchLocked {
+		t.Errorf("after split: %q %v", it.TmdbID, it.MatchLocked)
+	}
+	if loc := match(ids[1], url.Values{"action": {"reset"}}); !strings.Contains(loc, "msg=reset") {
+		t.Errorf("reset: %s", loc)
+	}
+	it, _ = q.GetVODItem(ctx, ids[1])
+	must(q.UpsertVODItems(ctx, db.UpsertVODItemsParams{ProviderID: it.ProviderID, ExternalIds: []string{"1"}, Names: []string{"EN | Heat (1995)"},
+		CategoryIds: []string{""}, Icons: []string{""}, Ratings: []float32{-1}, ContainerExtensions: []string{"mp4"},
+		TmdbIds: []string{"77"}, Added: []int64{0}}))
+	if it, _ := q.GetVODItem(ctx, ids[1]); it.TmdbID != "77" || it.MatchLocked || it.MatchSource != "panel" {
+		t.Errorf("after reset and import: %q %v %q", it.TmdbID, it.MatchLocked, it.MatchSource)
+	}
+	// Only titles without an id, when asked.
+	must(q.SetVODItemMatch(ctx, db.SetVODItemMatchParams{ID: ids[1], TmdbID: ""}))
+	if rows, _ := q.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{UnmatchedOnly: true, Limit: 10}); len(rows) != 1 || rows[0].ID != ids[1] {
+		t.Errorf("unmatched only = %+v", rows)
 	}
 }

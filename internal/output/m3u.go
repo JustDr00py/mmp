@@ -2,6 +2,7 @@ package output
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/nameguide"
 	"github.com/JustDr00py/mmp/internal/proxy"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 // Store is what the customer outputs read (satisfied by *db.Queries).
@@ -56,6 +58,9 @@ type Handlers struct {
 	// NameGuide gives the stream-name guide settings for channels without
 	// a guide (nil = no stream-name guides).
 	NameGuide func(ctx context.Context) nameguide.Settings
+	// VODLibrary gives the VOD library settings, e.g. clean titles (nil =
+	// panel names as they are).
+	VODLibrary func(ctx context.Context) vodmeta.Settings
 	// GroupIcons says whether Xtream categories carry their group's icon
 	// as category_icon (nil = never).
 	GroupIcons func(ctx context.Context) bool
@@ -311,8 +316,10 @@ func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, 
 		if err != nil {
 			return err
 		}
+		clean := h.vodSettings(ctx).CleanTitles
 		for _, m := range movies {
-			entry(m.Name, m.Icon, "Movies: "+catName[m.CategoryID], v.movie(m.ID, m.ContainerExtension))
+			entry(vodName(m.Name, m.Title, m.Year, m.Quality, clean), cmp.Or(m.Icon, tmdbImage(m.TmdbPoster, "w342")),
+				"Movies: "+catName[m.CategoryID], v.movie(m.ID, m.ContainerExtension))
 		}
 	}
 	if v.series {
@@ -320,12 +327,14 @@ func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, 
 		if err != nil {
 			return err
 		}
+		clean := h.vodSettings(ctx).CleanTitles
 		for _, e := range eps {
-			name := fmt.Sprintf("%s S%02dE%02d", e.SeriesName, e.Season, e.EpisodeNum)
+			show := vodName(e.SeriesName, e.SeriesTitle, e.SeriesYear, e.SeriesQuality, clean)
+			name := fmt.Sprintf("%s S%02dE%02d", show, e.Season, e.EpisodeNum)
 			if e.Title != "" {
 				name += " " + e.Title
 			}
-			entry(name, e.Cover, "Series: "+e.SeriesName, v.episode(e.ID, e.ContainerExtension))
+			entry(name, e.Cover, "Series: "+show, v.episode(e.ID, e.ContainerExtension))
 		}
 	}
 	return bw.Flush()

@@ -2,6 +2,7 @@ package vodmeta
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -255,4 +256,33 @@ func (m *Matcher) Counts(ctx context.Context) (db.VODMatchCountsRow, error) {
 // CheckKey tells whether TMDB accepts key (one cheap call).
 func (m *Matcher) CheckKey(ctx context.Context, key string) error {
 	return (&TMDB{Key: key, Base: m.Base, HTTP: m.HTTP}).Check(ctx)
+}
+
+// Fetch loads a title's TMDB details into the cache (a manual match) and
+// returns TMDB's title for it; TMDB answering "not found" means no such id.
+func (m *Matcher) Fetch(ctx context.Context, kind, id string) (string, error) {
+	s, err := LoadSettings(ctx, db.New(m.DB))
+	if err != nil {
+		return "", err
+	}
+	if s.TMDBKey == "" {
+		return "", nil // nothing to check with
+	}
+	raw, imdb, err := (&TMDB{Key: s.TMDBKey, Base: m.Base, HTTP: m.HTTP}).Details(ctx, kind, id)
+	if err != nil {
+		return "", err
+	}
+	if err := db.New(m.DB).PutTMDBCache(ctx, db.PutTMDBCacheParams{Kind: kind, TmdbID: id, ImdbID: imdb, Data: raw}); err != nil {
+		return "", err
+	}
+	var d struct{ Title, Name string }
+	_ = json.Unmarshal(raw, &d)
+	return cmpOr(d.Title, d.Name), nil
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

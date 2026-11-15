@@ -236,6 +236,13 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Limit: loginLimit}
 	// On shutdown, record movie/episode playbacks still held open for a resume.
 	context.AfterFunc(ctx, outputs.FlushVOD)
+	outputs.VODLibrary = func(ctx context.Context) vodmeta.Settings {
+		s, err := vodmeta.LoadSettings(ctx, queries)
+		if err != nil {
+			log.Warn("vod library settings", "err", err)
+		}
+		return s
+	}
 	outputs.NameGuide = func(ctx context.Context) nameguide.Settings {
 		s, err := nameguide.Load(ctx, queries)
 		if err != nil {

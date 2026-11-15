@@ -20,6 +20,9 @@ const TMDBBase = "https://api.themoviedb.org/3"
 // ErrTMDBAuth: TMDB refused the key.
 var ErrTMDBAuth = errors.New("TMDB refused the API key")
 
+// ErrTMDBNotFound: TMDB has nothing at that id.
+var ErrTMDBNotFound = errors.New("not found on TMDB")
+
 // TMDB is a small client for the searches and details matching needs. It
 // paces itself (TMDB allows about 40 requests a second) and waits out a
 // 429 as TMDB asks.
@@ -202,7 +205,7 @@ func (c *TMDB) get(ctx context.Context, path string, q url.Values, out any) erro
 		case resp.StatusCode == http.StatusUnauthorized:
 			return ErrTMDBAuth
 		case resp.StatusCode == http.StatusNotFound:
-			return fmt.Errorf("tmdb %s: not found", path)
+			return fmt.Errorf("tmdb %s: %w", path, ErrTMDBNotFound)
 		case resp.StatusCode != http.StatusOK:
 			return fmt.Errorf("tmdb %s: status %d", path, resp.StatusCode)
 		}
