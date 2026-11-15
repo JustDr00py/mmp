@@ -44,7 +44,8 @@ type Handlers struct {
 	// VODClient fetches movies/episodes; nil = a default client.
 	VODClient *http.Client
 	vodLeases vodLeases
-	BaseURL   string // no trailing slash
+	vodSticky vodSticky // the copy each playback started on, for resumes
+	BaseURL   string    // no trailing slash
 	Log       *slog.Logger
 	Now       func() time.Time // guide window clock; nil = time.Now
 	// Limit locks out repeated password failures (nil = no limiting).

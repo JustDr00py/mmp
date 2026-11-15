@@ -21,6 +21,9 @@ type fakeVOD struct {
 	panelURL  string
 	maxConns  int32
 	pooled    bool // movie 101 also on provider 2
+	// copies101, when set, are movie 101's copies (another panel's
+	// copies included), returned as given.
+	copies101 []db.ListUserVODItemCopiesRow
 }
 
 func f32(v float32) *float32 { return &v }
@@ -73,6 +76,9 @@ func (f *fakeVOD) ListUserVODItemCopies(_ context.Context, a db.ListUserVODItemC
 		if m.ID == a.ID && granted(a.UserID, a.IsAdmin, m.CategoryID) {
 			row := db.ListUserVODItemCopiesRow{ID: m.ID, ProviderID: 1, ExternalID: strconv.FormatInt(m.ID-90, 10), Name: m.Name, ContainerExtension: m.ContainerExtension, Icon: m.Icon,
 				Rating: m.Rating, TmdbID: m.TmdbID, AddedAt: m.AddedAt, CategoryID: m.CategoryID}
+			if m.ID == 101 && f.copies101 != nil {
+				return f.copies101, nil
+			}
 			out := []db.ListUserVODItemCopiesRow{row}
 			if f.pooled && m.ID == 101 {
 				row.ID, row.ProviderID = 9101, 2
