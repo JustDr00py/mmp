@@ -234,6 +234,17 @@ type Series struct {
 	Disabled           bool       `json:"disabled"`
 	LastSeen           time.Time  `json:"last_seen"`
 	CreatedAt          time.Time  `json:"created_at"`
+	TmdbID             string     `json:"tmdb_id"`
+	Title              string     `json:"title"`
+	TitleNorm          string     `json:"title_norm"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	Lang               string     `json:"lang"`
+	ImdbID             string     `json:"imdb_id"`
+	MatchSource        string     `json:"match_source"`
+	MatchLocked        bool       `json:"match_locked"`
+	MatchTriedAt       *time.Time `json:"match_tried_at"`
+	TitleKey           *string    `json:"title_key"`
 }
 
 type SeriesEpisode struct {
@@ -331,6 +342,16 @@ type VodItem struct {
 	Disabled           bool       `json:"disabled"`
 	LastSeen           time.Time  `json:"last_seen"`
 	CreatedAt          time.Time  `json:"created_at"`
+	Title              string     `json:"title"`
+	TitleNorm          string     `json:"title_norm"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	Lang               string     `json:"lang"`
+	ImdbID             string     `json:"imdb_id"`
+	MatchSource        string     `json:"match_source"`
+	MatchLocked        bool       `json:"match_locked"`
+	MatchTriedAt       *time.Time `json:"match_tried_at"`
+	TitleKey           *string    `json:"title_key"`
 }
 
 type VodOfferedCategory struct {

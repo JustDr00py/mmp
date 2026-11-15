@@ -85,6 +85,7 @@ type Series struct {
 	LastModified FlexString `json:"last_modified"`
 	Rating       FlexString `json:"rating"`
 	CategoryID   FlexString `json:"category_id"`
+	TMDB         FlexString `json:"tmdb"`
 }
 
 // Released is the release date whichever key the panel used.

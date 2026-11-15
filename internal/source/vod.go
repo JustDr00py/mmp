@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source/xtream"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 // ErrVODUnsupported: only Xtream panels expose movie and series catalogs.
@@ -61,8 +63,8 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 		return res, fmt.Errorf("refresh vod %d: get_series: %w", p.ID, err)
 	}
 
-	mp := movieParams(p.ID, movies)
-	sp := seriesParams(p.ID, shows)
+	mp := movieParams(p.ID, movies, categoryNames(movieCats))
+	sp := seriesParams(p.ID, shows, categoryNames(seriesCats))
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -124,10 +126,24 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 	if err := tx.Commit(ctx); err != nil {
 		return res, fmt.Errorf("refresh vod %d: commit: %w", p.ID, err)
 	}
+	r.inheritTmdbIDs(ctx)
 	r.log.Info("vod refreshed", "provider_id", p.ID, "movies", res.Movies, "series", res.Series,
 		"movies_disabled", res.MoviesDisabled, "series_disabled", res.SeriesDisabled,
 		"movies_skipped", res.MoviesSkipped, "series_skipped", res.SeriesSkipped)
 	return res, nil
+}
+
+// inheritTmdbIDs lends TMDB ids between copies of a title on any provider
+// (see InheritVODItemTmdbIDs). It runs outside an import's transaction,
+// since it touches every provider's rows; a failure only delays merging.
+func (r *Refresher) inheritTmdbIDs(ctx context.Context) {
+	q := db.New(r.pool)
+	if _, err := q.InheritVODItemTmdbIDs(ctx); err != nil {
+		r.log.Warn("vod: lending movie tmdb ids", "err", err)
+	}
+	if _, err := q.InheritSeriesTmdbIDs(ctx); err != nil {
+		r.log.Warn("vod: lending series tmdb ids", "err", err)
+	}
 }
 
 // RefreshVODCategories imports only the provider's movie and series
@@ -187,33 +203,46 @@ func storeCategories(ctx context.Context, q *db.Queries, providerID int64, movie
 // keepMovies drops the movies outside the kept categories, returning how
 // many it dropped.
 func keepMovies(p db.UpsertVODItemsParams, keep map[string]bool) (db.UpsertVODItemsParams, int) {
-	// ExternalIds is never nil: a NULL list would disable nothing.
-	out := db.UpsertVODItemsParams{ProviderID: p.ProviderID, ExternalIds: []string{}}
-	for i, cat := range p.CategoryIds {
-		if !keep[cat] {
-			continue
-		}
-		out.ExternalIds, out.Names, out.CategoryIds = append(out.ExternalIds, p.ExternalIds[i]), append(out.Names, p.Names[i]), append(out.CategoryIds, cat)
-		out.Icons, out.Ratings = append(out.Icons, p.Icons[i]), append(out.Ratings, p.Ratings[i])
-		out.ContainerExtensions, out.TmdbIds, out.Added = append(out.ContainerExtensions, p.ContainerExtensions[i]), append(out.TmdbIds, p.TmdbIds[i]), append(out.Added, p.Added[i])
-	}
+	idx := keptIndexes(p.CategoryIds, keep)
+	out := db.UpsertVODItemsParams{ProviderID: p.ProviderID,
+		ExternalIds: pick(p.ExternalIds, idx), Names: pick(p.Names, idx), CategoryIds: pick(p.CategoryIds, idx),
+		Icons: pick(p.Icons, idx), Ratings: pick(p.Ratings, idx), ContainerExtensions: pick(p.ContainerExtensions, idx),
+		TmdbIds: pick(p.TmdbIds, idx), Added: pick(p.Added, idx), Titles: pick(p.Titles, idx),
+		TitleNorms: pick(p.TitleNorms, idx), Years: pick(p.Years, idx), Qualities: pick(p.Qualities, idx), Langs: pick(p.Langs, idx)}
 	return out, len(p.ExternalIds) - len(out.ExternalIds)
 }
 
 // keepSeries is keepMovies for series.
 func keepSeries(p db.UpsertSeriesParams, keep map[string]bool) (db.UpsertSeriesParams, int) {
-	// ExternalIds is never nil: a NULL list would disable nothing.
-	out := db.UpsertSeriesParams{ProviderID: p.ProviderID, ExternalIds: []string{}}
-	for i, cat := range p.CategoryIds {
-		if !keep[cat] {
-			continue
-		}
-		out.ExternalIds, out.Names, out.CategoryIds = append(out.ExternalIds, p.ExternalIds[i]), append(out.Names, p.Names[i]), append(out.CategoryIds, cat)
-		out.Covers, out.Plots, out.Casts = append(out.Covers, p.Covers[i]), append(out.Plots, p.Plots[i]), append(out.Casts, p.Casts[i])
-		out.Directors, out.Genres, out.ReleaseDates = append(out.Directors, p.Directors[i]), append(out.Genres, p.Genres[i]), append(out.ReleaseDates, p.ReleaseDates[i])
-		out.Ratings, out.LastModified = append(out.Ratings, p.Ratings[i]), append(out.LastModified, p.LastModified[i])
-	}
+	idx := keptIndexes(p.CategoryIds, keep)
+	out := db.UpsertSeriesParams{ProviderID: p.ProviderID,
+		ExternalIds: pick(p.ExternalIds, idx), Names: pick(p.Names, idx), CategoryIds: pick(p.CategoryIds, idx),
+		Covers: pick(p.Covers, idx), Plots: pick(p.Plots, idx), Casts: pick(p.Casts, idx),
+		Directors: pick(p.Directors, idx), Genres: pick(p.Genres, idx), ReleaseDates: pick(p.ReleaseDates, idx),
+		Ratings: pick(p.Ratings, idx), LastModified: pick(p.LastModified, idx), TmdbIds: pick(p.TmdbIds, idx),
+		Titles: pick(p.Titles, idx), TitleNorms: pick(p.TitleNorms, idx), Years: pick(p.Years, idx),
+		Qualities: pick(p.Qualities, idx), Langs: pick(p.Langs, idx)}
 	return out, len(p.ExternalIds) - len(out.ExternalIds)
+}
+
+func keptIndexes(cats []string, keep map[string]bool) []int {
+	var idx []int
+	for i, cat := range cats {
+		if keep[cat] {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+// pick returns s's elements at idx, never nil: a NULL list would disable
+// nothing, and unnest pads a NULL array column with NULLs.
+func pick[T any](s []T, idx []int) []T {
+	out := make([]T, 0, len(idx))
+	for _, i := range idx {
+		out = append(out, s[i])
+	}
+	return out
 }
 
 // vodGuard refuses an import that would disable more than the provider's
@@ -271,10 +300,26 @@ func ext(s string) string {
 	return s
 }
 
+// tmdbID is the panel's tmdb field when it is a real id: panels send "",
+// "0", "null" or junk for unknown.
+func tmdbID(f xtream.FlexString) string {
+	s := strings.TrimSpace(string(f))
+	if s == "" || strings.Trim(s, "0") == "" {
+		return ""
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return s
+}
+
 // movieParams builds the bulk upsert, dropping rows without an id and
-// duplicate ids (the last one wins), which one upsert statement cannot hold.
-func movieParams(providerID int64, movies []xtream.VODStream) db.UpsertVODItemsParams {
-	p := db.UpsertVODItemsParams{ProviderID: providerID}
+// duplicate ids (the last one wins), which one upsert statement cannot
+// hold. catNames (category id to name) lends titles a language label.
+func movieParams(providerID int64, movies []xtream.VODStream, catNames map[string]string) db.UpsertVODItemsParams {
+	p := db.UpsertVODItemsParams{ProviderID: providerID, ExternalIds: []string{}}
 	at := map[string]int{}
 	for _, m := range movies {
 		id := strings.TrimSpace(string(m.StreamID))
@@ -289,16 +334,22 @@ func movieParams(providerID int64, movies []xtream.VODStream) db.UpsertVODItemsP
 			p.Names, p.CategoryIds, p.Icons = append(p.Names, ""), append(p.CategoryIds, ""), append(p.Icons, "")
 			p.Ratings, p.ContainerExtensions = append(p.Ratings, 0), append(p.ContainerExtensions, "")
 			p.TmdbIds, p.Added = append(p.TmdbIds, ""), append(p.Added, 0)
+			p.Titles, p.TitleNorms, p.Years = append(p.Titles, ""), append(p.TitleNorms, ""), append(p.Years, 0)
+			p.Qualities, p.Langs = append(p.Qualities, ""), append(p.Langs, "")
 		}
-		p.Names[i], p.CategoryIds[i], p.Icons[i] = m.Name, string(m.CategoryID), m.StreamIcon
+		cat := string(m.CategoryID)
+		t := vodmeta.Parse(m.Name, catNames[cat])
+		p.Names[i], p.CategoryIds[i], p.Icons[i] = m.Name, cat, m.StreamIcon
 		p.Ratings[i], p.ContainerExtensions[i] = rating(m.Rating), ext(m.ContainerExtension)
-		p.TmdbIds[i], p.Added[i] = string(m.TMDB), m.Added.Int()
+		p.TmdbIds[i], p.Added[i] = tmdbID(m.TMDB), m.Added.Int()
+		p.Titles[i], p.TitleNorms[i], p.Years[i] = t.Title, t.Key(), int32(t.Year)
+		p.Qualities[i], p.Langs[i] = t.Quality, t.Lang
 	}
 	return p
 }
 
-func seriesParams(providerID int64, shows []xtream.Series) db.UpsertSeriesParams {
-	p := db.UpsertSeriesParams{ProviderID: providerID}
+func seriesParams(providerID int64, shows []xtream.Series, catNames map[string]string) db.UpsertSeriesParams {
+	p := db.UpsertSeriesParams{ProviderID: providerID, ExternalIds: []string{}}
 	at := map[string]int{}
 	for _, s := range shows {
 		id := strings.TrimSpace(string(s.SeriesID))
@@ -313,12 +364,44 @@ func seriesParams(providerID int64, shows []xtream.Series) db.UpsertSeriesParams
 			p.Names, p.CategoryIds, p.Covers, p.Plots = append(p.Names, ""), append(p.CategoryIds, ""), append(p.Covers, ""), append(p.Plots, "")
 			p.Casts, p.Directors, p.Genres = append(p.Casts, ""), append(p.Directors, ""), append(p.Genres, "")
 			p.ReleaseDates, p.Ratings, p.LastModified = append(p.ReleaseDates, ""), append(p.Ratings, 0), append(p.LastModified, 0)
+			p.TmdbIds, p.Titles, p.TitleNorms = append(p.TmdbIds, ""), append(p.Titles, ""), append(p.TitleNorms, "")
+			p.Years, p.Qualities, p.Langs = append(p.Years, 0), append(p.Qualities, ""), append(p.Langs, "")
 		}
-		p.Names[i], p.CategoryIds[i], p.Covers[i], p.Plots[i] = s.Name, string(s.CategoryID), s.Cover, s.Plot
+		cat := string(s.CategoryID)
+		t := vodmeta.Parse(s.Name, catNames[cat])
+		if t.Year == 0 {
+			t.Year = releaseYear(s.Released())
+		}
+		p.Names[i], p.CategoryIds[i], p.Covers[i], p.Plots[i] = s.Name, cat, s.Cover, s.Plot
 		p.Casts[i], p.Directors[i], p.Genres[i] = s.Cast, s.Director, s.Genre
 		p.ReleaseDates[i], p.Ratings[i], p.LastModified[i] = s.Released(), rating(s.Rating), s.LastModified.Int()
+		p.TmdbIds[i], p.Titles[i], p.TitleNorms[i] = tmdbID(s.TMDB), t.Title, t.Key()
+		p.Years[i], p.Qualities[i], p.Langs[i] = int32(t.Year), t.Quality, t.Lang
 	}
 	return p
+}
+
+// releaseYear is the year a panel release date ("2008-01-20", "2008")
+// starts with, or 0.
+func releaseYear(date string) int {
+	date = strings.TrimSpace(date)
+	if len(date) < 4 {
+		return 0
+	}
+	y, err := strconv.Atoi(date[:4])
+	if err != nil || y < 1900 || y > time.Now().Year()+1 {
+		return 0
+	}
+	return y
+}
+
+// categoryNames maps category ids to names.
+func categoryNames(cats []xtream.VODCategory) map[string]string {
+	m := make(map[string]string, len(cats))
+	for _, c := range cats {
+		m[strings.TrimSpace(string(c.CategoryID))] = c.CategoryName
+	}
+	return m
 }
 
 // SeriesEpisodes returns a series' episodes, fetching them from the panel
