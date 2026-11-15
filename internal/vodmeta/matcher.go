@@ -20,8 +20,8 @@ const (
 	// matchRetry is how long a title TMDB had no match for waits before
 	// it is searched again (TMDB grows; panels rename).
 	matchRetry = 30 * 24 * time.Hour
-	// matchBatch caps the titles of each kind one run searches, so a first
-	// run over a huge catalog finishes and later runs pick up the rest.
+	// matchBatch is how many titles of a kind are read at a time; a pass
+	// goes on until every title without an id was tried once.
 	matchBatch = 3000
 	// maxFailures in a row end a run (TMDB or the network is down).
 	maxFailures = 20
@@ -46,6 +46,8 @@ type Matcher struct {
 	HTTP *http.Client // optional
 	Base string       // TMDB API root; TMDBBase if empty (tests)
 	Gap  time.Duration
+	// Batch is how many titles are read at a time (matchBatch if zero).
+	Batch int32
 
 	running atomic.Bool
 	mu      sync.Mutex
@@ -114,36 +116,50 @@ func (m *Matcher) run(ctx context.Context, s Settings) (MatchStatus, error) {
 	}
 	failures := 0
 	for _, kind := range []string{"movie", "series"} {
-		groups, err := m.unmatched(ctx, q, kind)
-		if err != nil {
-			return finish(err)
-		}
-		for _, g := range groups {
-			id, err := m.lookup(ctx, q, client, kind, g)
-			if errors.Is(err, ErrTMDBAuth) || ctx.Err() != nil {
-				return finish(cmpErr(ctx.Err(), err))
-			}
-			if err != nil {
-				if failures++; failures >= maxFailures {
-					return finish(err)
-				}
-				m.Log.Debug("vod library: tmdb lookup", "kind", kind, "title", g.title, "year", g.year, "err", err)
-				continue
-			}
-			failures = 0
-			st.Searched++
-			if id == "" {
-				st.Missed++
-				err = markTried(ctx, q, kind, g)
-			} else {
-				st.Matched++
-				err = m.apply(ctx, q, client, kind, g, id)
-			}
+		seen := map[titleGroup]bool{} // a title that failed is not retried this pass
+	batches:
+		for {
+			groups, err := m.unmatched(ctx, q, kind)
 			if err != nil {
 				return finish(err)
 			}
-			if st.Searched%50 == 0 {
-				m.setStatus(st)
+			fresh := groups[:0]
+			for _, g := range groups {
+				if !seen[g] {
+					seen[g] = true
+					fresh = append(fresh, g)
+				}
+			}
+			if len(fresh) == 0 {
+				break batches
+			}
+			for _, g := range fresh {
+				id, err := m.lookup(ctx, q, client, kind, g)
+				if errors.Is(err, ErrTMDBAuth) || ctx.Err() != nil {
+					return finish(cmpErr(ctx.Err(), err))
+				}
+				if err != nil {
+					if failures++; failures >= maxFailures {
+						return finish(err)
+					}
+					m.Log.Debug("vod library: tmdb lookup", "kind", kind, "title", g.title, "year", g.year, "err", err)
+					continue
+				}
+				failures = 0
+				st.Searched++
+				if id == "" {
+					st.Missed++
+					err = markTried(ctx, q, kind, g)
+				} else {
+					st.Matched++
+					err = m.apply(ctx, q, client, kind, g, id)
+				}
+				if err != nil {
+					return finish(err)
+				}
+				if st.Searched%50 == 0 {
+					m.setStatus(st)
+				}
 			}
 		}
 	}
@@ -172,15 +188,19 @@ func (m *Matcher) setStatus(s MatchStatus) {
 
 func (m *Matcher) unmatched(ctx context.Context, q *db.Queries, kind string) ([]titleGroup, error) {
 	retry := int64(matchRetry / time.Second)
+	batch := m.Batch
+	if batch <= 0 {
+		batch = matchBatch
+	}
 	var out []titleGroup
 	if kind == "movie" {
-		rows, err := q.ListUnmatchedMovieTitles(ctx, db.ListUnmatchedMovieTitlesParams{RetryAfterSecs: retry, Limit: matchBatch})
+		rows, err := q.ListUnmatchedMovieTitles(ctx, db.ListUnmatchedMovieTitlesParams{RetryAfterSecs: retry, Limit: batch})
 		for _, r := range rows {
 			out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year})
 		}
 		return out, err
 	}
-	rows, err := q.ListUnmatchedSeriesTitles(ctx, db.ListUnmatchedSeriesTitlesParams{RetryAfterSecs: retry, Limit: matchBatch})
+	rows, err := q.ListUnmatchedSeriesTitles(ctx, db.ListUnmatchedSeriesTitlesParams{RetryAfterSecs: retry, Limit: batch})
 	for _, r := range rows {
 		out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year})
 	}
@@ -202,14 +222,23 @@ func (m *Matcher) lookup(ctx context.Context, q *db.Queries, c *TMDB, kind strin
 	if g.year > 0 {
 		years = append(years, 0)
 	}
+	var last []TMDBResult
 	for _, y := range years {
 		res, err := c.Search(ctx, kind, g.title, y)
 		if err != nil {
 			return "", err
 		}
+		last = res
 		if hit, ok := Pick(res, g.title, int(g.year)); ok {
 			id = strconv.FormatInt(hit.ID, 10)
 			break
+		}
+	}
+	// A panel's year for a series is often its latest season's: the only
+	// show of exactly that title is it, whatever the year.
+	if id == "" && kind == "series" {
+		if hit, ok := Pick(last, g.title, 0); ok {
+			id = strconv.FormatInt(hit.ID, 10)
 		}
 	}
 	if err := q.PutTMDBSearch(ctx, db.PutTMDBSearchParams{Kind: kind, QueryKey: g.norm, Year: g.year, TmdbID: id}); err != nil {

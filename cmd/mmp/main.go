@@ -216,6 +216,17 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 	// VOD library: TMDB lookups after VOD imports (when on in Settings).
 	vodLibrary := &vodmeta.Matcher{DB: pool, Log: log}
 	refresher.AfterVODRefresh = func(db.Provider) { vodLibrary.Trigger() }
+	// Titles stored by an older parser are parsed again (and misses of an
+	// older matcher forgotten) in the background, then looked up.
+	go func() {
+		changed, err := vodmeta.Upgrade(ctx, pool, log)
+		if err != nil {
+			log.Warn("vod library: upgrading stored titles", "err", err)
+		}
+		if changed {
+			vodLibrary.Trigger()
+		}
+	}()
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
 		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
