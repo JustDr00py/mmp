@@ -1,9 +1,11 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 const vodPerPage = 100
@@ -21,6 +24,7 @@ const vodPerPage = 100
 func (ui *UI) mountVOD(r chi.Router) {
 	r.Get("/vod", ui.vodPage)
 	r.Get("/vod/series/{id}", ui.vodSeriesPage)
+	r.Post("/vod/{kind}/{id}/match", ui.vodMatch)
 	r.Post("/providers/{id}/vod", ui.providerVODRefresh)
 	r.Post("/providers/{id}/vod/delete", ui.providerVODDelete)
 	r.Post("/bouquets/{id}/vod-categories", ui.bouquetVODAdd)
@@ -36,6 +40,22 @@ type vodRow struct {
 	Extra    string // container (movies) or release date (series)
 	Disabled bool
 	Series   bool
+	// The library's view: parsed title, TMDB id and how it was found
+	// (panel, tmdb search, name = lent by a copy, manual), and how many
+	// active copies on any provider share the title.
+	Title, Quality, Lang, TmdbID, ImdbID, MatchSource string
+	Year                                              int32
+	Locked                                            bool
+	Copies                                            int64
+}
+
+// TMDBURL is the title's page on TMDB.
+func (r vodRow) TMDBURL() string {
+	kind := "movie"
+	if r.Series {
+		kind = "tv"
+	}
+	return "https://www.themoviedb.org/" + kind + "/" + r.TmdbID
 }
 
 type vodData struct {
@@ -45,7 +65,11 @@ type vodData struct {
 	Languages  []langOption
 	Language   string // "" = any, noLanguage = categories without a label
 	Query      string
+	Unmatched  bool // only titles without a TMDB id
 	Rows       []vodRow
+	Back       string // this page's URL, for the match forms
+	Flash      string
+	Error      string
 	Offset     int
 	PrevOffset int
 	NextOffset int
@@ -55,7 +79,12 @@ type vodData struct {
 // &q=, &offset=.
 func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	d := vodData{Kind: q.Get("kind"), Query: strings.TrimSpace(q.Get("q")), Language: q.Get("lang"), Offset: max(atoi(q.Get("offset")), 0)}
+	d := vodData{Kind: q.Get("kind"), Query: strings.TrimSpace(q.Get("q")), Language: q.Get("lang"), Offset: max(atoi(q.Get("offset")), 0),
+		Unmatched: q.Get("unmatched") != "", Flash: vodFlash[q.Get("msg")], Error: q.Get("err")}
+	back := r.URL.Query()
+	back.Del("msg")
+	back.Del("err")
+	d.Back = Prefix + "/vod?" + back.Encode()
 	if d.Kind != "series" {
 		d.Kind = "movie"
 	}
@@ -96,22 +125,26 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 	if d.Kind == "movie" {
-		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{CategoryIds: cids, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list movies", err)
 			return
 		}
 		for _, m := range rows {
-			d.Rows = append(d.Rows, vodRow{ID: m.ID, Name: m.Name, Image: m.Icon, Rating: m.Rating, Extra: m.ContainerExtension, Disabled: m.Disabled})
+			d.Rows = append(d.Rows, vodRow{ID: m.ID, Name: m.Name, Image: m.Icon, Rating: m.Rating, Extra: m.ContainerExtension, Disabled: m.Disabled,
+				Title: m.Title, Year: m.Year, Quality: m.Quality, Lang: m.Lang, TmdbID: m.TmdbID, ImdbID: m.ImdbID,
+				MatchSource: m.MatchSource, Locked: m.MatchLocked, Copies: m.Copies})
 		}
 	} else {
-		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{CategoryIds: cids, Search: search, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list series", err)
 			return
 		}
 		for _, s := range rows {
-			d.Rows = append(d.Rows, vodRow{ID: s.ID, Name: s.Name, Image: s.Cover, Rating: s.Rating, Extra: s.ReleaseDate, Disabled: s.Disabled, Series: true})
+			d.Rows = append(d.Rows, vodRow{ID: s.ID, Name: s.Name, Image: s.Cover, Rating: s.Rating, Extra: s.ReleaseDate, Disabled: s.Disabled, Series: true,
+				Title: s.Title, Year: s.Year, Quality: s.Quality, Lang: s.Lang, TmdbID: s.TmdbID, ImdbID: s.ImdbID,
+				MatchSource: s.MatchSource, Locked: s.MatchLocked, Copies: s.Copies})
 		}
 	}
 	if len(d.Rows) > vodPerPage {
@@ -339,4 +372,85 @@ func (ui *UI) bouquetVODData(r *http.Request, bouquetID int64) (bouquetVOD, erro
 	}
 	d.Languages = languagesOf(names)
 	return d, nil
+}
+
+var vodFlash = map[string]string{
+	"matched": "Match saved and locked: imports and TMDB searches leave it as it is.",
+	"split":   "Title split from its copies and locked.",
+	"reset":   "Match reset: the next VOD refresh brings the panel's id back, and TMDB may be searched again.",
+}
+
+// vodMatch fixes one title's TMDB match: action=set (tmdb_id), split (no
+// id: its own title) or reset (back to the panel's id and searches).
+func (ui *UI) vodMatch(w http.ResponseWriter, r *http.Request) {
+	kind := chi.URLParam(r, "kind")
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 || kind != "movie" && kind != "series" {
+		http.NotFound(w, r)
+		return
+	}
+	back := r.FormValue("back")
+	if !strings.HasPrefix(back, Prefix+"/vod?") {
+		back = Prefix + "/vod?kind=" + kind
+	}
+	done := func(msg, errText string) {
+		v := "&msg=" + msg
+		if errText != "" {
+			v = "&err=" + url.QueryEscape(errText)
+		}
+		ui.redirect(w, r, back+v)
+	}
+	ctx := r.Context()
+	tmdbID := ""
+	switch r.FormValue("action") {
+	case "reset":
+		if kind == "movie" {
+			err = ui.Store.ResetVODItemMatch(ctx, id)
+		} else {
+			err = ui.Store.ResetSeriesMatch(ctx, id)
+		}
+		if err != nil {
+			ui.fail(w, "reset match", err)
+			return
+		}
+		ui.Log.Info("web: vod match reset", "kind", kind, "id", id)
+		done("reset", "")
+		return
+	case "set":
+		tmdbID = strings.TrimSpace(r.FormValue("tmdb_id"))
+		if _, err := strconv.ParseUint(tmdbID, 10, 64); err != nil || strings.Trim(tmdbID, "0") == "" {
+			done("", "A TMDB id is a number, as in themoviedb.org/movie/603.")
+			return
+		}
+		if ui.VODLibrary != nil {
+			fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			_, err := ui.VODLibrary.Fetch(fctx, kind, tmdbID)
+			cancel()
+			if errors.Is(err, vodmeta.ErrTMDBNotFound) {
+				done("", "TMDB has no "+kind+" with id "+tmdbID+".")
+				return
+			} else if err != nil {
+				ui.Log.Warn("web: could not load TMDB details; match saved without them", "kind", kind, "tmdb_id", tmdbID, "err", err)
+			}
+		}
+	case "split":
+	default:
+		http.Error(w, "unknown action", http.StatusBadRequest)
+		return
+	}
+	if kind == "movie" {
+		err = ui.Store.SetVODItemMatch(ctx, db.SetVODItemMatchParams{ID: id, TmdbID: tmdbID})
+	} else {
+		err = ui.Store.SetSeriesMatch(ctx, db.SetSeriesMatchParams{ID: id, TmdbID: tmdbID})
+	}
+	if err != nil {
+		ui.fail(w, "save match", err)
+		return
+	}
+	ui.Log.Info("web: vod match fixed", "kind", kind, "id", id, "tmdb_id", tmdbID)
+	if tmdbID == "" {
+		done("split", "")
+		return
+	}
+	done("matched", "")
 }

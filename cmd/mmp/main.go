@@ -39,6 +39,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/server"
 	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 	"github.com/JustDr00py/mmp/internal/web"
 )
 
@@ -212,6 +213,9 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		autoMatch(ctx, p)
 		router.AfterRefresh(ctx, p) // slot names change with a refresh; after auto-match, which may relink slots
 	}
+	// VOD library: TMDB lookups after VOD imports (when on in Settings).
+	vodLibrary := &vodmeta.Matcher{DB: pool, Log: log}
+	refresher.AfterVODRefresh = func(db.Provider) { vodLibrary.Trigger() }
 	apiEnv := &api.Env{Log: log, Store: db.New(pool), Refresh: refresher,
 		Match: matcher, Streams: streams, Auth: authn, LoginLimit: loginLimit, Audit: auditLog, DefaultRefresh: cfg.Refresh.Interval.Duration,
 		InTx: func(ctx context.Context, fn func(api.Store) error) error {
@@ -232,6 +236,13 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		Limit: loginLimit}
 	// On shutdown, record movie/episode playbacks still held open for a resume.
 	context.AfterFunc(ctx, outputs.FlushVOD)
+	outputs.VODLibrary = func(ctx context.Context) vodmeta.Settings {
+		s, err := vodmeta.LoadSettings(ctx, queries)
+		if err != nil {
+			log.Warn("vod library settings", "err", err)
+		}
+		return s
+	}
 	outputs.NameGuide = func(ctx context.Context) nameguide.Settings {
 		s, err := nameguide.Load(ctx, queries)
 		if err != nil {
@@ -278,7 +289,7 @@ func run(ctx context.Context, configPath string, migrateOnly bool) error {
 		vpn = &web.VPN{Client: client, Keeper: keeper, Servers: &gluetun.ServerList{Path: gc.ServersFile}}
 		go keeper.Run(ctx)
 	}
-	ui, err := web.New(web.Deps{VPN: vpn, Routes: router, Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
+	ui, err := web.New(web.Deps{VODLibrary: vodLibrary, VPN: vpn, Routes: router, Auth: authn, Store: queries, Refresh: refresher, Match: matcher, Live: streams, Viewers: access,
 		Backups: backups, Logos: logoLib, LogoUpdateInterval: cfg.Logos.UpdateInterval.Duration, Restart: func() { restartSelf(log) },
 		Slots: capacity.Snapshot, Connections: access.Connections, BaseURL: cfg.BaseURL, Log: log, Version: version, Ctx: ctx,
 		DefaultRefresh: cfg.Refresh.Interval.Duration, EpisodeTTL: cfg.VOD.EpisodeTTL.Duration,

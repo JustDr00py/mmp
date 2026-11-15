@@ -33,6 +33,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/proxy"
 	"github.com/JustDr00py/mmp/internal/redact"
 	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 //go:embed templates
@@ -167,6 +168,10 @@ type Store interface {
 	SetProviderGuideEnabled(ctx context.Context, arg db.SetProviderGuideEnabledParams) error
 	ListVODCategoriesAdmin(ctx context.Context, arg db.ListVODCategoriesAdminParams) ([]db.ListVODCategoriesAdminRow, error)
 	ListVODItemsAdmin(ctx context.Context, arg db.ListVODItemsAdminParams) ([]db.ListVODItemsAdminRow, error)
+	SetVODItemMatch(ctx context.Context, arg db.SetVODItemMatchParams) error
+	SetSeriesMatch(ctx context.Context, arg db.SetSeriesMatchParams) error
+	ResetVODItemMatch(ctx context.Context, id int64) error
+	ResetSeriesMatch(ctx context.Context, id int64) error
 	ListSeriesAdmin(ctx context.Context, arg db.ListSeriesAdminParams) ([]db.ListSeriesAdminRow, error)
 	AddVODCategoriesToBouquet(ctx context.Context, arg db.AddVODCategoriesToBouquetParams) (int64, error)
 	RemoveVODCategoryFromBouquet(ctx context.Context, arg db.RemoveVODCategoryFromBouquetParams) (int64, error)
@@ -226,6 +231,17 @@ type Refresher interface {
 	SeriesEpisodesByID(ctx context.Context, seriesID int64, ttl time.Duration) (db.Series, []db.SeriesEpisode, error)
 }
 
+// VODLibrary is the TMDB matcher, as the Settings page uses it.
+type VODLibrary interface {
+	Trigger() bool
+	Status() vodmeta.MatchStatus
+	Counts(ctx context.Context) (db.VODMatchCountsRow, error)
+	CheckKey(ctx context.Context, key string) error
+	// Fetch caches a title's TMDB details and returns TMDB's title for it
+	// ("" without a key to check with).
+	Fetch(ctx context.Context, kind, id string) (string, error)
+}
+
 // Deps are the UI's collaborators.
 type Deps struct {
 	Auth       *auth.Authenticator
@@ -271,6 +287,9 @@ type Deps struct {
 	Routes interface {
 		Run(ctx context.Context, now time.Time) (eventroute.Result, error)
 	}
+	// VODLibrary runs TMDB matching (Settings → VOD library); nil hides
+	// the matching status.
+	VODLibrary VODLibrary
 	// Ctx ends long-lived responses (the live dashboard) at shutdown.
 	Ctx     context.Context
 	Log     *slog.Logger

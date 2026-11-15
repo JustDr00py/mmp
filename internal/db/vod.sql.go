@@ -165,7 +165,7 @@ func (q *Queries) DisableUnselectedVODItems(ctx context.Context, providerID int6
 }
 
 const getSeries = `-- name: GetSeries :one
-SELECT id, provider_id, external_id, name, category_external_id, cover, plot, "cast", director, genre, release_date, rating, last_modified, info, episodes_fetched_at, disabled, last_seen, created_at FROM series WHERE id = $1
+SELECT id, provider_id, external_id, name, category_external_id, cover, plot, "cast", director, genre, release_date, rating, last_modified, info, episodes_fetched_at, disabled, last_seen, created_at, tmdb_id, title, title_norm, year, quality, lang, imdb_id, match_source, match_locked, match_tried_at, title_key FROM series WHERE id = $1
 `
 
 func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
@@ -190,12 +190,23 @@ func (q *Queries) GetSeries(ctx context.Context, id int64) (Series, error) {
 		&i.Disabled,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.TmdbID,
+		&i.Title,
+		&i.TitleNorm,
+		&i.Year,
+		&i.Quality,
+		&i.Lang,
+		&i.ImdbID,
+		&i.MatchSource,
+		&i.MatchLocked,
+		&i.MatchTriedAt,
+		&i.TitleKey,
 	)
 	return i, err
 }
 
 const getVODItem = `-- name: GetVODItem :one
-SELECT id, provider_id, external_id, name, category_external_id, icon, rating, container_extension, tmdb_id, added_at, info, info_fetched_at, disabled, last_seen, created_at FROM vod_items WHERE id = $1
+SELECT id, provider_id, external_id, name, category_external_id, icon, rating, container_extension, tmdb_id, added_at, info, info_fetched_at, disabled, last_seen, created_at, title, title_norm, year, quality, lang, imdb_id, match_source, match_locked, match_tried_at, title_key FROM vod_items WHERE id = $1
 `
 
 func (q *Queries) GetVODItem(ctx context.Context, id int64) (VodItem, error) {
@@ -217,8 +228,69 @@ func (q *Queries) GetVODItem(ctx context.Context, id int64) (VodItem, error) {
 		&i.Disabled,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.Title,
+		&i.TitleNorm,
+		&i.Year,
+		&i.Quality,
+		&i.Lang,
+		&i.ImdbID,
+		&i.MatchSource,
+		&i.MatchLocked,
+		&i.MatchTriedAt,
+		&i.TitleKey,
 	)
 	return i, err
+}
+
+const inheritSeriesTmdbIDs = `-- name: InheritSeriesTmdbIDs :execrows
+WITH known AS (
+    SELECT DISTINCT ON (k.title_norm, k.year) k.title_norm, k.year, k.tmdb_id
+    FROM (SELECT title_norm, year, tmdb_id, bool_or(match_source = 'manual') AS manual, count(*) AS n
+          FROM series
+          WHERE tmdb_id <> '' AND year > 0 AND title_norm <> '' AND match_source IN ('panel', 'tmdb', 'manual') AND NOT disabled
+          GROUP BY title_norm, year, tmdb_id) k
+    ORDER BY k.title_norm, k.year, k.manual DESC, k.n DESC, k.tmdb_id
+)
+UPDATE series s SET tmdb_id = known.tmdb_id, match_source = 'name'
+FROM known
+WHERE s.title_norm = known.title_norm AND s.year = known.year AND NOT s.match_locked
+  AND (s.tmdb_id = '' OR s.match_source = 'name' AND s.tmdb_id <> known.tmdb_id)
+`
+
+// InheritVODItemTmdbIDs for series.
+func (q *Queries) InheritSeriesTmdbIDs(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, inheritSeriesTmdbIDs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const inheritVODItemTmdbIDs = `-- name: InheritVODItemTmdbIDs :execrows
+WITH known AS (
+    SELECT DISTINCT ON (k.title_norm, k.year) k.title_norm, k.year, k.tmdb_id
+    FROM (SELECT title_norm, year, tmdb_id, bool_or(match_source = 'manual') AS manual, count(*) AS n
+          FROM vod_items
+          WHERE tmdb_id <> '' AND year > 0 AND title_norm <> '' AND match_source IN ('panel', 'tmdb', 'manual') AND NOT disabled
+          GROUP BY title_norm, year, tmdb_id) k
+    ORDER BY k.title_norm, k.year, k.manual DESC, k.n DESC, k.tmdb_id
+)
+UPDATE vod_items i SET tmdb_id = known.tmdb_id, match_source = 'name'
+FROM known
+WHERE i.title_norm = known.title_norm AND i.year = known.year AND NOT i.match_locked
+  AND (i.tmdb_id = '' OR i.match_source = 'name' AND i.tmdb_id <> known.tmdb_id)
+`
+
+// Lends a TMDB id to titles without one from copies (any provider) with
+// the same normalised title and year whose id is known, so a panel that
+// sends ids and one that does not still list the title once. The id most
+// copies agree on wins; an admin's manual one before all.
+func (q *Queries) InheritVODItemTmdbIDs(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, inheritVODItemTmdbIDs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listBouquetVODCategories = `-- name: ListBouquetVODCategories :many
@@ -299,23 +371,27 @@ func (q *Queries) ListSelectedVODCategories(ctx context.Context, providerID int6
 
 const listSeriesAdmin = `-- name: ListSeriesAdmin :many
 SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cover, s.rating,
-       s.release_date, s.episodes_fetched_at, s.disabled
+       s.release_date, s.episodes_fetched_at, s.disabled, s.title, s.year, s.quality, s.lang, s.tmdb_id, s.imdb_id,
+       s.match_source, s.match_locked,
+       (SELECT count(*) FROM series c WHERE c.title_key = s.title_key AND NOT c.disabled)::bigint AS copies
 FROM series s
 WHERE ($1::bigint IS NULL OR s.provider_id = $1)
   AND ($2::bigint[] IS NULL OR EXISTS (
         SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'series'
           AND c.provider_id = s.provider_id AND c.external_id = s.category_external_id))
-  AND ($3::text IS NULL OR s.name ILIKE $3)
+  AND ($3::text IS NULL OR s.name ILIKE $3 OR s.title ILIKE $3)
+  AND (NOT $4::bool OR s.tmdb_id = '')
 ORDER BY s.name, s.id
-LIMIT $5 OFFSET $4
+LIMIT $6 OFFSET $5
 `
 
 type ListSeriesAdminParams struct {
-	ProviderID  *int64  `json:"provider_id"`
-	CategoryIds []int64 `json:"category_ids"`
-	Search      *string `json:"search"`
-	Offset      int32   `json:"offset"`
-	Limit       int32   `json:"limit"`
+	ProviderID    *int64  `json:"provider_id"`
+	CategoryIds   []int64 `json:"category_ids"`
+	Search        *string `json:"search"`
+	UnmatchedOnly bool    `json:"unmatched_only"`
+	Offset        int32   `json:"offset"`
+	Limit         int32   `json:"limit"`
 }
 
 type ListSeriesAdminRow struct {
@@ -329,6 +405,15 @@ type ListSeriesAdminRow struct {
 	ReleaseDate        string     `json:"release_date"`
 	EpisodesFetchedAt  *time.Time `json:"episodes_fetched_at"`
 	Disabled           bool       `json:"disabled"`
+	Title              string     `json:"title"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	Lang               string     `json:"lang"`
+	TmdbID             string     `json:"tmdb_id"`
+	ImdbID             string     `json:"imdb_id"`
+	MatchSource        string     `json:"match_source"`
+	MatchLocked        bool       `json:"match_locked"`
+	Copies             int64      `json:"copies"`
 }
 
 func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams) ([]ListSeriesAdminRow, error) {
@@ -336,6 +421,7 @@ func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams
 		arg.ProviderID,
 		arg.CategoryIds,
 		arg.Search,
+		arg.UnmatchedOnly,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -357,6 +443,15 @@ func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams
 			&i.ReleaseDate,
 			&i.EpisodesFetchedAt,
 			&i.Disabled,
+			&i.Title,
+			&i.Year,
+			&i.Quality,
+			&i.Lang,
+			&i.TmdbID,
+			&i.ImdbID,
+			&i.MatchSource,
+			&i.MatchLocked,
+			&i.Copies,
 		); err != nil {
 			return nil, err
 		}
@@ -409,22 +504,28 @@ WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
     JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $1
 ), cats AS (
-    SELECT v.pool_key, v.external_id
+    SELECT v.pool_key, v.external_id, min(v.id)::bigint AS id, array_agg(v.id)::bigint[] AS ids
     FROM vod_offered_categories v LEFT JOIN granted g ON g.id = v.id
     WHERE v.kind = 'series'
     GROUP BY v.pool_key, v.external_id
     HAVING $2::bool OR bool_or(g.id IS NOT NULL)
 ), eps AS (
-    SELECT DISTINCT ON (v.pool_key, s.external_id, e.external_id)
+    SELECT DISTINCT ON (COALESCE(s.title_key, v.pool_key || '|' || s.external_id),
+                        CASE WHEN s.title_key IS NOT NULL AND (e.season > 0 OR e.episode_num > 0)
+                             THEN e.season::text || 'x' || e.episode_num::text ELSE 'e' || e.external_id END)
            e.id, e.season, e.episode_num, e.title, e.container_extension, s.id AS series_id,
-           s.name AS series_name, s.cover
+           s.name AS series_name, s.cover, s.title AS series_title, s.year AS series_year, s.quality AS series_quality
     FROM series_episodes e
     JOIN series s ON s.id = e.series_id AND NOT s.disabled AND s.episodes_fetched_at IS NOT NULL
     JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
     JOIN cats k ON k.pool_key = v.pool_key AND k.external_id = v.external_id
-    ORDER BY v.pool_key, s.external_id, e.external_id, s.id
+    ORDER BY COALESCE(s.title_key, v.pool_key || '|' || s.external_id),
+             CASE WHEN s.title_key IS NOT NULL AND (e.season > 0 OR e.episode_num > 0)
+                  THEN e.season::text || 'x' || e.episode_num::text ELSE 'e' || e.external_id END,
+             s.id
 )
-SELECT t.id, t.season, t.episode_num, t.title, t.container_extension, t.series_id, t.series_name, t.cover
+SELECT t.id, t.season, t.episode_num, t.title, t.container_extension, t.series_id, t.series_name, t.cover,
+       t.series_title, t.series_year, t.series_quality
 FROM eps t ORDER BY t.series_name, t.series_id, t.season, t.episode_num, t.id
 `
 
@@ -442,11 +543,15 @@ type ListUserCachedEpisodesRow struct {
 	SeriesID           int64  `json:"series_id"`
 	SeriesName         string `json:"series_name"`
 	Cover              string `json:"cover"`
+	SeriesTitle        string `json:"series_title"`
+	SeriesYear         int32  `json:"series_year"`
+	SeriesQuality      string `json:"series_quality"`
 }
 
 // Episodes of the user's visible series whose episode lists are already
 // loaded (series load lazily; playlists do not trigger panel calls). An
-// episode of pooled series copies is listed once.
+// episode of several copies of a series (pooled, or one title on several
+// providers) is listed once, from the oldest copy that has it.
 func (q *Queries) ListUserCachedEpisodes(ctx context.Context, arg ListUserCachedEpisodesParams) ([]ListUserCachedEpisodesRow, error) {
 	rows, err := q.db.Query(ctx, listUserCachedEpisodes, arg.UserID, arg.IsAdmin)
 	if err != nil {
@@ -465,6 +570,9 @@ func (q *Queries) ListUserCachedEpisodes(ctx context.Context, arg ListUserCached
 			&i.SeriesID,
 			&i.SeriesName,
 			&i.Cover,
+			&i.SeriesTitle,
+			&i.SeriesYear,
+			&i.SeriesQuality,
 		); err != nil {
 			return nil, err
 		}
@@ -481,23 +589,36 @@ WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
     JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $2
 ), x AS (
-    SELECT (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key,
-           s0.external_id AS series_external_id, s0.name AS series_name,
+    SELECT (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key, s0.title_key, s0.external_id AS series_external_id, s0.name AS series_name,
            e.id, e.external_id, e.container_extension, e.season, e.episode_num, e.title
     FROM series_episodes e
     JOIN series s0 ON s0.id = e.series_id
     JOIN providers pr ON pr.id = s0.provider_id
     WHERE e.id = $3
+), cand AS (
+    SELECT s.id FROM series s JOIN x ON x.title_key IS NOT NULL AND s.title_key = x.title_key
+    UNION
+    SELECT s.id FROM series s JOIN x ON s.external_id = x.series_external_id
 )
-SELECT x.id, x.external_id, x.container_extension, s.id AS series_id, s.provider_id,
-       x.series_name, x.season, x.episode_num, x.title
-FROM x
-JOIN series s ON s.external_id = x.series_external_id AND NOT s.disabled
-JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series'
-                             AND v.external_id = s.category_external_id AND v.pool_key = x.pool_key
-WHERE $1::bool OR EXISTS (
+SELECT x.id, COALESCE(CASE WHEN v.pool_key = x.pool_key AND s.external_id = x.series_external_id THEN x.external_id END,
+                      e2.external_id)::text AS external_id,
+       COALESCE(CASE WHEN v.pool_key = x.pool_key AND s.external_id = x.series_external_id THEN x.container_extension END,
+                e2.container_extension)::text AS container_extension,
+       s.id AS series_id, s.provider_id, v.provider_priority, x.series_name, x.season, x.episode_num, x.title
+FROM cand
+JOIN series s ON s.id = cand.id AND NOT s.disabled
+JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
+CROSS JOIN x
+LEFT JOIN LATERAL (
+    SELECT e.external_id, e.container_extension FROM series_episodes e
+    WHERE e.series_id = s.id AND e.season = x.season AND e.episode_num = x.episode_num
+      AND (x.season > 0 OR x.episode_num > 0)
+    ORDER BY e.id LIMIT 1
+) e2 ON x.title_key IS NOT NULL AND s.title_key = x.title_key
+WHERE ((v.pool_key = x.pool_key AND s.external_id = x.series_external_id) OR e2.external_id IS NOT NULL)
+  AND ($1::bool OR EXISTS (
         SELECT 1 FROM vod_offered_categories c JOIN granted g ON g.id = c.id
-        WHERE c.pool_key = v.pool_key AND c.kind = 'series' AND c.external_id = v.external_id)
+        WHERE c.pool_key = v.pool_key AND c.kind = 'series' AND c.external_id = v.external_id))
 ORDER BY v.provider_priority, s.provider_id, s.id
 `
 
@@ -513,15 +634,18 @@ type ListUserEpisodeCopiesRow struct {
 	ContainerExtension string `json:"container_extension"`
 	SeriesID           int64  `json:"series_id"`
 	ProviderID         int64  `json:"provider_id"`
+	ProviderPriority   int32  `json:"provider_priority"`
 	SeriesName         string `json:"series_name"`
 	Season             int32  `json:"season"`
 	EpisodeNum         int32  `json:"episode_num"`
 	Title              string `json:"title"`
 }
 
-// One episode, if the user may see its series, once per copy of the
-// series on pooled providers (episode ids are the panel's, so any copy's
-// account plays it), in playback order.
+// One episode, if the user may see its series, once per copy of the series
+// in playback order. On pooled accounts episode ids are the panel's, so
+// any copy's account plays the same id; a copy of the series on another
+// panel plays its own episode of the same season and number (only once
+// that copy's episode list is loaded).
 func (q *Queries) ListUserEpisodeCopies(ctx context.Context, arg ListUserEpisodeCopiesParams) ([]ListUserEpisodeCopiesRow, error) {
 	rows, err := q.db.Query(ctx, listUserEpisodeCopies, arg.IsAdmin, arg.UserID, arg.ID)
 	if err != nil {
@@ -537,6 +661,7 @@ func (q *Queries) ListUserEpisodeCopies(ctx context.Context, arg ListUserEpisode
 			&i.ContainerExtension,
 			&i.SeriesID,
 			&i.ProviderID,
+			&i.ProviderPriority,
 			&i.SeriesName,
 			&i.Season,
 			&i.EpisodeNum,
@@ -555,32 +680,43 @@ func (q *Queries) ListUserEpisodeCopies(ctx context.Context, arg ListUserEpisode
 const listUserSeries = `-- name: ListUserSeries :many
 WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
-    JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $1
+    JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $2
 ), cats AS (
     SELECT v.pool_key, v.external_id, min(v.id)::bigint AS id, array_agg(v.id)::bigint[] AS ids
     FROM vod_offered_categories v LEFT JOIN granted g ON g.id = v.id
     WHERE v.kind = 'series'
     GROUP BY v.pool_key, v.external_id
-    HAVING $2::bool OR bool_or(g.id IS NOT NULL)
-), titles AS (
-    SELECT DISTINCT ON (v.pool_key, s.external_id)
+    HAVING $3::bool OR bool_or(g.id IS NOT NULL)
+), vis AS (
+    SELECT COALESCE(s.title_key, v.pool_key || '|' || s.external_id) AS gk,
            s.id, s.name, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating,
-           s.last_modified, k.id AS category_id
+           s.last_modified, s.title, s.year, s.quality, s.tmdb_id, k.id AS category_id, k.ids AS category_ids
     FROM series s
     JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
     JOIN cats k ON k.pool_key = v.pool_key AND k.external_id = v.external_id
     WHERE NOT s.disabled
-      AND ($3::bigint IS NULL OR $3::bigint = ANY(k.ids))
-    ORDER BY v.pool_key, s.external_id, s.id
+), titles AS (
+    SELECT DISTINCT ON (t.gk) t.gk, t.id, t.name, t.cover, t.plot, t."cast", t.director, t.genre, t.release_date,
+           t.rating, t.last_modified, t.title, t.year, t.quality, t.tmdb_id, t.category_id
+    FROM vis t ORDER BY t.gk, t.id
+), incat AS (
+    SELECT t.gk, min(t.category_id)::bigint AS category_id FROM vis t
+    WHERE $1::bigint = ANY(t.category_ids) GROUP BY t.gk
 )
-SELECT t.id, t.name, t.cover, t.plot, t."cast", t.director, t.genre, t.release_date, t.rating, t.last_modified, t.category_id
-FROM titles t ORDER BY t.name, t.id
+SELECT t.id, t.name, t.cover, t.plot, t."cast", t.director, t.genre, t.release_date, t.rating, t.last_modified,
+       t.title, t.year, t.quality, COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster,
+       COALESCE(tc.data->>'overview', '')::text AS tmdb_plot,
+       COALESCE(c.category_id, t.category_id)::bigint AS category_id
+FROM titles t LEFT JOIN incat c ON c.gk = t.gk
+LEFT JOIN tmdb_cache tc ON tc.kind = 'series' AND tc.tmdb_id = t.tmdb_id AND t.tmdb_id <> ''
+WHERE $1::bigint IS NULL OR c.gk IS NOT NULL
+ORDER BY t.name, t.id
 `
 
 type ListUserSeriesParams struct {
+	CategoryID *int64 `json:"category_id"`
 	UserID     int64  `json:"user_id"`
 	IsAdmin    bool   `json:"is_admin"`
-	CategoryID *int64 `json:"category_id"`
 }
 
 type ListUserSeriesRow struct {
@@ -594,11 +730,16 @@ type ListUserSeriesRow struct {
 	ReleaseDate  string     `json:"release_date"`
 	Rating       *float32   `json:"rating"`
 	LastModified *time.Time `json:"last_modified"`
+	Title        string     `json:"title"`
+	Year         int32      `json:"year"`
+	Quality      string     `json:"quality"`
+	TmdbPoster   string     `json:"tmdb_poster"`
+	TmdbPlot     string     `json:"tmdb_plot"`
 	CategoryID   int64      `json:"category_id"`
 }
 
 func (q *Queries) ListUserSeries(ctx context.Context, arg ListUserSeriesParams) ([]ListUserSeriesRow, error) {
-	rows, err := q.db.Query(ctx, listUserSeries, arg.UserID, arg.IsAdmin, arg.CategoryID)
+	rows, err := q.db.Query(ctx, listUserSeries, arg.CategoryID, arg.UserID, arg.IsAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -617,6 +758,11 @@ func (q *Queries) ListUserSeries(ctx context.Context, arg ListUserSeriesParams) 
 			&i.ReleaseDate,
 			&i.Rating,
 			&i.LastModified,
+			&i.Title,
+			&i.Year,
+			&i.Quality,
+			&i.TmdbPoster,
+			&i.TmdbPlot,
 			&i.CategoryID,
 		); err != nil {
 			return nil, err
@@ -634,18 +780,23 @@ WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
     JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $2
 ), x AS (
-    SELECT (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key,
-           s.external_id
+    SELECT s.title_key, (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key, s.external_id
     FROM series s JOIN providers pr ON pr.id = s.provider_id
     WHERE s.id = $3
+), cand AS (
+    SELECT s.id FROM series s JOIN x ON x.title_key IS NOT NULL AND s.title_key = x.title_key
+    UNION
+    SELECT s.id FROM series s JOIN x ON s.external_id = x.external_id AND (x.title_key IS NULL OR s.title_key IS NULL)
 )
-SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating, s.last_modified, s.info, s.episodes_fetched_at, s.disabled, s.last_seen, s.created_at,
+SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating, s.last_modified, s.info, s.episodes_fetched_at, s.disabled, s.last_seen, s.created_at, s.tmdb_id, s.title, s.title_norm, s.year, s.quality, s.lang, s.imdb_id, s.match_source, s.match_locked, s.match_tried_at, s.title_key,
        (SELECT min(c.id) FROM vod_offered_categories c
         WHERE c.pool_key = v.pool_key AND c.kind = 'series' AND c.external_id = v.external_id)::bigint AS category_id
 FROM series s
+JOIN cand ON cand.id = s.id
 JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
-JOIN x ON x.pool_key = v.pool_key AND x.external_id = s.external_id
+CROSS JOIN x
 WHERE NOT s.disabled
+  AND ((x.title_key IS NOT NULL AND s.title_key = x.title_key) OR (v.pool_key = x.pool_key AND s.external_id = x.external_id))
   AND ($1::bool OR EXISTS (
         SELECT 1 FROM vod_offered_categories c JOIN granted g ON g.id = c.id
         WHERE c.pool_key = v.pool_key AND c.kind = 'series' AND c.external_id = v.external_id))
@@ -677,6 +828,17 @@ type ListUserSeriesCopiesRow struct {
 	Disabled           bool       `json:"disabled"`
 	LastSeen           time.Time  `json:"last_seen"`
 	CreatedAt          time.Time  `json:"created_at"`
+	TmdbID             string     `json:"tmdb_id"`
+	Title              string     `json:"title"`
+	TitleNorm          string     `json:"title_norm"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	Lang               string     `json:"lang"`
+	ImdbID             string     `json:"imdb_id"`
+	MatchSource        string     `json:"match_source"`
+	MatchLocked        bool       `json:"match_locked"`
+	MatchTriedAt       *time.Time `json:"match_tried_at"`
+	TitleKey           *string    `json:"title_key"`
 	CategoryID         int64      `json:"category_id"`
 }
 
@@ -709,6 +871,17 @@ func (q *Queries) ListUserSeriesCopies(ctx context.Context, arg ListUserSeriesCo
 			&i.Disabled,
 			&i.LastSeen,
 			&i.CreatedAt,
+			&i.TmdbID,
+			&i.Title,
+			&i.TitleNorm,
+			&i.Year,
+			&i.Quality,
+			&i.Lang,
+			&i.ImdbID,
+			&i.MatchSource,
+			&i.MatchLocked,
+			&i.MatchTriedAt,
+			&i.TitleKey,
 			&i.CategoryID,
 		); err != nil {
 			return nil, err
@@ -778,19 +951,25 @@ WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
     JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $2
 ), x AS (
-    SELECT (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key,
-           i.external_id
+    SELECT i.title_key, (CASE WHEN pr.vod_pooled AND pr.backbone <> '' THEN 'b:' || pr.backbone ELSE 'p:' || pr.id::text END)::text AS pool_key, i.external_id
     FROM vod_items i JOIN providers pr ON pr.id = i.provider_id
     WHERE i.id = $3
+), cand AS (
+    SELECT i.id FROM vod_items i JOIN x ON x.title_key IS NOT NULL AND i.title_key = x.title_key
+    UNION
+    SELECT i.id FROM vod_items i JOIN x ON i.external_id = x.external_id AND (x.title_key IS NULL OR i.title_key IS NULL)
 )
 SELECT i.id, i.provider_id, i.external_id, i.name, i.container_extension, i.info, i.info_fetched_at,
-       i.icon, i.rating, i.tmdb_id, i.added_at,
+       i.icon, i.rating, i.tmdb_id, i.added_at, i.title, i.year, i.quality, v.provider_priority,
        (SELECT min(c.id) FROM vod_offered_categories c
         WHERE c.pool_key = v.pool_key AND c.kind = 'movie' AND c.external_id = v.external_id)::bigint AS category_id
-FROM vod_items i
+FROM cand
+JOIN vod_items i ON i.id = cand.id
 JOIN vod_offered_categories v ON v.provider_id = i.provider_id AND v.kind = 'movie' AND v.external_id = i.category_external_id
-JOIN x ON x.pool_key = v.pool_key AND x.external_id = i.external_id
+CROSS JOIN x
 WHERE NOT i.disabled
+  -- a panel id only names the same title on the same pool
+  AND ((x.title_key IS NOT NULL AND i.title_key = x.title_key) OR (v.pool_key = x.pool_key AND i.external_id = x.external_id))
   AND ($1::bool OR EXISTS (
         SELECT 1 FROM vod_offered_categories c JOIN granted g ON g.id = c.id
         WHERE c.pool_key = v.pool_key AND c.kind = 'movie' AND c.external_id = v.external_id))
@@ -815,12 +994,17 @@ type ListUserVODItemCopiesRow struct {
 	Rating             *float32   `json:"rating"`
 	TmdbID             string     `json:"tmdb_id"`
 	AddedAt            *time.Time `json:"added_at"`
+	Title              string     `json:"title"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	ProviderPriority   int32      `json:"provider_priority"`
 	CategoryID         int64      `json:"category_id"`
 }
 
-// The movie with this id and its copies on pooled providers, if the user
-// may see it (else no rows), in playback order (provider priority).
-// category_id is the pooled category's listed id.
+// The movie with this id and its other copies (same title_key on any
+// provider, or the same panel id on pooled accounts) that the user may
+// see (else no rows), in playback order (provider priority). category_id
+// is the copy's category's listed id.
 func (q *Queries) ListUserVODItemCopies(ctx context.Context, arg ListUserVODItemCopiesParams) ([]ListUserVODItemCopiesRow, error) {
 	rows, err := q.db.Query(ctx, listUserVODItemCopies, arg.IsAdmin, arg.UserID, arg.ID)
 	if err != nil {
@@ -842,6 +1026,10 @@ func (q *Queries) ListUserVODItemCopies(ctx context.Context, arg ListUserVODItem
 			&i.Rating,
 			&i.TmdbID,
 			&i.AddedAt,
+			&i.Title,
+			&i.Year,
+			&i.Quality,
+			&i.ProviderPriority,
 			&i.CategoryID,
 		); err != nil {
 			return nil, err
@@ -857,31 +1045,42 @@ func (q *Queries) ListUserVODItemCopies(ctx context.Context, arg ListUserVODItem
 const listUserVODItems = `-- name: ListUserVODItems :many
 WITH granted AS (
     SELECT DISTINCT bv.vod_category_id AS id FROM bouquet_vod_categories bv
-    JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $1
+    JOIN user_bouquets ub ON ub.bouquet_id = bv.bouquet_id WHERE ub.user_id = $2
 ), cats AS (
     SELECT v.pool_key, v.external_id, min(v.id)::bigint AS id, array_agg(v.id)::bigint[] AS ids
     FROM vod_offered_categories v LEFT JOIN granted g ON g.id = v.id
     WHERE v.kind = 'movie'
     GROUP BY v.pool_key, v.external_id
-    HAVING $2::bool OR bool_or(g.id IS NOT NULL)
-), titles AS (
-    SELECT DISTINCT ON (v.pool_key, i.external_id)
-           i.id, i.name, i.icon, i.rating, i.container_extension, i.tmdb_id, i.added_at, k.id AS category_id
+    HAVING $3::bool OR bool_or(g.id IS NOT NULL)
+), vis AS (
+    SELECT COALESCE(i.title_key, v.pool_key || '|' || i.external_id) AS gk,
+           i.id, i.name, i.icon, i.rating, i.container_extension, i.tmdb_id, i.added_at,
+           i.title, i.year, i.quality, k.id AS category_id, k.ids AS category_ids
     FROM vod_items i
     JOIN vod_offered_categories v ON v.provider_id = i.provider_id AND v.kind = 'movie' AND v.external_id = i.category_external_id
     JOIN cats k ON k.pool_key = v.pool_key AND k.external_id = v.external_id
     WHERE NOT i.disabled
-      AND ($3::bigint IS NULL OR $3::bigint = ANY(k.ids))
-    ORDER BY v.pool_key, i.external_id, i.id
+), titles AS (
+    SELECT DISTINCT ON (t.gk) t.gk, t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at,
+           t.title, t.year, t.quality, t.category_id
+    FROM vis t ORDER BY t.gk, t.id
+), incat AS (
+    SELECT t.gk, min(t.category_id)::bigint AS category_id FROM vis t
+    WHERE $1::bigint = ANY(t.category_ids) GROUP BY t.gk
 )
-SELECT t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at, t.category_id
-FROM titles t ORDER BY t.name, t.id
+SELECT t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at, t.title, t.year, t.quality,
+       COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster,
+       COALESCE(c.category_id, t.category_id)::bigint AS category_id
+FROM titles t LEFT JOIN incat c ON c.gk = t.gk
+LEFT JOIN tmdb_cache tc ON tc.kind = 'movie' AND tc.tmdb_id = t.tmdb_id AND t.tmdb_id <> ''
+WHERE $1::bigint IS NULL OR c.gk IS NOT NULL
+ORDER BY t.name, t.id
 `
 
 type ListUserVODItemsParams struct {
+	CategoryID *int64 `json:"category_id"`
 	UserID     int64  `json:"user_id"`
 	IsAdmin    bool   `json:"is_admin"`
-	CategoryID *int64 `json:"category_id"`
 }
 
 type ListUserVODItemsRow struct {
@@ -892,12 +1091,19 @@ type ListUserVODItemsRow struct {
 	ContainerExtension string     `json:"container_extension"`
 	TmdbID             string     `json:"tmdb_id"`
 	AddedAt            *time.Time `json:"added_at"`
+	Title              string     `json:"title"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	TmdbPoster         string     `json:"tmdb_poster"`
 	CategoryID         int64      `json:"category_id"`
 }
 
 // category_id NULL = every visible category; any copy's id selects it.
+// Copies of one title (same title_key, else same pooled panel id) list
+// once, under the oldest copy's id, in the requested category if any copy
+// is in it.
 func (q *Queries) ListUserVODItems(ctx context.Context, arg ListUserVODItemsParams) ([]ListUserVODItemsRow, error) {
-	rows, err := q.db.Query(ctx, listUserVODItems, arg.UserID, arg.IsAdmin, arg.CategoryID)
+	rows, err := q.db.Query(ctx, listUserVODItems, arg.CategoryID, arg.UserID, arg.IsAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -913,6 +1119,10 @@ func (q *Queries) ListUserVODItems(ctx context.Context, arg ListUserVODItemsPara
 			&i.ContainerExtension,
 			&i.TmdbID,
 			&i.AddedAt,
+			&i.Title,
+			&i.Year,
+			&i.Quality,
+			&i.TmdbPoster,
 			&i.CategoryID,
 		); err != nil {
 			return nil, err
@@ -994,23 +1204,27 @@ func (q *Queries) ListVODCategoriesAdmin(ctx context.Context, arg ListVODCategor
 
 const listVODItemsAdmin = `-- name: ListVODItemsAdmin :many
 SELECT i.id, i.provider_id, i.external_id, i.name, i.category_external_id, i.icon, i.rating,
-       i.container_extension, i.added_at, i.disabled
+       i.container_extension, i.added_at, i.disabled, i.title, i.year, i.quality, i.lang, i.tmdb_id, i.imdb_id,
+       i.match_source, i.match_locked,
+       (SELECT count(*) FROM vod_items c WHERE c.title_key = i.title_key AND NOT c.disabled)::bigint AS copies
 FROM vod_items i
 WHERE ($1::bigint IS NULL OR i.provider_id = $1)
   AND ($2::bigint[] IS NULL OR EXISTS (
         SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'movie'
           AND c.provider_id = i.provider_id AND c.external_id = i.category_external_id))
-  AND ($3::text IS NULL OR i.name ILIKE $3)
+  AND ($3::text IS NULL OR i.name ILIKE $3 OR i.title ILIKE $3)
+  AND (NOT $4::bool OR i.tmdb_id = '')
 ORDER BY i.name, i.id
-LIMIT $5 OFFSET $4
+LIMIT $6 OFFSET $5
 `
 
 type ListVODItemsAdminParams struct {
-	ProviderID  *int64  `json:"provider_id"`
-	CategoryIds []int64 `json:"category_ids"`
-	Search      *string `json:"search"`
-	Offset      int32   `json:"offset"`
-	Limit       int32   `json:"limit"`
+	ProviderID    *int64  `json:"provider_id"`
+	CategoryIds   []int64 `json:"category_ids"`
+	Search        *string `json:"search"`
+	UnmatchedOnly bool    `json:"unmatched_only"`
+	Offset        int32   `json:"offset"`
+	Limit         int32   `json:"limit"`
 }
 
 type ListVODItemsAdminRow struct {
@@ -1024,6 +1238,15 @@ type ListVODItemsAdminRow struct {
 	ContainerExtension string     `json:"container_extension"`
 	AddedAt            *time.Time `json:"added_at"`
 	Disabled           bool       `json:"disabled"`
+	Title              string     `json:"title"`
+	Year               int32      `json:"year"`
+	Quality            string     `json:"quality"`
+	Lang               string     `json:"lang"`
+	TmdbID             string     `json:"tmdb_id"`
+	ImdbID             string     `json:"imdb_id"`
+	MatchSource        string     `json:"match_source"`
+	MatchLocked        bool       `json:"match_locked"`
+	Copies             int64      `json:"copies"`
 }
 
 func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminParams) ([]ListVODItemsAdminRow, error) {
@@ -1031,6 +1254,7 @@ func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminPa
 		arg.ProviderID,
 		arg.CategoryIds,
 		arg.Search,
+		arg.UnmatchedOnly,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -1052,6 +1276,15 @@ func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminPa
 			&i.ContainerExtension,
 			&i.AddedAt,
 			&i.Disabled,
+			&i.Title,
+			&i.Year,
+			&i.Quality,
+			&i.Lang,
+			&i.TmdbID,
+			&i.ImdbID,
+			&i.MatchSource,
+			&i.MatchLocked,
+			&i.Copies,
 		); err != nil {
 			return nil, err
 		}
@@ -1122,6 +1355,26 @@ func (q *Queries) RemoveVODCategoryFromBouquet(ctx context.Context, arg RemoveVO
 	return result.RowsAffected(), nil
 }
 
+const resetSeriesMatch = `-- name: ResetSeriesMatch :exec
+UPDATE series SET tmdb_id = '', imdb_id = '', match_source = '', match_locked = FALSE, match_tried_at = NULL WHERE id = $1
+`
+
+func (q *Queries) ResetSeriesMatch(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, resetSeriesMatch, id)
+	return err
+}
+
+const resetVODItemMatch = `-- name: ResetVODItemMatch :exec
+UPDATE vod_items SET tmdb_id = '', imdb_id = '', match_source = '', match_locked = FALSE, match_tried_at = NULL WHERE id = $1
+`
+
+// Undoes an admin's fix: the next import brings the panel's id back, and
+// the title may be lent an id or searched again.
+func (q *Queries) ResetVODItemMatch(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, resetVODItemMatch, id)
+	return err
+}
+
 const setProviderVODCategoryFilter = `-- name: SetProviderVODCategoryFilter :exec
 
 UPDATE providers SET vod_category_filter = $2, updated_at = now() WHERE id = $1
@@ -1168,6 +1421,22 @@ func (q *Queries) SetProviderVODPooled(ctx context.Context, arg SetProviderVODPo
 	return err
 }
 
+const setSeriesMatch = `-- name: SetSeriesMatch :exec
+UPDATE series SET tmdb_id = $1, match_source = 'manual', match_locked = TRUE,
+    imdb_id = COALESCE((SELECT c.imdb_id FROM tmdb_cache c WHERE c.kind = 'series' AND c.tmdb_id = $1), '')
+WHERE id = $2
+`
+
+type SetSeriesMatchParams struct {
+	TmdbID string `json:"tmdb_id"`
+	ID     int64  `json:"id"`
+}
+
+func (q *Queries) SetSeriesMatch(ctx context.Context, arg SetSeriesMatchParams) error {
+	_, err := q.db.Exec(ctx, setSeriesMatch, arg.TmdbID, arg.ID)
+	return err
+}
+
 const setVODCategorySelection = `-- name: SetVODCategorySelection :exec
 UPDATE vod_categories SET selected = (id = ANY($1::bigint[]))
 WHERE provider_id = $2
@@ -1196,6 +1465,24 @@ type SetVODItemInfoParams struct {
 
 func (q *Queries) SetVODItemInfo(ctx context.Context, arg SetVODItemInfoParams) error {
 	_, err := q.db.Exec(ctx, setVODItemInfo, arg.ID, arg.Info)
+	return err
+}
+
+const setVODItemMatch = `-- name: SetVODItemMatch :exec
+UPDATE vod_items SET tmdb_id = $1, match_source = 'manual', match_locked = TRUE,
+    imdb_id = COALESCE((SELECT c.imdb_id FROM tmdb_cache c WHERE c.kind = 'movie' AND c.tmdb_id = $1), '')
+WHERE id = $2
+`
+
+type SetVODItemMatchParams struct {
+	TmdbID string `json:"tmdb_id"`
+	ID     int64  `json:"id"`
+}
+
+// An admin's fix: this TMDB id (” to split the title from its copies),
+// locked against imports and searches.
+func (q *Queries) SetVODItemMatch(ctx context.Context, arg SetVODItemMatchParams) error {
+	_, err := q.db.Exec(ctx, setVODItemMatch, arg.TmdbID, arg.ID)
 	return err
 }
 
@@ -1300,10 +1587,13 @@ func (q *Queries) UpsertEpisodes(ctx context.Context, arg UpsertEpisodesParams) 
 
 const upsertSeries = `-- name: UpsertSeries :exec
 INSERT INTO series (provider_id, external_id, name, category_external_id, cover, plot, "cast",
-                    director, genre, release_date, rating, last_modified)
+                    director, genre, release_date, rating, last_modified,
+                    tmdb_id, title, title_norm, year, quality, lang, match_source)
 SELECT $1, u.ext, u.name, u.cat, u.cover, u.plot, u.cst, u.director, u.genre,
-       u.released, NULLIF(u.rating, -1), to_timestamp(NULLIF(u.modified, 0))
-FROM (SELECT unnest($2::text[]) AS ext, unnest($3::text[]) AS name, unnest($4::text[]) AS cat, unnest($5::text[]) AS cover, unnest($6::text[]) AS plot, unnest($7::text[]) AS cst, unnest($8::text[]) AS director, unnest($9::text[]) AS genre, unnest($10::text[]) AS released, unnest($11::real[]) AS rating, unnest($12::bigint[]) AS modified) AS u
+       u.released, NULLIF(u.rating, -1), to_timestamp(NULLIF(u.modified, 0)),
+       COALESCE(u.tmdb, ''), COALESCE(u.title, ''), COALESCE(u.norm, ''), COALESCE(u.year, 0), COALESCE(u.quality, ''), COALESCE(u.lang, ''), CASE WHEN COALESCE(u.tmdb, '') <> '' THEN 'panel' ELSE '' END
+FROM (SELECT unnest($2::text[]) AS ext, unnest($3::text[]) AS name, unnest($4::text[]) AS cat, unnest($5::text[]) AS cover, unnest($6::text[]) AS plot, unnest($7::text[]) AS cst, unnest($8::text[]) AS director, unnest($9::text[]) AS genre, unnest($10::text[]) AS released, unnest($11::real[]) AS rating, unnest($12::bigint[]) AS modified,
+             unnest($13::text[]) AS tmdb, unnest($14::text[]) AS title, unnest($15::text[]) AS norm, unnest($16::int[]) AS year, unnest($17::text[]) AS quality, unnest($18::text[]) AS lang) AS u
 ON CONFLICT (provider_id, external_id) DO UPDATE
 SET name = EXCLUDED.name, category_external_id = EXCLUDED.category_external_id, cover = EXCLUDED.cover,
     plot = EXCLUDED.plot, "cast" = EXCLUDED."cast", director = EXCLUDED.director, genre = EXCLUDED.genre,
@@ -1311,7 +1601,15 @@ SET name = EXCLUDED.name, category_external_id = EXCLUDED.category_external_id, 
     -- a newer last_modified means the episode list may have changed: refetch lazily
     episodes_fetched_at = CASE WHEN series.last_modified IS DISTINCT FROM EXCLUDED.last_modified
                                THEN NULL ELSE series.episodes_fetched_at END,
-    last_modified = EXCLUDED.last_modified, disabled = FALSE, last_seen = now()
+    last_modified = EXCLUDED.last_modified, disabled = FALSE, last_seen = now(),
+    title = EXCLUDED.title, title_norm = EXCLUDED.title_norm, year = EXCLUDED.year,
+    quality = EXCLUDED.quality, lang = EXCLUDED.lang,
+    tmdb_id = CASE WHEN series.match_locked OR EXCLUDED.tmdb_id = '' AND series.match_source IN ('tmdb', 'name')
+                   THEN series.tmdb_id ELSE EXCLUDED.tmdb_id END,
+    match_source = CASE WHEN series.match_locked OR EXCLUDED.tmdb_id = '' AND series.match_source IN ('tmdb', 'name')
+                        THEN series.match_source ELSE EXCLUDED.match_source END,
+    match_tried_at = CASE WHEN series.title_norm IS DISTINCT FROM EXCLUDED.title_norm OR series.year IS DISTINCT FROM EXCLUDED.year
+                          THEN NULL ELSE series.match_tried_at END
 `
 
 type UpsertSeriesParams struct {
@@ -1327,8 +1625,15 @@ type UpsertSeriesParams struct {
 	ReleaseDates []string  `json:"release_dates"`
 	Ratings      []float32 `json:"ratings"`
 	LastModified []int64   `json:"last_modified"`
+	TmdbIds      []string  `json:"tmdb_ids"`
+	Titles       []string  `json:"titles"`
+	TitleNorms   []string  `json:"title_norms"`
+	Years        []int32   `json:"years"`
+	Qualities    []string  `json:"qualities"`
+	Langs        []string  `json:"langs"`
 }
 
+// tmdb ids as for UpsertVODItems.
 func (q *Queries) UpsertSeries(ctx context.Context, arg UpsertSeriesParams) error {
 	_, err := q.db.Exec(ctx, upsertSeries,
 		arg.ProviderID,
@@ -1343,6 +1648,12 @@ func (q *Queries) UpsertSeries(ctx context.Context, arg UpsertSeriesParams) erro
 		arg.ReleaseDates,
 		arg.Ratings,
 		arg.LastModified,
+		arg.TmdbIds,
+		arg.Titles,
+		arg.TitleNorms,
+		arg.Years,
+		arg.Qualities,
+		arg.Langs,
 	)
 	return err
 }
@@ -1377,14 +1688,25 @@ func (q *Queries) UpsertVODCategories(ctx context.Context, arg UpsertVODCategori
 
 const upsertVODItems = `-- name: UpsertVODItems :exec
 INSERT INTO vod_items (provider_id, external_id, name, category_external_id, icon, rating,
-                       container_extension, tmdb_id, added_at)
+                       container_extension, tmdb_id, added_at, title, title_norm, year, quality, lang, match_source)
 SELECT $1, u.ext, u.name, u.cat, u.icon, NULLIF(u.rating, -1),
-       u.cext, u.tmdb, to_timestamp(NULLIF(u.added, 0))
-FROM (SELECT unnest($2::text[]) AS ext, unnest($3::text[]) AS name, unnest($4::text[]) AS cat, unnest($5::text[]) AS icon, unnest($6::real[]) AS rating, unnest($7::text[]) AS cext, unnest($8::text[]) AS tmdb, unnest($9::bigint[]) AS added) AS u
+       u.cext, COALESCE(u.tmdb, ''), to_timestamp(NULLIF(u.added, 0)), COALESCE(u.title, ''), COALESCE(u.norm, ''), COALESCE(u.year, 0), COALESCE(u.quality, ''), COALESCE(u.lang, ''),
+       CASE WHEN COALESCE(u.tmdb, '') <> '' THEN 'panel' ELSE '' END
+FROM (SELECT unnest($2::text[]) AS ext, unnest($3::text[]) AS name, unnest($4::text[]) AS cat, unnest($5::text[]) AS icon, unnest($6::real[]) AS rating, unnest($7::text[]) AS cext, unnest($8::text[]) AS tmdb, unnest($9::bigint[]) AS added,
+             unnest($10::text[]) AS title, unnest($11::text[]) AS norm, unnest($12::int[]) AS year, unnest($13::text[]) AS quality, unnest($14::text[]) AS lang) AS u
 ON CONFLICT (provider_id, external_id) DO UPDATE
 SET name = EXCLUDED.name, category_external_id = EXCLUDED.category_external_id, icon = EXCLUDED.icon,
     rating = EXCLUDED.rating, container_extension = EXCLUDED.container_extension,
-    tmdb_id = EXCLUDED.tmdb_id, added_at = EXCLUDED.added_at, disabled = FALSE, last_seen = now()
+    added_at = EXCLUDED.added_at, disabled = FALSE, last_seen = now(),
+    title = EXCLUDED.title, title_norm = EXCLUDED.title_norm, year = EXCLUDED.year,
+    quality = EXCLUDED.quality, lang = EXCLUDED.lang,
+    tmdb_id = CASE WHEN vod_items.match_locked OR EXCLUDED.tmdb_id = '' AND vod_items.match_source IN ('tmdb', 'name')
+                   THEN vod_items.tmdb_id ELSE EXCLUDED.tmdb_id END,
+    match_source = CASE WHEN vod_items.match_locked OR EXCLUDED.tmdb_id = '' AND vod_items.match_source IN ('tmdb', 'name')
+                        THEN vod_items.match_source ELSE EXCLUDED.match_source END,
+    -- a renamed title is worth another TMDB search
+    match_tried_at = CASE WHEN vod_items.title_norm IS DISTINCT FROM EXCLUDED.title_norm OR vod_items.year IS DISTINCT FROM EXCLUDED.year
+                          THEN NULL ELSE vod_items.match_tried_at END
 `
 
 type UpsertVODItemsParams struct {
@@ -1397,9 +1719,17 @@ type UpsertVODItemsParams struct {
 	ContainerExtensions []string  `json:"container_extensions"`
 	TmdbIds             []string  `json:"tmdb_ids"`
 	Added               []int64   `json:"added"`
+	Titles              []string  `json:"titles"`
+	TitleNorms          []string  `json:"title_norms"`
+	Years               []int32   `json:"years"`
+	Qualities           []string  `json:"qualities"`
+	Langs               []string  `json:"langs"`
 }
 
-// rating -1 and added 0 mean "unknown" (stored as NULL).
+// rating -1 and added 0 mean "unknown" (stored as NULL); parsed-title
+// arrays left out (NULL) store empty values. A panel tmdb id
+// replaces the stored one unless an admin locked the match; an empty one
+// keeps an id found by a TMDB search or lent by another copy.
 func (q *Queries) UpsertVODItems(ctx context.Context, arg UpsertVODItemsParams) error {
 	_, err := q.db.Exec(ctx, upsertVODItems,
 		arg.ProviderID,
@@ -1411,6 +1741,11 @@ func (q *Queries) UpsertVODItems(ctx context.Context, arg UpsertVODItemsParams) 
 		arg.ContainerExtensions,
 		arg.TmdbIds,
 		arg.Added,
+		arg.Titles,
+		arg.TitleNorms,
+		arg.Years,
+		arg.Qualities,
+		arg.Langs,
 	)
 	return err
 }

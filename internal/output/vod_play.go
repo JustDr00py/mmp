@@ -1,9 +1,11 @@
 package output
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -147,25 +149,36 @@ var passHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", "
 // holds one of the user's connection slots and one provider slot until the
 // response ends.
 func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.User, kind string) {
+	// A fresh start that fails upstream before anything was sent moves on
+	// to the title's next copy (another panel's file may well be there).
+	exclude := map[int64]bool{}
+	for h.serveVODCopy(w, r, u, kind, exclude) {
+	}
+}
+
+// serveVODCopy is one playback attempt. It returns true, having added the
+// failed provider to exclude and written nothing, when the caller should
+// try the title's remaining copies.
+func (h *Handlers) serveVODCopy(w http.ResponseWriter, r *http.Request, u db.User, kind string, exclude map[int64]bool) (retry bool) {
 	if h.VOD == nil {
 		http.NotFound(w, r)
-		return
+		return false
 	}
 	id, ok := vodID(chi.URLParam(r, "id"))
 	if !ok {
 		http.NotFound(w, r)
-		return
+		return false
 	}
 	ctx := r.Context()
 	tgt, err := h.vodTarget(ctx, u, kind, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
-		return
+		return false
 	}
 	if err != nil {
 		h.Log.Error("output: vod lookup", "user_id", u.ID, "kind", kind, "id", id, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+		return false
 	}
 	// The providers holding a copy, in order: playback takes the first
 	// with a free connection (pooled accounts share one title).
@@ -183,10 +196,18 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		provs = append(provs, p)
 		copyOf[p.ID] = c
 	}
+	provs = h.vodCandidates(provs, copyOf, vodKey{u.ID, kind, id}, rangeStart(r), exclude)
 	if len(provs) == 0 {
+		if len(exclude) > 0 { // every copy failed upstream
+			http.Error(w, "upstream unavailable", http.StatusBadGateway)
+			return false
+		}
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+		return false
 	}
+	// Another copy is worth trying only for a fresh start: a resume must
+	// stay on the file it started (vodCandidates already pinned it).
+	canRetry := len(provs) > 1 && rangeStart(r) == 0
 	provIDs := make([]int64, len(provs))
 	for i, p := range provs {
 		provIDs[i] = p.ID
@@ -230,12 +251,12 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 			"kind", kind, "id", id)
 		w.Header().Set("Retry-After", "10")
 		http.Error(w, "provider busy, try again shortly", http.StatusServiceUnavailable)
-		return
+		return false
 	case err != nil:
 		h.Log.Info("output: connection limit", "user_id", u.ID, "username", u.Username, "kind", kind, "id", id,
 			"max", u.MaxConnections)
 		http.Error(w, "connection limit reached", http.StatusForbidden)
-		return
+		return false
 	}
 	defer release()
 	// The account this playback holds (a seek joins the running one).
@@ -247,7 +268,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	}
 	if p.ID == 0 { // joined a lease on an account that no longer holds the title
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+		return false
 	}
 	cp := copyOf[p.ID]
 
@@ -255,7 +276,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	if err != nil {
 		h.Log.Error("output: vod provider url", "provider_id", p.ID, "err", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+		return false
 	}
 	upURL := client.MovieURL(cp.externalID, cp.ext)
 	if kind == "series" {
@@ -268,7 +289,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	req, err := http.NewRequestWithContext(ctx, method, upURL, nil)
 	if err != nil {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+		return false
 	}
 	for _, k := range []string{"Range", "If-Range"} {
 		if v := r.Header.Get(k); v != "" {
@@ -286,9 +307,13 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		if ctx.Err() == nil {
 			h.Log.Warn("output: vod upstream", "provider_id", p.ID, "kind", kind, "id", id, "err", redact.Err(err))
 			h.vodLeases.failed(lease, redact.Err(err).Error())
+			if canRetry {
+				exclude[p.ID] = true
+				return true
+			}
 		}
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 	switch {
@@ -297,14 +322,24 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	case resp.StatusCode == http.StatusNotFound:
 		h.Log.Warn("output: vod upstream not found", "provider_id", p.ID, "kind", kind, "id", id)
 		h.vodLeases.failed(lease, "upstream status 404")
+		if canRetry {
+			exclude[p.ID] = true
+			return true
+		}
 		http.NotFound(w, r)
-		return
+		return false
 	default:
 		h.Log.Warn("output: vod upstream status", "provider_id", p.ID, "kind", kind, "id", id, "status", resp.StatusCode)
 		h.vodLeases.failed(lease, "upstream status "+strconv.Itoa(resp.StatusCode))
+		if canRetry {
+			exclude[p.ID] = true
+			return true
+		}
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
-		return
+		return false
 	}
+	h.vodSticky.set(vodKey{u.ID, kind, id}, vodStickyCopy{providerID: p.ID, externalID: cp.externalID,
+		backbone: p.Backbone, pooled: p.VodPooled})
 	for _, k := range passHeaders {
 		if v := resp.Header.Get(k); v != "" {
 			w.Header().Set(k, v)
@@ -319,7 +354,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 	}
 	w.WriteHeader(resp.StatusCode)
 	if method == http.MethodHead {
-		return
+		return false
 	}
 
 	h.Log.Debug("vod request started", "user_id", u.ID, "kind", kind, "id", id, "range", r.Header.Get("Range"),
@@ -346,6 +381,7 @@ func (h *Handlers) serveVODFile(w http.ResponseWriter, r *http.Request, u db.Use
 		}
 	}
 	h.Log.Debug("vod request ended", "user_id", u.ID, "kind", kind, "id", id, "bytes", sent)
+	return false
 }
 
 // vodSessionEnded logs a finished playback and adds it to the user's watch
@@ -663,3 +699,102 @@ func (l *vodLeases) flush() {
 // FlushVOD records every movie and episode playback still waiting to see
 // if the player comes back, and stops waiting from now on. For shutdown.
 func (h *Handlers) FlushVOD() { h.vodLeases.flush() }
+
+// rangeStart is the first byte a request asks for ("bytes=N-"), or 0.
+func rangeStart(r *http.Request) int64 {
+	v, ok := strings.CutPrefix(strings.TrimSpace(r.Header.Get("Range")), "bytes=")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(strings.SplitN(v, "-", 2)[0]), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// vodCandidates orders the providers holding a title for playback and
+// drops the ones to skip:
+//   - excluded providers (failed upstream on this request) go;
+//   - a resume (start > 0) stays on the copy the playback started on,
+//     since byte offsets mean nothing in another panel's file; pooled
+//     accounts of that panel serve the same file and stay eligible;
+//   - within one priority, providers with more free connections come
+//     first, so equal providers share the load instead of one filling up.
+func (h *Handlers) vodCandidates(provs []db.Provider, copyOf map[int64]vodCopy, key vodKey, start int64, exclude map[int64]bool) []db.Provider {
+	out := make([]db.Provider, 0, len(provs))
+	for _, p := range provs {
+		if !exclude[p.ID] {
+			out = append(out, p)
+		}
+	}
+	if st, ok := h.vodSticky.get(key); ok && start > 0 {
+		var pinned []db.Provider
+		for _, p := range out {
+			if p.ID == st.providerID || st.pooled && p.VodPooled && p.Backbone != "" && p.Backbone == st.backbone &&
+				copyOf[p.ID].externalID == st.externalID {
+				pinned = append(pinned, p)
+			}
+		}
+		if len(pinned) > 0 { // else the copy is gone: any copy beats none
+			out = pinned
+		}
+	}
+	free := func(p db.Provider) int {
+		if p.MaxConnections <= 0 || h.Slots == nil {
+			return math.MaxInt32
+		}
+		return int(p.MaxConnections) - h.Slots.InUse(p.ID)
+	}
+	slices.SortStableFunc(out, func(a, b db.Provider) int {
+		return cmp.Or(cmp.Compare(a.Priority, b.Priority), cmp.Compare(free(b), free(a)))
+	})
+	return out
+}
+
+// vodStickyTTL is how long a playback's copy is remembered for resumes.
+const vodStickyTTL = 6 * time.Hour
+
+// vodStickyCopy is the copy a playback started on.
+type vodStickyCopy struct {
+	providerID int64
+	externalID string
+	backbone   string
+	pooled     bool
+	at         time.Time
+}
+
+// vodSticky remembers which copy each user's playback of a title used;
+// the zero value is ready.
+type vodSticky struct {
+	mu sync.Mutex
+	m  map[vodKey]vodStickyCopy
+}
+
+func (s *vodSticky) set(k vodKey, c vodStickyCopy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if s.m == nil {
+		s.m = map[vodKey]vodStickyCopy{}
+	}
+	if len(s.m) >= 1024 {
+		for k, v := range s.m {
+			if now.Sub(v.at) > vodStickyTTL {
+				delete(s.m, k)
+			}
+		}
+	}
+	c.at = now
+	s.m[k] = c
+}
+
+func (s *vodSticky) get(k vodKey) (vodStickyCopy, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.m[k]
+	if !ok || time.Since(c.at) > vodStickyTTL {
+		return vodStickyCopy{}, false
+	}
+	return c, true
+}

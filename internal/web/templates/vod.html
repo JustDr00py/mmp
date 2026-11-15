@@ -12,6 +12,7 @@
   <div class="search row">
     <input type="hidden" name="kind" value="{{$d.Kind}}">
     <input type="search" name="q" value="{{$d.Query}}" placeholder="Search titles" aria-label="Search titles">
+    <label class="check"><input type="checkbox" name="unmatched" value="1"{{if $d.Unmatched}} checked{{end}}> Without a TMDB id</label>
   </div>
   {{template "vod-list" $d}}
 </form>
@@ -31,11 +32,28 @@
   <noscript><button type="submit" class="secondary">Filter</button></noscript>
 </div>
 {{if .Rows}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}{{with .Flash}}<p class="flash" role="status">{{.}}</p>{{end}}
 <div class="table-wrap"><table>
-  <thead><tr><th>Title</th><th class="num">Rating</th><th>{{if eq .Kind "movie"}}Format{{else}}Released{{end}}</th><th></th></tr></thead>
+  <thead><tr><th>Title</th><th>Library</th><th class="num">Rating</th><th>{{if eq .Kind "movie"}}Format{{else}}Released{{end}}</th><th></th></tr></thead>
   <tbody>{{range .Rows}}
   <tr{{if .Disabled}} class="dim"{{end}}>
     <td>{{if .Image}}<img class="logo" src="{{.Image}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}{{if .Series}}<a href="/admin/vod/series/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+    <td class="vod-library">  {{if .Title}}<span>{{.Title}}{{if .Year}} ({{.Year}}){{end}}</span>{{end}}
+  {{if eq .Quality "4k"}}<span class="pill">4K</span>{{end}}{{with .Lang}}<span class="pill">{{.}}</span>{{end}}
+  {{if gt .Copies 1}}<span class="pill" title="Customers see one title; playback uses any copy">{{.Copies}} copies</span>{{end}}
+  <br>{{if .TmdbID}}<a class="mono" href="{{.TMDBURL}}" target="_blank" rel="noopener noreferrer">TMDB {{.TmdbID}}</a>
+    <span class="muted">{{if eq .MatchSource "panel"}}from the panel{{else if eq .MatchSource "tmdb"}}found on TMDB{{else if eq .MatchSource "name"}}from a copy{{else if eq .MatchSource "manual"}}set by hand{{end}}</span>
+  {{else}}<span class="muted">{{if .Locked}}split from its copies{{else}}no TMDB id{{end}}</span>{{end}}
+  {{if .Locked}}<span class="pill" title="Imports and TMDB searches leave this match alone">locked</span>{{end}}
+  <details><summary class="muted">Fix match</summary>
+    <form class="row" method="post" action="/admin/vod/{{$.Kind}}/{{.ID}}/match">
+      <input type="hidden" name="back" value="{{$.Back}}">
+      <input class="short" name="tmdb_id" inputmode="numeric" placeholder="TMDB id" aria-label="TMDB id" value="{{.TmdbID}}">
+      <button type="submit" name="action" value="set" class="secondary">Set</button>
+      <button type="submit" name="action" value="split" class="secondary" title="List this copy as its own title">Split</button>
+      {{if .Locked}}<button type="submit" name="action" value="reset" class="secondary">Reset</button>{{end}}
+    </form>
+  </details></td>
     <td class="num">{{with .Rating}}{{.}}{{end}}</td>
     <td class="mono">{{.Extra}}</td>
     <td>{{if .Disabled}}<span class="pill off">gone</span>{{end}}</td>
@@ -43,11 +61,12 @@
 </table></div>
 <nav class="pager">
   <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Rows)}}</span>
-  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
-  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&offset={{.NextOffset}}">Next →</a>{{end}}
+  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>
 {{else if or .Query .CategoryID .Language}}<div class="card empty"><p>Nothing matches.</p></div>
 {{else}}<div class="card empty"><p>No {{if eq .Kind "movie"}}movies{{else}}series{{end}} imported yet.</p>
   <p class="muted">Edit an Xtream provider, tick “Import movies &amp; series”, then use “Import catalog” on the providers page.</p></div>{{end}}
 </div>
 {{end}}
+

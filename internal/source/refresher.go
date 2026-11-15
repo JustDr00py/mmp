@@ -96,6 +96,9 @@ type Refresher struct {
 	// (scheduled or on demand), e.g. to auto-match new streams. Set it
 	// before Start.
 	AfterRefresh func(ctx context.Context, p db.Provider)
+	// AfterVODRefresh, if set, runs after each successful VOD import, e.g.
+	// to look new titles up on TMDB. It must not block.
+	AfterVODRefresh func(p db.Provider)
 }
 
 // NewRefresher builds a Refresher with the disable threshold maxDisablePct.
