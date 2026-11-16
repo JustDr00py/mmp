@@ -9,16 +9,19 @@ import (
 	"context"
 )
 
-const forgetTMDBMisses = `-- name: ForgetTMDBMisses :exec
-WITH misses AS (DELETE FROM tmdb_search WHERE tmdb_id = '' RETURNING 1),
-     items AS (UPDATE vod_items SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL RETURNING 1)
-UPDATE series SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL
+const forgetTMDBSearches = `-- name: ForgetTMDBSearches :exec
+WITH searches AS (DELETE FROM tmdb_search RETURNING 1),
+     items AS (UPDATE vod_items SET match_tried_at = NULL
+               WHERE (tmdb_id = '' OR match_source = 'tmdb') AND match_tried_at IS NOT NULL RETURNING 1)
+UPDATE series SET match_tried_at = NULL
+WHERE (tmdb_id = '' OR match_source = 'tmdb') AND match_tried_at IS NOT NULL
 `
 
-// After the matching rules change: titles TMDB had no match for are
-// searched again.
-func (q *Queries) ForgetTMDBMisses(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, forgetTMDBMisses)
+// After the matching rules change: every cached search goes; titles TMDB
+// had no match for are searched again, and titles a search matched are
+// checked again (see ListRecheckMovieTitles), keeping their id meanwhile.
+func (q *Queries) ForgetTMDBSearches(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, forgetTMDBSearches)
 	return err
 }
 
@@ -68,6 +71,93 @@ func (q *Queries) GetTMDBSearch(ctx context.Context, arg GetTMDBSearchParams) (s
 	var tmdb_id string
 	err := row.Scan(&tmdb_id)
 	return tmdb_id, err
+}
+
+const listRecheckMovieTitles = `-- name: ListRecheckMovieTitles :many
+SELECT title_norm, year, min(title)::text AS title, min(tmdb_id)::text AS tmdb_id, count(*)::bigint AS copies
+FROM vod_items
+WHERE match_source = 'tmdb' AND match_tried_at IS NULL AND NOT match_locked AND NOT disabled AND title_norm <> ''
+GROUP BY title_norm, year
+ORDER BY count(*) DESC, title_norm
+LIMIT $1
+`
+
+type ListRecheckMovieTitlesRow struct {
+	TitleNorm string `json:"title_norm"`
+	Year      int32  `json:"year"`
+	Title     string `json:"title"`
+	TmdbID    string `json:"tmdb_id"`
+	Copies    int64  `json:"copies"`
+}
+
+// Titles a TMDB search matched under older rules, to search again.
+func (q *Queries) ListRecheckMovieTitles(ctx context.Context, limit int32) ([]ListRecheckMovieTitlesRow, error) {
+	rows, err := q.db.Query(ctx, listRecheckMovieTitles, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecheckMovieTitlesRow
+	for rows.Next() {
+		var i ListRecheckMovieTitlesRow
+		if err := rows.Scan(
+			&i.TitleNorm,
+			&i.Year,
+			&i.Title,
+			&i.TmdbID,
+			&i.Copies,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecheckSeriesTitles = `-- name: ListRecheckSeriesTitles :many
+SELECT title_norm, year, min(title)::text AS title, min(tmdb_id)::text AS tmdb_id, count(*)::bigint AS copies
+FROM series
+WHERE match_source = 'tmdb' AND match_tried_at IS NULL AND NOT match_locked AND NOT disabled AND title_norm <> ''
+GROUP BY title_norm, year
+ORDER BY count(*) DESC, title_norm
+LIMIT $1
+`
+
+type ListRecheckSeriesTitlesRow struct {
+	TitleNorm string `json:"title_norm"`
+	Year      int32  `json:"year"`
+	Title     string `json:"title"`
+	TmdbID    string `json:"tmdb_id"`
+	Copies    int64  `json:"copies"`
+}
+
+func (q *Queries) ListRecheckSeriesTitles(ctx context.Context, limit int32) ([]ListRecheckSeriesTitlesRow, error) {
+	rows, err := q.db.Query(ctx, listRecheckSeriesTitles, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecheckSeriesTitlesRow
+	for rows.Next() {
+		var i ListRecheckSeriesTitlesRow
+		if err := rows.Scan(
+			&i.TitleNorm,
+			&i.Year,
+			&i.Title,
+			&i.TmdbID,
+			&i.Copies,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listSeriesToParse = `-- name: ListSeriesToParse :many
@@ -324,6 +414,62 @@ func (q *Queries) PutTMDBSearch(ctx context.Context, arg PutTMDBSearchParams) er
 		arg.TmdbID,
 	)
 	return err
+}
+
+const recheckMovieTitle = `-- name: RecheckMovieTitle :execrows
+UPDATE vod_items SET tmdb_id = COALESCE(NULLIF($1::text, ''), tmdb_id),
+    imdb_id = CASE WHEN $1::text = '' THEN imdb_id ELSE $2::text END,
+    match_tried_at = now()
+WHERE title_norm = $3 AND year = $4 AND match_source = 'tmdb' AND NOT match_locked
+`
+
+type RecheckMovieTitleParams struct {
+	TmdbID    string `json:"tmdb_id"`
+	ImdbID    string `json:"imdb_id"`
+	TitleNorm string `json:"title_norm"`
+	Year      int32  `json:"year"`
+}
+
+// Stores a checked-again title's id: a new one when tmdb_id is given,
+// else the one it had.
+func (q *Queries) RecheckMovieTitle(ctx context.Context, arg RecheckMovieTitleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recheckMovieTitle,
+		arg.TmdbID,
+		arg.ImdbID,
+		arg.TitleNorm,
+		arg.Year,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const recheckSeriesTitle = `-- name: RecheckSeriesTitle :execrows
+UPDATE series SET tmdb_id = COALESCE(NULLIF($1::text, ''), tmdb_id),
+    imdb_id = CASE WHEN $1::text = '' THEN imdb_id ELSE $2::text END,
+    match_tried_at = now()
+WHERE title_norm = $3 AND year = $4 AND match_source = 'tmdb' AND NOT match_locked
+`
+
+type RecheckSeriesTitleParams struct {
+	TmdbID    string `json:"tmdb_id"`
+	ImdbID    string `json:"imdb_id"`
+	TitleNorm string `json:"title_norm"`
+	Year      int32  `json:"year"`
+}
+
+func (q *Queries) RecheckSeriesTitle(ctx context.Context, arg RecheckSeriesTitleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recheckSeriesTitle,
+		arg.TmdbID,
+		arg.ImdbID,
+		arg.TitleNorm,
+		arg.Year,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setMovieTitleMatch = `-- name: SetMovieTitleMatch :execrows

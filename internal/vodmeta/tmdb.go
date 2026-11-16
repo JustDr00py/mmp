@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -116,6 +117,38 @@ func (c *TMDB) Details(ctx context.Context, kind, id string) (json.RawMessage, s
 	return raw, imdb, nil
 }
 
+// Names are a title's other titles and its translations' titles (one
+// call), for titles a panel names in another language.
+func (c *TMDB) Names(ctx context.Context, kind string, id int64) ([]string, error) {
+	type named struct{ Title, Name string }
+	var out struct {
+		Alt struct {
+			Titles  []named `json:"titles"`  // movies
+			Results []named `json:"results"` // tv
+		} `json:"alternative_titles"`
+		Translations struct {
+			Translations []struct {
+				Data named `json:"data"`
+			} `json:"translations"`
+		} `json:"translations"`
+	}
+	path := "/" + tmdbKind(kind) + "/" + strconv.FormatInt(id, 10)
+	if err := c.get(ctx, path, url.Values{"append_to_response": {"alternative_titles,translations"}}, &out); err != nil {
+		if errors.Is(err, ErrTMDBNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for _, n := range slices.Concat(out.Alt.Titles, out.Alt.Results) {
+		names = append(names, n.Title, n.Name)
+	}
+	for _, t := range out.Translations.Translations {
+		names = append(names, t.Data.Title, t.Data.Name)
+	}
+	return slices.DeleteFunc(names, func(s string) bool { return s == "" }), nil
+}
+
 // Check makes one cheap call, to tell whether the key works.
 func (c *TMDB) Check(ctx context.Context) error {
 	var out json.RawMessage
@@ -214,36 +247,4 @@ func (c *TMDB) get(ctx context.Context, path string, q url.Values, out any) erro
 		}
 		return nil
 	}
-}
-
-// Pick chooses the search hit that is the title: its title or original
-// title the same (by Key), and its year within one of the panel's (a
-// cinema and a home release often differ). Without a year only a single
-// such hit counts. Hits come in TMDB's order (most relevant first).
-func Pick(results []TMDBResult, title string, year int) (TMDBResult, bool) {
-	key := Key(title)
-	if key == "" {
-		return TMDBResult{}, false
-	}
-	var same []TMDBResult
-	for _, r := range results {
-		t, o := r.Titles()
-		if Key(t) == key || Key(o) == key {
-			same = append(same, r)
-		}
-	}
-	if year == 0 {
-		if len(same) == 1 {
-			return same[0], true
-		}
-		return TMDBResult{}, false
-	}
-	for _, d := range []int{0, 1} { // an exact year beats a near one
-		for _, r := range same {
-			if y := r.Year(); y != 0 && (y-year == d || year-y == d) {
-				return r, true
-			}
-		}
-	}
-	return TMDBResult{}, false
 }

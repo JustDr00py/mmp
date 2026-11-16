@@ -32,7 +32,7 @@ var langCodes = map[string]string{
 	"AR": "Arabic", "ARA": "Arabic",
 	"GR": "Greek", "GRE": "Greek", "EL": "Greek",
 	"HI": "Hindi", "HIN": "Hindi", "IN": "Indian",
-	"SE": "Swedish", "SV": "Swedish", "SWE": "Swedish",
+	"SE": "Swedish", "SV": "Swedish", "SW": "Swedish", "SWE": "Swedish",
 	"NO": "Norwegian", "NOR": "Norwegian",
 	"DK": "Danish", "DA": "Danish", "DAN": "Danish",
 	"FI": "Finnish", "FIN": "Finnish",
@@ -55,7 +55,7 @@ var langCodes = map[string]string{
 // mark a category wherever they stand ("FRENCH MOVIES", "Peliculas Latino").
 var langWords = map[string]string{
 	"ENGLISH": "English", "FRENCH": "French", "FRANCAIS": "French", "FRANÇAIS": "French",
-	"GERMAN": "German", "DEUTSCH": "German", "SPANISH": "Spanish", "ESPANOL": "Spanish", "ESPAÑOL": "Spanish",
+	"GERMAN": "German", "DEUTSCH": "German", "DEUTCH": "German", "SPANISH": "Spanish", "ESPANOL": "Spanish", "ESPAÑOL": "Spanish",
 	"LATINO": "Spanish", "CASTELLANO": "Spanish", "ITALIAN": "Italian", "ITALIANO": "Italian",
 	"PORTUGUESE": "Portuguese", "PORTUGUES": "Portuguese", "PORTUGUÊS": "Portuguese", "BRASIL": "Portuguese",
 	"DUTCH": "Dutch", "NEDERLANDS": "Dutch", "POLISH": "Polish", "POLSKI": "Polish",

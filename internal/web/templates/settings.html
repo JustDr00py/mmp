@@ -144,9 +144,10 @@
     <label class="check"><input type="checkbox" name="clean_titles"{{if $d.VODLib.CleanTitles}} checked{{end}}> Show customers clean titles, like <span class="mono">The Matrix (1999)</span>, instead of the panel's names</label>
     {{with $d.VODCounts}}<p class="hint">Movies: {{.MoviesMatched}} with a TMDB id, {{.MoviesUnmatched}} without.
       Series: {{.SeriesMatched}} with, {{.SeriesUnmatched}} without.</p>{{end}}
-    {{with $d.VODStatus}}{{if .Running}}<p class="hint">Matching now: {{.Searched}} titles looked up, {{.Matched}} found.</p>
+    {{with $d.VODStatus}}{{if .Running}}<p class="hint">Matching now: {{.Searched}} titles looked up, {{.Matched}} found{{if .Rechecked}};
+      {{.Rechecked}} earlier matches checked again, {{.Corrected}} corrected{{end}}.</p>
     {{else if not .Finished.IsZero}}<p class="hint">Last matched {{.Finished.Format "2006-01-02 15:04"}}: {{.Searched}} titles looked up,
-      {{.Matched}} found, {{.Missed}} not on TMDB{{with .Err}}; stopped: {{.}}{{end}}.</p>{{end}}{{end}}
+      {{.Matched}} found, {{.Missed}} not on TMDB{{if .Rechecked}}; {{.Rechecked}} earlier matches checked again, {{.Corrected}} corrected{{end}}{{with .Err}}; stopped: {{.}}{{end}}.</p>{{end}}{{end}}
     <div class="row"><button type="submit">Save</button>
       {{if $d.VODLib.Matching}}<button type="submit" name="action" value="match" class="secondary">Match now</button>{{end}}</div>
   </form>

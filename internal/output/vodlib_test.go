@@ -10,19 +10,22 @@ import (
 
 func TestVODName(t *testing.T) {
 	for _, tc := range []struct {
-		raw, title string
-		year       int32
-		quality    string
-		clean      bool
-		want       string
+		raw, title, tmdb string
+		year             int32
+		quality          string
+		clean            bool
+		want             string
 	}{
-		{"EN | The Matrix 4K (1999)", "The Matrix", 1999, "4k", true, "The Matrix (1999) [4K]"},
-		{"EN | The Matrix (1999)", "The Matrix", 1999, "fhd", true, "The Matrix (1999)"},
-		{"EN | Untitled", "Untitled", 0, "", true, "Untitled"},
-		{"EN | The Matrix (1999)", "The Matrix", 1999, "", false, "EN | The Matrix (1999)"},
-		{"Not parsed yet", "", 0, "", true, "Not parsed yet"},
+		{"EN | The Matrix 4K (1999)", "The Matrix", "", 1999, "4k", true, "The Matrix (1999) [4K]"},
+		{"EN | The Matrix (1999)", "The Matrix", "", 1999, "fhd", true, "The Matrix (1999)"},
+		{"EN | Untitled", "Untitled", "", 0, "", true, "Untitled"},
+		{"EN | The Matrix (1999)", "The Matrix", "", 1999, "", false, "EN | The Matrix (1999)"},
+		{"Not parsed yet", "", "", 0, "", true, "Not parsed yet"},
+		// A matched title shows as TMDB names it; the panel's name when off.
+		{"EN - The Matrix 2 Reloaded 4K (2003)", "The Matrix 2 Reloaded", "The Matrix Reloaded", 2003, "4k", true, "The Matrix Reloaded (2003) [4K]"},
+		{"EN - The Matrix 2 Reloaded (2003)", "The Matrix 2 Reloaded", "The Matrix Reloaded", 2003, "", false, "EN - The Matrix 2 Reloaded (2003)"},
 	} {
-		if got := vodName(tc.raw, tc.title, tc.year, tc.quality, tc.clean); got != tc.want {
+		if got := vodName(tc.raw, tc.title, tc.tmdb, "English", tc.year, tc.quality, tc.clean); got != tc.want {
 			t.Errorf("vodName(%q) = %q, want %q", tc.raw, got, tc.want)
 		}
 	}
