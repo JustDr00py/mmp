@@ -90,9 +90,43 @@ FROM (SELECT unnest(sqlc.arg('ids')::bigint[]) AS id, unnest(sqlc.arg('titles'):
              unnest(sqlc.arg('years')::int[]) AS year, unnest(sqlc.arg('qualities')::text[]) AS quality, unnest(sqlc.arg('langs')::text[]) AS lang) AS u
 WHERE s.id = u.id;
 
--- name: ForgetTMDBMisses :exec
--- After the matching rules change: titles TMDB had no match for are
--- searched again.
-WITH misses AS (DELETE FROM tmdb_search WHERE tmdb_id = '' RETURNING 1),
-     items AS (UPDATE vod_items SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL RETURNING 1)
-UPDATE series SET match_tried_at = NULL WHERE tmdb_id = '' AND match_tried_at IS NOT NULL;
+-- name: ForgetTMDBSearches :exec
+-- After the matching rules change: every cached search goes; titles TMDB
+-- had no match for are searched again, and titles a search matched are
+-- checked again (see ListRecheckMovieTitles), keeping their id meanwhile.
+WITH searches AS (DELETE FROM tmdb_search RETURNING 1),
+     items AS (UPDATE vod_items SET match_tried_at = NULL
+               WHERE (tmdb_id = '' OR match_source = 'tmdb') AND match_tried_at IS NOT NULL RETURNING 1)
+UPDATE series SET match_tried_at = NULL
+WHERE (tmdb_id = '' OR match_source = 'tmdb') AND match_tried_at IS NOT NULL;
+
+-- name: ListRecheckMovieTitles :many
+-- Titles a TMDB search matched under older rules, to search again.
+SELECT title_norm, year, min(title)::text AS title, min(tmdb_id)::text AS tmdb_id, count(*)::bigint AS copies
+FROM vod_items
+WHERE match_source = 'tmdb' AND match_tried_at IS NULL AND NOT match_locked AND NOT disabled AND title_norm <> ''
+GROUP BY title_norm, year
+ORDER BY count(*) DESC, title_norm
+LIMIT sqlc.arg('limit');
+
+-- name: ListRecheckSeriesTitles :many
+SELECT title_norm, year, min(title)::text AS title, min(tmdb_id)::text AS tmdb_id, count(*)::bigint AS copies
+FROM series
+WHERE match_source = 'tmdb' AND match_tried_at IS NULL AND NOT match_locked AND NOT disabled AND title_norm <> ''
+GROUP BY title_norm, year
+ORDER BY count(*) DESC, title_norm
+LIMIT sqlc.arg('limit');
+
+-- name: RecheckMovieTitle :execrows
+-- Stores a checked-again title's id: a new one when tmdb_id is given,
+-- else the one it had.
+UPDATE vod_items SET tmdb_id = COALESCE(NULLIF(sqlc.arg('tmdb_id')::text, ''), tmdb_id),
+    imdb_id = CASE WHEN sqlc.arg('tmdb_id')::text = '' THEN imdb_id ELSE sqlc.arg('imdb_id')::text END,
+    match_tried_at = now()
+WHERE title_norm = sqlc.arg('title_norm') AND year = sqlc.arg('year') AND match_source = 'tmdb' AND NOT match_locked;
+
+-- name: RecheckSeriesTitle :execrows
+UPDATE series SET tmdb_id = COALESCE(NULLIF(sqlc.arg('tmdb_id')::text, ''), tmdb_id),
+    imdb_id = CASE WHEN sqlc.arg('tmdb_id')::text = '' THEN imdb_id ELSE sqlc.arg('imdb_id')::text END,
+    match_tried_at = now()
+WHERE title_norm = sqlc.arg('title_norm') AND year = sqlc.arg('year') AND match_source = 'tmdb' AND NOT match_locked;

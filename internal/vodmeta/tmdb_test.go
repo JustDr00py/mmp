@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -27,7 +28,8 @@ func TestPick(t *testing.T) {
 		{"The Matrix", 2021, 9},
 		{"The Matrix", 1990, 0},      // no year near
 		{"The Matrix", 0, 0},         // two namesakes and no year to choose
-		{"Matrix Reloaded", 2003, 0}, // titles must be the same
+		{"Matrix Reloaded", 2003, 1}, // a leading article aside
+		{"Reloaded", 2003, 0},        // titles must be the same
 	} {
 		got, ok := Pick(res, tc.title, tc.year)
 		if (tc.want == 0) == ok || ok && got.ID != tc.want {
@@ -107,5 +109,45 @@ func TestTMDBClient(t *testing.T) {
 	err = bad.Check(ctx)
 	if err == nil || strings.Contains(err.Error(), "secret-bad-key") {
 		t.Errorf("transport error = %v", err)
+	}
+}
+
+func TestSearchTitles(t *testing.T) {
+	for title, want := range map[string][]string{
+		"The Matrix":                           {"The Matrix"},
+		"The Ring (La señal)":                  {"The Ring (La señal)", "The Ring", "La señal"},
+		"Gladiator (Extended Cut)":             {"Gladiator (Extended Cut)", "Gladiator"},
+		"Die Vorkosterinnen, The Tasters":      {"Die Vorkosterinnen, The Tasters", "Die Vorkosterinnen", "The Tasters"},
+		"Durante La Tormenta, Mirage":          {"Durante La Tormenta, Mirage", "Durante La Tormenta", "Mirage"},
+		"Love, Simon":                          {"Love, Simon"},
+		"UFC 300: Pereira vs Hill [Main Card]": {"UFC 300: Pereira vs Hill [Main Card]"},
+		"09-Son Of The Pink Panther":           {"09-Son Of The Pink Panther", "Son Of The Pink Panther"},
+		"10-The Pink Panther 1":                {"10-The Pink Panther 1", "The Pink Panther 1", "The Pink Panther"},
+		"Extraction 1":                         {"Extraction 1", "Extraction"},
+		"Harry Potter 4 Harry Potter And The Goblet Of Fire Extended": {
+			"Harry Potter 4 Harry Potter And The Goblet Of Fire Extended", "Harry Potter And The Goblet Of Fire"},
+	} {
+		if got := SearchTitles(title); !slices.Equal(got, want) {
+			t.Errorf("SearchTitles(%q) = %q, want %q", title, got, want)
+		}
+	}
+}
+
+func TestDisplayTitle(t *testing.T) {
+	for _, tc := range []struct{ title, tmdb, lang, want string }{
+		{"The Matrix 2 Reloaded", "The Matrix Reloaded", "English", "The Matrix Reloaded"},
+		{"Matrix Reloaded", "The Matrix Reloaded", "English", "The Matrix Reloaded"},
+		{"Animatrix", "The Animatrix", "", "The Animatrix"},
+		{"Fast & Furious Hobbs & Shaw", "Fast & Furious Presents: Hobbs & Shaw", "English", "Fast & Furious Presents: Hobbs & Shaw"},
+		{"Gladiator [Extended Cut]", "Gladiator", "English", "Gladiator [Extended Cut]"},
+		{"Monster Trucks", "Monsters and Men", "English", "Monster Trucks"},  // a wrong id
+		{"Le Parrain", "The Godfather", "French", "Le Parrain"},              // TMDB's is English
+		{"Anges et Démons", "Angels & Demons", "English", "Anges et Démons"}, // no overlap to trust
+		{"A Quiet Place Part 2", "A Quiet Place Part II", "English", "A Quiet Place Part II"},
+		{"Heat", "", "English", "Heat"},
+	} {
+		if got := DisplayTitle(tc.title, tc.tmdb, tc.lang); got != tc.want {
+			t.Errorf("DisplayTitle(%q, %q, %q) = %q, want %q", tc.title, tc.tmdb, tc.lang, got, tc.want)
+		}
 	}
 }

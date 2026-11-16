@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -327,5 +328,99 @@ func TestVODLibraryUpgrade(t *testing.T) {
 	shows, _ := q.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{Limit: 5})
 	if len(shows) != 1 || shows[0].TmdbID != "1396" || shows[0].Title != "Breaking Bad" {
 		t.Errorf("series = %+v", shows)
+	}
+}
+
+// TestVODMatchRecheck: after the matching rules change, titles a search
+// matched under the old ones are looked up again: a wrong id is corrected
+// ("Matrix", 1999 had been matched to a 1998 short of that name rather
+// than The Matrix), a right one kept, and one no longer found keeps its id.
+func TestVODMatchRecheck(t *testing.T) {
+	tmdb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search/movie":
+			switch r.URL.Query().Get("query") {
+			case "Matrix":
+				w.Write([]byte(`{"results":[{"id":555879,"title":"Matrix","release_date":"1998-12-31"},
+					{"id":603,"title":"The Matrix","release_date":"1999-03-31"}]}`))
+			case "Heat":
+				w.Write([]byte(`{"results":[{"id":949,"title":"Heat","release_date":"1995-12-15"}]}`))
+			default:
+				w.Write([]byte(`{"results":[]}`))
+			}
+		case "/movie/603":
+			w.Write([]byte(`{"id":603,"imdb_id":"tt0133093","title":"The Matrix"}`))
+		default:
+			w.Write([]byte(`{"id":1}`))
+		}
+	}))
+	defer tmdb.Close()
+	var m *vodmeta.Matcher
+	var pool *pgxpool.Pool
+	_, q := pgUI(t, func(d *Deps, p *pgxpool.Pool) {
+		pool = p
+		m = &vodmeta.Matcher{DB: p, Log: d.Log, Base: tmdb.URL, Gap: time.Millisecond}
+	})
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	titles := map[string]struct {
+		year int32
+		old  string
+	}{"Matrix": {1999, "555879"}, "Heat": {1995, "949"}, "Lost Title": {2010, "123"}}
+	for i, name := range []string{"Alpha", "Bravo"} {
+		p, err := q.CreateProvider(ctx, db.CreateProviderParams{Name: name, Type: "xtream", Url: "http://" + strings.ToLower(name) + ".example/",
+			Username: "u", Password: "pw", MaxConnections: 1, RefreshIntervalSecs: 3600, Enabled: true, Priority: int32(i), Backbone: name})
+		must(err)
+		arg := db.UpsertVODItemsParams{ProviderID: p.ID}
+		for title, tt := range titles {
+			n := "EN ★ " + title + " - " + strconv.Itoa(int(tt.year)) + " [4K]"
+			arg.ExternalIds, arg.Names, arg.CategoryIds = append(arg.ExternalIds, title), append(arg.Names, n), append(arg.CategoryIds, "")
+			arg.Icons, arg.Ratings, arg.ContainerExtensions = append(arg.Icons, ""), append(arg.Ratings, -1), append(arg.ContainerExtensions, "mp4")
+			arg.TmdbIds, arg.Added = append(arg.TmdbIds, ""), append(arg.Added, 0)
+			arg.Titles, arg.TitleNorms, arg.Years = append(arg.Titles, title), append(arg.TitleNorms, vodmeta.Key(title)), append(arg.Years, tt.year)
+			arg.Qualities, arg.Langs = append(arg.Qualities, "4k"), append(arg.Langs, "English")
+		}
+		must(q.UpsertVODItems(ctx, arg))
+	}
+	// As the previous rules matched them, searches cached.
+	for title, tt := range titles {
+		_, err := q.SetMovieTitleMatch(ctx, db.SetMovieTitleMatchParams{TmdbID: tt.old, TitleNorm: vodmeta.Key(title), Year: tt.year})
+		must(err)
+		must(q.PutTMDBSearch(ctx, db.PutTMDBSearchParams{Kind: "movie", QueryKey: vodmeta.Key(title), Year: tt.year, TmdbID: tt.old}))
+	}
+	raw, _ := json.Marshal(map[string]int{"parse": vodmeta.ParseVersion, "match": vodmeta.MatchVersion - 1})
+	must(q.SetSetting(ctx, db.SetSettingParams{Key: "vod_library_versions", Value: raw}))
+
+	if changed, err := vodmeta.Upgrade(ctx, pool, m.Log); err != nil || !changed {
+		t.Fatalf("upgrade = %v, %v", changed, err)
+	}
+	must(vodmeta.SaveSettings(ctx, q, vodmeta.Settings{TMDBKey: "k", Match: true}))
+	st, err := m.Run(ctx)
+	must(err)
+	if st.Rechecked != 3 || st.Corrected != 1 || st.Searched != 0 {
+		t.Errorf("pass = %+v, want 3 checked again, 1 corrected, nothing new", st)
+	}
+	want := map[string]string{"matrix": "603", "heat": "949", "lost title": "123"}
+	items, _ := q.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{Limit: 20})
+	if len(items) != 6 {
+		t.Fatalf("%d items, want 6", len(items))
+	}
+	for _, it := range items {
+		row, _ := q.GetVODItem(ctx, it.ID)
+		if row.TmdbID != want[row.TitleNorm] || row.MatchSource != "tmdb" || row.MatchTriedAt == nil {
+			t.Errorf("%q = tmdb %q source %q tried %v, want %q", row.TitleNorm, row.TmdbID, row.MatchSource, row.MatchTriedAt, want[row.TitleNorm])
+		}
+		if row.TitleNorm == "matrix" && row.ImdbID != "tt0133093" {
+			t.Errorf("matrix imdb = %q", row.ImdbID)
+		}
+	}
+	// Done once: the next pass checks nothing again.
+	if st, _ := m.Run(ctx); st.Rechecked != 0 {
+		t.Errorf("second pass rechecked %d", st.Rechecked)
 	}
 }

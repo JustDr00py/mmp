@@ -13,8 +13,9 @@ import (
 )
 
 // MatchVersion changes whenever TMDB matching accepts hits differently;
-// titles TMDB had no match for are then searched again.
-const MatchVersion = 2
+// titles TMDB had no match for are then searched again, and titles a
+// search matched are checked again.
+const MatchVersion = 3
 
 const versionsKey = "vod_library_versions"
 
@@ -30,7 +31,7 @@ const reparseBatch = 5000
 // Upgrade brings stored titles up to this build's parser and matcher:
 // titles are parsed again when the parser changed (merging and TMDB
 // searches then use the new names, with no import needed), and cached
-// TMDB misses are forgotten when matching changed. It reports whether it
+// TMDB searches are forgotten when matching changed. It reports whether it
 // changed anything (a TMDB pass is then worth starting).
 func Upgrade(ctx context.Context, dbtx db.DBTX, log *slog.Logger) (bool, error) {
 	q := db.New(dbtx)
@@ -61,10 +62,10 @@ func Upgrade(ctx context.Context, dbtx db.DBTX, log *slog.Logger) (bool, error) 
 		}
 	}
 	if v.Match != MatchVersion {
-		if err := q.ForgetTMDBMisses(ctx); err != nil {
-			return false, fmt.Errorf("vod library: forget tmdb misses: %w", err)
+		if err := q.ForgetTMDBSearches(ctx); err != nil {
+			return false, fmt.Errorf("vod library: forget tmdb searches: %w", err)
 		}
-		log.Info("vod library: titles TMDB had no match for will be searched again")
+		log.Info("vod library: titles will be searched on TMDB again under the new matching rules")
 	}
 	raw, _ = json.Marshal(versions{Parse: ParseVersion, Match: MatchVersion})
 	if err := q.SetSetting(ctx, db.SetSettingParams{Key: versionsKey, Value: raw}); err != nil {
@@ -101,10 +102,7 @@ func reparse(ctx context.Context, q *db.Queries) (movies, series int, err error)
 		}
 		var u db.UpdateSeriesParsedParams
 		for _, r := range rows {
-			p := Parse(r.Name, r.Category)
-			if p.Year == 0 {
-				p.Year = ReleaseYear(r.ReleaseDate)
-			}
+			p := ParseSeries(r.Name, r.Category, r.ReleaseDate)
 			u.Ids, u.Titles, u.TitleNorms = append(u.Ids, r.ID), append(u.Titles, p.Title), append(u.TitleNorms, p.Key())
 			u.Years, u.Qualities, u.Langs = append(u.Years, int32(p.Year)), append(u.Qualities, p.Quality), append(u.Langs, p.Lang)
 		}

@@ -370,10 +370,7 @@ func seriesParams(providerID int64, shows []xtream.Series, catNames map[string]s
 			p.Years, p.Qualities, p.Langs = append(p.Years, 0), append(p.Qualities, ""), append(p.Langs, "")
 		}
 		cat := string(s.CategoryID)
-		t := vodmeta.Parse(s.Name, catNames[cat])
-		if t.Year == 0 {
-			t.Year = vodmeta.ReleaseYear(s.Released())
-		}
+		t := vodmeta.ParseSeries(s.Name, catNames[cat], s.Released())
 		p.Names[i], p.CategoryIds[i], p.Covers[i], p.Plots[i] = s.Name, cat, s.Cover, s.Plot
 		p.Casts[i], p.Directors[i], p.Genres[i] = s.Cast, s.Director, s.Genre
 		p.ReleaseDates[i], p.Ratings[i], p.LastModified[i] = s.Released(), rating(s.Rating), s.LastModified.Int()

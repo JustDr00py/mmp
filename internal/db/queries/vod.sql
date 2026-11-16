@@ -326,21 +326,21 @@ WITH granted AS (
 ), vis AS (
     SELECT COALESCE(i.title_key, v.pool_key || '|' || i.external_id) AS gk,
            i.id, i.name, i.icon, i.rating, i.container_extension, i.tmdb_id, i.added_at,
-           i.title, i.year, i.quality, k.id AS category_id, k.ids AS category_ids
+           i.title, i.year, i.quality, i.lang, k.id AS category_id, k.ids AS category_ids
     FROM vod_items i
     JOIN vod_offered_categories v ON v.provider_id = i.provider_id AND v.kind = 'movie' AND v.external_id = i.category_external_id
     JOIN cats k ON k.pool_key = v.pool_key AND k.external_id = v.external_id
     WHERE NOT i.disabled
 ), titles AS (
     SELECT DISTINCT ON (t.gk) t.gk, t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at,
-           t.title, t.year, t.quality, t.category_id
+           t.title, t.year, t.quality, t.lang, t.category_id
     FROM vis t ORDER BY t.gk, t.id
 ), incat AS (
     SELECT t.gk, min(t.category_id)::bigint AS category_id FROM vis t
     WHERE sqlc.narg('category_id')::bigint = ANY(t.category_ids) GROUP BY t.gk
 )
-SELECT t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at, t.title, t.year, t.quality,
-       COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster,
+SELECT t.id, t.name, t.icon, t.rating, t.container_extension, t.tmdb_id, t.added_at, t.title, t.year, t.quality, t.lang,
+       COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster, COALESCE(tc.data->>'title', '')::text AS tmdb_title,
        COALESCE(c.category_id, t.category_id)::bigint AS category_id
 FROM titles t LEFT JOIN incat c ON c.gk = t.gk
 LEFT JOIN tmdb_cache tc ON tc.kind = 'movie' AND tc.tmdb_id = t.tmdb_id AND t.tmdb_id <> ''
@@ -360,22 +360,22 @@ WITH granted AS (
 ), vis AS (
     SELECT COALESCE(s.title_key, v.pool_key || '|' || s.external_id) AS gk,
            s.id, s.name, s.cover, s.plot, s."cast", s.director, s.genre, s.release_date, s.rating,
-           s.last_modified, s.title, s.year, s.quality, s.tmdb_id, k.id AS category_id, k.ids AS category_ids
+           s.last_modified, s.title, s.year, s.quality, s.lang, s.tmdb_id, k.id AS category_id, k.ids AS category_ids
     FROM series s
     JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
     JOIN cats k ON k.pool_key = v.pool_key AND k.external_id = v.external_id
     WHERE NOT s.disabled
 ), titles AS (
     SELECT DISTINCT ON (t.gk) t.gk, t.id, t.name, t.cover, t.plot, t."cast", t.director, t.genre, t.release_date,
-           t.rating, t.last_modified, t.title, t.year, t.quality, t.tmdb_id, t.category_id
+           t.rating, t.last_modified, t.title, t.year, t.quality, t.lang, t.tmdb_id, t.category_id
     FROM vis t ORDER BY t.gk, t.id
 ), incat AS (
     SELECT t.gk, min(t.category_id)::bigint AS category_id FROM vis t
     WHERE sqlc.narg('category_id')::bigint = ANY(t.category_ids) GROUP BY t.gk
 )
 SELECT t.id, t.name, t.cover, t.plot, t."cast", t.director, t.genre, t.release_date, t.rating, t.last_modified,
-       t.title, t.year, t.quality, COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster,
-       COALESCE(tc.data->>'overview', '')::text AS tmdb_plot,
+       t.title, t.year, t.quality, t.lang, COALESCE(tc.data->>'poster_path', '')::text AS tmdb_poster,
+       COALESCE(tc.data->>'overview', '')::text AS tmdb_plot, COALESCE(tc.data->>'name', '')::text AS tmdb_title,
        COALESCE(c.category_id, t.category_id)::bigint AS category_id
 FROM titles t LEFT JOIN incat c ON c.gk = t.gk
 LEFT JOIN tmdb_cache tc ON tc.kind = 'series' AND tc.tmdb_id = t.tmdb_id AND t.tmdb_id <> ''
@@ -400,7 +400,8 @@ WITH granted AS (
     SELECT i.id FROM vod_items i JOIN x ON i.external_id = x.external_id AND (x.title_key IS NULL OR i.title_key IS NULL)
 )
 SELECT i.id, i.provider_id, i.external_id, i.name, i.container_extension, i.info, i.info_fetched_at,
-       i.icon, i.rating, i.tmdb_id, i.added_at, i.title, i.year, i.quality, v.provider_priority,
+       i.icon, i.rating, i.tmdb_id, i.added_at, i.title, i.year, i.quality, i.lang, v.provider_priority,
+       COALESCE((SELECT tc.data->>'title' FROM tmdb_cache tc WHERE tc.kind = 'movie' AND tc.tmdb_id = i.tmdb_id AND i.tmdb_id <> ''), '')::text AS tmdb_title,
        (SELECT min(c.id) FROM vod_offered_categories c
         WHERE c.pool_key = v.pool_key AND c.kind = 'movie' AND c.external_id = v.external_id)::bigint AS category_id
 FROM cand
@@ -430,6 +431,7 @@ WITH granted AS (
     SELECT s.id FROM series s JOIN x ON s.external_id = x.external_id AND (x.title_key IS NULL OR s.title_key IS NULL)
 )
 SELECT s.*,
+       COALESCE((SELECT tc.data->>'name' FROM tmdb_cache tc WHERE tc.kind = 'series' AND tc.tmdb_id = s.tmdb_id AND s.tmdb_id <> ''), '')::text AS tmdb_title,
        (SELECT min(c.id) FROM vod_offered_categories c
         WHERE c.pool_key = v.pool_key AND c.kind = 'series' AND c.external_id = v.external_id)::bigint AS category_id
 FROM series s
@@ -510,7 +512,8 @@ WITH granted AS (
                         CASE WHEN s.title_key IS NOT NULL AND (e.season > 0 OR e.episode_num > 0)
                              THEN e.season::text || 'x' || e.episode_num::text ELSE 'e' || e.external_id END)
            e.id, e.season, e.episode_num, e.title, e.container_extension, s.id AS series_id,
-           s.name AS series_name, s.cover, s.title AS series_title, s.year AS series_year, s.quality AS series_quality
+           s.name AS series_name, s.cover, s.title AS series_title, s.year AS series_year, s.quality AS series_quality,
+           s.lang AS series_lang, s.tmdb_id AS series_tmdb_id
     FROM series_episodes e
     JOIN series s ON s.id = e.series_id AND NOT s.disabled AND s.episodes_fetched_at IS NOT NULL
     JOIN vod_offered_categories v ON v.provider_id = s.provider_id AND v.kind = 'series' AND v.external_id = s.category_external_id
@@ -521,8 +524,11 @@ WITH granted AS (
              s.id
 )
 SELECT t.id, t.season, t.episode_num, t.title, t.container_extension, t.series_id, t.series_name, t.cover,
-       t.series_title, t.series_year, t.series_quality
-FROM eps t ORDER BY t.series_name, t.series_id, t.season, t.episode_num, t.id;
+       t.series_title, t.series_year, t.series_quality, t.series_lang,
+       COALESCE(tc.data->>'name', '')::text AS series_tmdb_title
+FROM eps t
+LEFT JOIN tmdb_cache tc ON tc.kind = 'series' AND tc.tmdb_id = t.series_tmdb_id AND t.series_tmdb_id <> ''
+ORDER BY t.series_name, t.series_id, t.season, t.episode_num, t.id;
 
 -- name: ProviderVODSize :one
 SELECT (SELECT count(*) FROM vod_items i WHERE i.provider_id = $1)::bigint AS movies,

@@ -31,11 +31,59 @@ func TestParse(t *testing.T) {
 		{"EN ★ A Merry Little Ex-Mas - 2025 [4K]", "", Parsed{"A Merry Little Ex-Mas", 2025, "4k", "English"}},
 		{"FR • Le Parrain (1972)", "", Parsed{"Le Parrain", 1972, "", "French"}},
 		{"DE ► Der Untergang – 2004", "", Parsed{"Der Untergang", 2004, "", "German"}},
+		// Tags after the year no longer hide it; a named language is the file's.
+		{"EN ★ Topakk - 2025 [FILIPINO] [HD]", "", Parsed{"Topakk", 2025, "hd", "Filipino"}},
+		{"EN ★ Trunk Locked In - 2023 [DEUTCH] [4K]", "", Parsed{"Trunk Locked In", 2023, "4k", "German"}},
+		{"EN ★ Avengers  Infinity War - 2018 [3D] [FHD]", "", Parsed{"Avengers Infinity War", 2018, "fhd", "English"}},
+		{"EN ★ Fall 2: Deadpoint - 2026 [CAM-VERSION] [FHD]", "", Parsed{"Fall 2: Deadpoint", 2026, "fhd", "English"}},
+		{"Vivant [Multi-Audio]", "", Parsed{"Vivant", 0, "", ""}},
+		{"EN ★ Day One [Muti Au/Sub]", "", Parsed{"Day One", 0, "", "English"}},
+		// A part that tells copies apart stays.
+		{"EN ★ UFC 328: Chimaev vs Strickland - 2026 [Main Card] [FHD]", "", Parsed{"UFC 328: Chimaev vs Strickland [Main Card]", 2026, "fhd", "English"}},
+		// Loose words after a bracketed year are a panel's labels.
+		{"EN - The Color Purple (1985) STEVEN SPIELBERG", "", Parsed{"The Color Purple", 1985, "", "English"}},
+		{"EN - Monkey Businessmen (1946) - THE THREE STOOGES COLLECTION", "", Parsed{"Monkey Businessmen", 1946, "", "English"}},
+		{"EN - Agatha Christie's Miss Marple (1984-1992)", "", Parsed{"Agatha Christie's Miss Marple", 1984, "", "English"}},
+		{"Gladiator (2000) [Extended Cut]", "", Parsed{"Gladiator [Extended Cut]", 2000, "", ""}},
+		// Labels no language is known for.
+		{"SW ★ Invisible Man - 2020 [FHD]", "", Parsed{"Invisible Man", 2020, "fhd", "Swedish"}},
+		{"ETR ★ You Are Everywhere", "", Parsed{"You Are Everywhere", 0, "", ""}},
+		{"NF - Gladbeck: The Hostage Crisis  (2022)", "", Parsed{"Gladbeck: The Hostage Crisis", 2022, "", ""}},
+		{"NF - NL - Annabelle: Creation", "", Parsed{"Annabelle: Creation", 0, "", "Dutch"}},
+		{"EN ★ IF - 2024 [4K]", "", Parsed{"IF", 2024, "4k", "English"}},
+		{"EN ★ PK - 2014", "", Parsed{"PK", 2014, "", "English"}},
+		{"EN ★ WALL·E - 2008 [FHD]", "", Parsed{"WALL·E", 2008, "fhd", "English"}},
+		{"JJ+E - 2021 [HD]", "", Parsed{"JJ+E", 2021, "hd", ""}},
+		{"A+ - Tetris (2023)", "", Parsed{"Tetris", 2023, "", ""}},
+		{"D+ - Wild Chile (GB)", "", Parsed{"Wild Chile", 0, "", "English"}},
+		{"06 EN - Friday The 13th Part VI Jason Lives (1986)", "", Parsed{"Friday The 13th Part VI Jason Lives", 1986, "", "English"}},
+		{"EN - Hats Off (2005) (DOC) LAUREL & HARDY", "", Parsed{"Hats Off", 2005, "", "English"}},
+		{"The Convert 2023 BLURAY 1080p BluRay x264 AAC5 1  YTS MX", "", Parsed{"The Convert", 2023, "fhd", ""}},
+		{"ABBA - The Movie (1977)", "", Parsed{"ABBA - The Movie", 1977, "", ""}},
+		{"AC/DC Live at River Plate (2011)", "", Parsed{"AC/DC Live at River Plate", 2011, "", ""}},
+		{"EN (2020) MTV Video Music Awards (2020)", "", Parsed{"EN MTV Video Music Awards", 2020, "", ""}},
 		{"HD", "", Parsed{"HD", 0, "", ""}},
 		{"  ", "", Parsed{"", 0, "", ""}},
 	} {
 		if got := Parse(tc.raw, tc.cat); got != tc.want {
 			t.Errorf("Parse(%q, %q) = %+v, want %+v", tc.raw, tc.cat, got, tc.want)
+		}
+	}
+}
+
+func TestParseSeries(t *testing.T) {
+	for _, tc := range []struct {
+		raw, released string
+		want          Parsed
+	}{
+		{"Taj Mahal 1989 [Multi-Audio]", "2020-01-14", Parsed{"Taj Mahal 1989", 2020, "", ""}},
+		{"Taj Mahal 1989 [Multi-Audio]", "", Parsed{"Taj Mahal", 1989, "", ""}},
+		{"Dark 2017", "2017-12-01", Parsed{"Dark", 2017, "", ""}},
+		{"The Order (2018-2020)", "2019-03-07", Parsed{"The Order", 2018, "", ""}}, // bracketed: the name's
+		{"Vivant [Multi-Audio]", "2023-08-16", Parsed{"Vivant", 2023, "", ""}},
+	} {
+		if got := ParseSeries(tc.raw, "", tc.released); got != tc.want {
+			t.Errorf("ParseSeries(%q, %q) = %+v, want %+v", tc.raw, tc.released, got, tc.want)
 		}
 	}
 }

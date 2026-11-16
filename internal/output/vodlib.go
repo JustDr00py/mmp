@@ -29,13 +29,14 @@ func (h *Handlers) vodSettings(ctx context.Context) vodmeta.Settings {
 }
 
 // vodName is what customers see a title as: the panel's name, or with
-// clean titles on "Title (Year)", and " [4K]" for a 4K copy (kept apart
-// from the HD one, so players can tell them apart).
-func vodName(raw, title string, year int32, quality string, clean bool) string {
+// clean titles on "Title (Year)" (TMDB's title for a matched one, see
+// vodmeta.DisplayTitle), and " [4K]" for a 4K copy (kept apart from the HD
+// one, so players can tell them apart).
+func vodName(raw, title, tmdbTitle, lang string, year int32, quality string, clean bool) string {
 	if !clean || title == "" {
 		return raw
 	}
-	n := title
+	n := vodmeta.DisplayTitle(title, tmdbTitle, lang)
 	if year > 0 {
 		n += " (" + strconv.Itoa(int(year)) + ")"
 	}

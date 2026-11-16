@@ -33,7 +33,10 @@ type MatchStatus struct {
 	Started, Finished time.Time
 	Searched          int // title groups looked up
 	Matched, Missed   int
-	Err               string
+	// Rechecked are titles matched under older rules looked up again,
+	// Corrected those whose id changed.
+	Rechecked, Corrected int
+	Err                  string
 }
 
 // Matcher finds TMDB ids for titles panels gave none, in the background
@@ -97,6 +100,7 @@ func (m *Matcher) Run(ctx context.Context) (MatchStatus, error) {
 type titleGroup struct {
 	norm, title string
 	year        int32
+	current     string // the id a title being checked again has
 }
 
 func (m *Matcher) run(ctx context.Context, s Settings) (MatchStatus, error) {
@@ -111,54 +115,68 @@ func (m *Matcher) run(ctx context.Context, s Settings) (MatchStatus, error) {
 		}
 		m.setStatus(st)
 		m.Log.Info("vod library: tmdb pass", "searched", st.Searched, "matched", st.Matched, "missed", st.Missed,
-			"took", st.Finished.Sub(st.Started).Round(time.Second), "err", st.Err)
+			"rechecked", st.Rechecked, "corrected", st.Corrected, "took", st.Finished.Sub(st.Started).Round(time.Second), "err", st.Err)
 		return st, err
 	}
 	failures := 0
 	for _, kind := range []string{"movie", "series"} {
-		seen := map[titleGroup]bool{} // a title that failed is not retried this pass
-	batches:
-		for {
-			groups, err := m.unmatched(ctx, q, kind)
-			if err != nil {
-				return finish(err)
-			}
-			fresh := groups[:0]
-			for _, g := range groups {
-				if !seen[g] {
-					seen[g] = true
-					fresh = append(fresh, g)
-				}
-			}
-			if len(fresh) == 0 {
-				break batches
-			}
-			for _, g := range fresh {
-				id, err := m.lookup(ctx, q, client, kind, g)
-				if errors.Is(err, ErrTMDBAuth) || ctx.Err() != nil {
-					return finish(cmpErr(ctx.Err(), err))
-				}
-				if err != nil {
-					if failures++; failures >= maxFailures {
-						return finish(err)
-					}
-					m.Log.Debug("vod library: tmdb lookup", "kind", kind, "title", g.title, "year", g.year, "err", err)
-					continue
-				}
-				failures = 0
-				st.Searched++
-				if id == "" {
-					st.Missed++
-					err = markTried(ctx, q, kind, g)
-				} else {
-					st.Matched++
-					err = m.apply(ctx, q, client, kind, g, id)
-				}
+		// Titles without an id, then titles a search matched under older
+		// rules (after an upgrade), which keep their id until a search
+		// finds another.
+		for _, recheck := range []bool{false, true} {
+			seen := map[titleGroup]bool{} // a title that failed is not retried this pass
+			for {
+				groups, err := m.groups(ctx, q, kind, recheck)
 				if err != nil {
 					return finish(err)
 				}
-				if st.Searched%50 == 0 {
-					m.setStatus(st)
+				fresh := groups[:0]
+				for _, g := range groups {
+					if !seen[g] {
+						seen[g] = true
+						fresh = append(fresh, g)
+					}
+				}
+				if len(fresh) == 0 {
+					break
+				}
+				for _, g := range fresh {
+					id, err := m.lookup(ctx, q, client, kind, g)
+					if errors.Is(err, ErrTMDBAuth) || ctx.Err() != nil {
+						return finish(cmpErr(ctx.Err(), err))
+					}
+					if err != nil {
+						if failures++; failures >= maxFailures {
+							return finish(err)
+						}
+						m.Log.Debug("vod library: tmdb lookup", "kind", kind, "title", g.title, "year", g.year, "err", err)
+						continue
+					}
+					failures = 0
+					switch {
+					case recheck:
+						st.Rechecked++
+						if id != "" && id != g.current {
+							st.Corrected++
+							m.Log.Info("vod library: tmdb match corrected", "kind", kind, "title", g.title, "year", g.year,
+								"was", g.current, "now", id)
+						}
+						err = m.recheck(ctx, q, client, kind, g, id)
+					case id == "":
+						st.Searched++
+						st.Missed++
+						err = markTried(ctx, q, kind, g)
+					default:
+						st.Searched++
+						st.Matched++
+						err = m.apply(ctx, q, client, kind, g, id)
+					}
+					if err != nil {
+						return finish(err)
+					}
+					if (st.Searched+st.Rechecked)%50 == 0 {
+						m.setStatus(st)
+					}
 				}
 			}
 		}
@@ -186,30 +204,44 @@ func (m *Matcher) setStatus(s MatchStatus) {
 	m.mu.Unlock()
 }
 
-func (m *Matcher) unmatched(ctx context.Context, q *db.Queries, kind string) ([]titleGroup, error) {
+// groups reads a batch of titles to look up: without an id, or (recheck)
+// matched by a search under older rules.
+func (m *Matcher) groups(ctx context.Context, q *db.Queries, kind string, recheck bool) ([]titleGroup, error) {
 	retry := int64(matchRetry / time.Second)
 	batch := m.Batch
 	if batch <= 0 {
 		batch = matchBatch
 	}
 	var out []titleGroup
-	if kind == "movie" {
+	switch {
+	case kind == "movie" && recheck:
+		rows, err := q.ListRecheckMovieTitles(ctx, batch)
+		for _, r := range rows {
+			out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year, r.TmdbID})
+		}
+		return out, err
+	case recheck:
+		rows, err := q.ListRecheckSeriesTitles(ctx, batch)
+		for _, r := range rows {
+			out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year, r.TmdbID})
+		}
+		return out, err
+	case kind == "movie":
 		rows, err := q.ListUnmatchedMovieTitles(ctx, db.ListUnmatchedMovieTitlesParams{RetryAfterSecs: retry, Limit: batch})
 		for _, r := range rows {
-			out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year})
+			out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year, ""})
 		}
 		return out, err
 	}
 	rows, err := q.ListUnmatchedSeriesTitles(ctx, db.ListUnmatchedSeriesTitlesParams{RetryAfterSecs: retry, Limit: batch})
 	for _, r := range rows {
-		out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year})
+		out = append(out, titleGroup{r.TitleNorm, r.Title, r.Year, ""})
 	}
 	return out, err
 }
 
 // lookup returns the group's TMDB id ("" for no match), from the search
-// cache or a search: with the year first, then without (TMDB's year is
-// the first release; a panel's may be a later one).
+// cache or a search (see Find).
 func (m *Matcher) lookup(ctx context.Context, q *db.Queries, c *TMDB, kind string, g titleGroup) (string, error) {
 	id, err := q.GetTMDBSearch(ctx, db.GetTMDBSearchParams{Kind: kind, QueryKey: g.norm, Year: g.year, MaxAgeSecs: int64(matchRetry / time.Second)})
 	if err == nil {
@@ -218,27 +250,15 @@ func (m *Matcher) lookup(ctx context.Context, q *db.Queries, c *TMDB, kind strin
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
-	years := []int{int(g.year)}
-	if g.year > 0 {
-		years = append(years, 0)
+	hit, how, err := Find(ctx, c, kind, g.title, int(g.year))
+	if err != nil {
+		return "", err
 	}
-	var last []TMDBResult
-	for _, y := range years {
-		res, err := c.Search(ctx, kind, g.title, y)
-		if err != nil {
-			return "", err
-		}
-		last = res
-		if hit, ok := Pick(res, g.title, int(g.year)); ok {
-			id = strconv.FormatInt(hit.ID, 10)
-			break
-		}
-	}
-	// A panel's year for a series is often its latest season's: the only
-	// show of exactly that title is it, whatever the year.
-	if id == "" && kind == "series" {
-		if hit, ok := Pick(last, g.title, 0); ok {
-			id = strconv.FormatInt(hit.ID, 10)
+	if how != "" {
+		id = strconv.FormatInt(hit.ID, 10)
+		if how != HowExact {
+			t, _ := hit.Titles()
+			m.Log.Debug("vod library: tmdb match", "kind", kind, "title", g.title, "year", g.year, "how", how, "tmdb_id", id, "tmdb_title", t, "tmdb_year", hit.Year())
 		}
 	}
 	if err := q.PutTMDBSearch(ctx, db.PutTMDBSearchParams{Kind: kind, QueryKey: g.norm, Year: g.year, TmdbID: id}); err != nil {
@@ -250,24 +270,51 @@ func (m *Matcher) lookup(ctx context.Context, q *db.Queries, c *TMDB, kind strin
 // apply stores a match on every copy of the group, with the title's
 // details (fetched once per TMDB id; a failure only leaves the IMDb id out).
 func (m *Matcher) apply(ctx context.Context, q *db.Queries, c *TMDB, kind string, g titleGroup, id string) error {
-	imdb := ""
-	if cached, err := q.GetTMDBCache(ctx, db.GetTMDBCacheParams{Kind: kind, TmdbID: id}); err == nil {
-		imdb = cached.ImdbID
-	} else if raw, im, err := c.Details(ctx, kind, id); err == nil {
-		imdb = im
-		if err := q.PutTMDBCache(ctx, db.PutTMDBCacheParams{Kind: kind, TmdbID: id, ImdbID: im, Data: raw}); err != nil {
-			return err
-		}
-	} else if errors.Is(err, ErrTMDBAuth) {
+	imdb, err := m.imdbID(ctx, q, c, kind, id)
+	if err != nil {
 		return err
 	}
-	var err error
 	if kind == "movie" {
 		_, err = q.SetMovieTitleMatch(ctx, db.SetMovieTitleMatchParams{TmdbID: id, ImdbID: imdb, TitleNorm: g.norm, Year: g.year})
 	} else {
 		_, err = q.SetSeriesTitleMatch(ctx, db.SetSeriesTitleMatchParams{TmdbID: id, ImdbID: imdb, TitleNorm: g.norm, Year: g.year})
 	}
 	return err
+}
+
+// recheck stores what a title matched under older rules is now: the id a
+// search found, or (none found) the id it had.
+func (m *Matcher) recheck(ctx context.Context, q *db.Queries, c *TMDB, kind string, g titleGroup, id string) error {
+	imdb := ""
+	if id != "" {
+		var err error
+		if imdb, err = m.imdbID(ctx, q, c, kind, id); err != nil {
+			return err
+		}
+	}
+	var err error
+	if kind == "movie" {
+		_, err = q.RecheckMovieTitle(ctx, db.RecheckMovieTitleParams{TmdbID: id, ImdbID: imdb, TitleNorm: g.norm, Year: g.year})
+	} else {
+		_, err = q.RecheckSeriesTitle(ctx, db.RecheckSeriesTitleParams{TmdbID: id, ImdbID: imdb, TitleNorm: g.norm, Year: g.year})
+	}
+	return err
+}
+
+// imdbID is a TMDB title's IMDb id, from the details cache or TMDB (whose
+// answer is then cached); only a refused key is an error.
+func (m *Matcher) imdbID(ctx context.Context, q *db.Queries, c *TMDB, kind, id string) (string, error) {
+	if cached, err := q.GetTMDBCache(ctx, db.GetTMDBCacheParams{Kind: kind, TmdbID: id}); err == nil {
+		return cached.ImdbID, nil
+	}
+	raw, imdb, err := c.Details(ctx, kind, id)
+	if errors.Is(err, ErrTMDBAuth) {
+		return "", err
+	}
+	if err != nil {
+		return "", nil
+	}
+	return imdb, q.PutTMDBCache(ctx, db.PutTMDBCacheParams{Kind: kind, TmdbID: id, ImdbID: imdb, Data: raw})
 }
 
 func markTried(ctx context.Context, q *db.Queries, kind string, g titleGroup) error {

@@ -269,7 +269,7 @@ func (h *Handlers) vodStreams(w http.ResponseWriter, ctx context.Context, u db.U
 	out := make([]xtreamVODStream, 0, len(rows))
 	for i, m := range rows {
 		rating, five := ratingStrings(m.Rating)
-		out = append(out, xtreamVODStream{Num: i + 1, Name: vodName(m.Name, m.Title, m.Year, m.Quality, clean), StreamType: "movie", StreamID: m.ID,
+		out = append(out, xtreamVODStream{Num: i + 1, Name: vodName(m.Name, m.Title, m.TmdbTitle, m.Lang, m.Year, m.Quality, clean), StreamType: "movie", StreamID: m.ID,
 			StreamIcon: cmp.Or(m.Icon, tmdbImage(m.TmdbPoster, "w342")), Rating: rating, Rating5: five, Added: unixPtr(m.AddedAt), IsAdult: "0",
 			CategoryID: strconv.FormatInt(m.CategoryID, 10), CategoryIDs: []int64{m.CategoryID},
 			ContainerExtension: m.ContainerExtension})
@@ -292,7 +292,7 @@ func (h *Handlers) seriesList(w http.ResponseWriter, ctx context.Context, u db.U
 	out := make([]xtreamSeries, 0, len(rows))
 	for i, s := range rows {
 		rating, five := ratingStrings(s.Rating)
-		out = append(out, xtreamSeries{Num: i + 1, Name: vodName(s.Name, s.Title, s.Year, s.Quality, clean), SeriesID: s.ID,
+		out = append(out, xtreamSeries{Num: i + 1, Name: vodName(s.Name, s.Title, s.TmdbTitle, s.Lang, s.Year, s.Quality, clean), SeriesID: s.ID,
 			Cover: cmp.Or(s.Cover, tmdbImage(s.TmdbPoster, "w342")), Plot: cmp.Or(s.Plot, s.TmdbPlot),
 			Cast: s.Cast, Director: s.Director, Genre: s.Genre, ReleaseDate: s.ReleaseDate,
 			LastModified: unixPtr(s.LastModified), Rating: rating, Rating5: five, BackdropPath: []string{},
@@ -323,7 +323,7 @@ func (h *Handlers) vodInfo(w http.ResponseWriter, ctx context.Context, u db.User
 	}
 	info := scrubInfo(raw)
 	// Our own fields win where panels and players expect them.
-	name := vodName(m.Name, m.Title, m.Year, m.Quality, h.vodSettings(ctx).CleanTitles)
+	name := vodName(m.Name, m.Title, m.TmdbTitle, m.Lang, m.Year, m.Quality, h.vodSettings(ctx).CleanTitles)
 	info["name"] = name
 	if _, ok := info["movie_image"]; !ok && m.Icon != "" {
 		info["movie_image"] = m.Icon
@@ -390,7 +390,7 @@ func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.U
 	info := scrubInfo(row.Info)
 	rating, five := ratingStrings(s.Rating)
 	for k, v := range map[string]any{
-		"name": vodName(s.Name, s.Title, s.Year, s.Quality, h.vodSettings(ctx).CleanTitles), "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
+		"name": vodName(s.Name, s.Title, s.TmdbTitle, s.Lang, s.Year, s.Quality, h.vodSettings(ctx).CleanTitles), "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
 		"genre": s.Genre, "releaseDate": s.ReleaseDate, "last_modified": unixPtr(s.LastModified),
 		"rating": rating, "rating_5based": five, "category_id": strconv.FormatInt(s.CategoryID, 10),
 	} {

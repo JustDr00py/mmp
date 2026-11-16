@@ -318,7 +318,7 @@ func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, 
 		}
 		clean := h.vodSettings(ctx).CleanTitles
 		for _, m := range movies {
-			entry(vodName(m.Name, m.Title, m.Year, m.Quality, clean), cmp.Or(m.Icon, tmdbImage(m.TmdbPoster, "w342")),
+			entry(vodName(m.Name, m.Title, m.TmdbTitle, m.Lang, m.Year, m.Quality, clean), cmp.Or(m.Icon, tmdbImage(m.TmdbPoster, "w342")),
 				"Movies: "+catName[m.CategoryID], v.movie(m.ID, m.ContainerExtension))
 		}
 	}
@@ -329,7 +329,7 @@ func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, 
 		}
 		clean := h.vodSettings(ctx).CleanTitles
 		for _, e := range eps {
-			show := vodName(e.SeriesName, e.SeriesTitle, e.SeriesYear, e.SeriesQuality, clean)
+			show := vodName(e.SeriesName, e.SeriesTitle, e.SeriesTmdbTitle, e.SeriesLang, e.SeriesYear, e.SeriesQuality, clean)
 			name := fmt.Sprintf("%s S%02dE%02d", show, e.Season, e.EpisodeNum)
 			if e.Title != "" {
 				name += " " + e.Title
