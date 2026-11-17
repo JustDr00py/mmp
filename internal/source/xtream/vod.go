@@ -200,6 +200,13 @@ func (c *Client) Series(ctx context.Context) ([]Series, error) {
 	return out, c.getList(ctx, "get_series", nil, &out)
 }
 
+// SeriesInCategory fetches the shows of one series category. Some panels
+// answer a bare get_series with [] and only list shows per category.
+func (c *Client) SeriesInCategory(ctx context.Context, categoryID string) ([]Series, error) {
+	var out []Series
+	return out, c.getList(ctx, "get_series", url.Values{"category_id": {categoryID}}, &out)
+}
+
 // SeriesInfo fetches one show's info and episodes.
 func (c *Client) SeriesInfo(ctx context.Context, seriesID string) (*SeriesInfo, error) {
 	var out SeriesInfo

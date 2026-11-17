@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JustDr00py/mmp/internal/db"
@@ -60,6 +61,15 @@ func (r *Refresher) RefreshVOD(ctx context.Context, p db.Provider, force bool) (
 	shows, err := client.Series(ctx)
 	if err != nil {
 		return res, fmt.Errorf("refresh vod %d: get_series: %w", p.ID, err)
+	}
+	if len(shows) == 0 && len(seriesCats) > 0 {
+		// Panels like ULTRA8K answer the full list with [] and only list
+		// shows per category. Every category is fetched, not just the
+		// selected ones, so the guard below still weighs the whole catalog.
+		if shows, err = seriesByCategory(ctx, client, seriesCats); err != nil {
+			return res, fmt.Errorf("refresh vod %d: get_series by category: %w", p.ID, err)
+		}
+		r.log.Info("vod: series listed per category", "provider_id", p.ID, "categories", len(seriesCats), "series", len(shows))
 	}
 
 	mp := movieParams(p.ID, movies, categoryNames(movieCats))
@@ -378,6 +388,62 @@ func seriesParams(providerID int64, shows []xtream.Series, catNames map[string]s
 		p.Years[i], p.Qualities[i], p.Langs[i] = int32(t.Year), t.Quality, t.Lang
 	}
 	return p
+}
+
+// seriesByCategory lists every show one category at a time, a few
+// categories at once. Any failed category fails the whole list: a partial
+// catalog would read as shows gone and disable them.
+func seriesByCategory(ctx context.Context, client *xtream.Client, cats []xtream.VODCategory) ([]xtream.Series, error) {
+	ids, _ := categoryParams(cats)
+	per := make([][]xtream.Series, len(ids))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		firstErr error
+		sem      = make(chan struct{}, 4)
+	)
+	for i, id := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			shows, err := client.SeriesInCategory(ctx, id)
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("category %s: %w", id, err)
+				}
+				mu.Unlock()
+				cancel()
+				return
+			}
+			for j := range shows {
+				if strings.TrimSpace(string(shows[j].CategoryID)) == "" {
+					shows[j].CategoryID = xtream.FlexString(id)
+				}
+			}
+			per[i] = shows
+		}()
+	}
+	wg.Wait()
+	if firstErr == nil && ctx.Err() != nil {
+		firstErr = ctx.Err()
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	var out []xtream.Series
+	for _, s := range per {
+		out = append(out, s...)
+	}
+	return out, nil
 }
 
 // categoryNames maps category ids to names.

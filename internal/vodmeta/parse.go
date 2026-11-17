@@ -66,9 +66,13 @@ var (
 	// titleTrailingLang: "x (EN)", "x [FR]", "x - DE", "x | ES".
 	titleTrailingLang = regexp.MustCompile(`(?i)\s*(?:[\[(]\s*(\pL{2,4})\s*[\])]|\s[|\-]\s*(\pL{2,4}))\s*$`)
 	serviceLabel      = regexp.MustCompile(`^\s*\pL{1,2}\+\s*[-|★•]\s*`)
-	orderLang         = regexp.MustCompile(`^\d{1,2}\s+(\pL{2,3})\s*(?:[|★•]|-\s)`)
-	bracketed         = regexp.MustCompile(`[\[(]([^\[\]()]*)[\])]`)
-	yearRe            = regexp.MustCompile(`^(?:19|20)\d{2}$`)
+	// langYear: a language code then a bracketed year the title repeats,
+	// "EN (2020) MTV Video Music Awards (2020)": the code is a label. Only
+	// with the repeat: "IT (2017) STEPHEN KING" is no Italian film.
+	langYear  = regexp.MustCompile(`^(\pL{2,3})\s+[\[(]\s*((?:19|20)\d{2})\s*[\])]\s+(\S.*)$`)
+	orderLang = regexp.MustCompile(`^\d{1,2}\s+(\pL{2,3})\s*(?:[|★•]|-\s)`)
+	bracketed = regexp.MustCompile(`[\[(]([^\[\]()]*)[\])]`)
+	yearRe    = regexp.MustCompile(`^(?:19|20)\d{2}$`)
 	// yearRange: a series' run, "1984-1992" or "2019-".
 	yearRange = regexp.MustCompile(`^((?:19|20)\d{2})(?:\s*\p{Pd}\s*(?:(?:19|20)\d{2})?)?$`)
 	// seriesNoise: season and episode markers trailing a show's name.
@@ -116,6 +120,11 @@ func parse(raw, category string) (p Parsed, bare bool) {
 	if m := orderLang.FindStringSubmatch(s); m != nil {
 		if _, ok := langCodes[strings.ToUpper(m[1])]; ok {
 			s = strings.TrimLeft(s, "0123456789 ")
+		}
+	}
+	if m := langYear.FindStringSubmatch(s); m != nil && m[1] == strings.ToUpper(m[1]) {
+		if _, ok := langCodes[m[1]]; ok && strings.Contains(m[3], m[2]) {
+			s = m[1] + " - " + m[3]
 		}
 	}
 	// Up to two labels: "NF - NL - Annabelle: Creation".
@@ -351,4 +360,4 @@ func ReleaseYear(date string) int {
 
 // ParseVersion changes whenever Parse reads names differently; titles
 // stored by an older parser are parsed again at startup (see Reparse).
-const ParseVersion = 3
+const ParseVersion = 4
