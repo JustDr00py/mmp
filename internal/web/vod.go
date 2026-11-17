@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -47,6 +48,7 @@ type vodRow struct {
 	Year                                              int32
 	Locked                                            bool
 	Copies                                            int64
+	SourceCopies                                      int64 // copies on the picked source's providers
 }
 
 // TMDBURL is the title's page on TMDB.
@@ -64,6 +66,9 @@ type vodData struct {
 	CategoryID int64
 	Languages  []langOption
 	Language   string // "" = any, noLanguage = categories without a label
+	Sources    []vodSourceGroup
+	Source     string // "" = every provider, "b:<backbone>" or "p:<provider id>"
+	Backbone   string // the picked backbone, when Source is one
 	Query      string
 	Unmatched  bool // only titles without a TMDB id
 	Rows       []vodRow
@@ -75,8 +80,77 @@ type vodData struct {
 	NextOffset int
 }
 
+// vodSourceGroup is a backbone's providers in the source picker (Backbone
+// "" groups the providers without one).
+type vodSourceGroup struct {
+	Backbone  string
+	Providers []vodSourceProvider
+}
+
+type vodSourceProvider struct {
+	ID   int64
+	Name string
+}
+
+// vodSources groups the providers with offered categories by backbone,
+// backbones by name and the providers without one last, each group in
+// the providers' priority order.
+func vodSources(ps []db.Provider, cats []db.ListVODCategoriesAdminRow) []vodSourceGroup {
+	has := map[int64]bool{}
+	for _, c := range cats {
+		has[c.ProviderID] = true
+	}
+	slices.SortStableFunc(ps, func(a, b db.Provider) int {
+		return cmp.Or(cmp.Compare(a.Priority, b.Priority), cmp.Compare(a.Name, b.Name))
+	})
+	var out []vodSourceGroup
+	for _, p := range ps {
+		if !has[p.ID] {
+			continue
+		}
+		i := slices.IndexFunc(out, func(g vodSourceGroup) bool { return g.Backbone == p.Backbone })
+		if i < 0 {
+			out = append(out, vodSourceGroup{Backbone: p.Backbone})
+			i = len(out) - 1
+		}
+		out[i].Providers = append(out[i].Providers, vodSourceProvider{ID: p.ID, Name: p.Name})
+	}
+	slices.SortStableFunc(out, func(a, b vodSourceGroup) int {
+		if (a.Backbone == "") != (b.Backbone == "") {
+			return cmp.Compare(boolInt(a.Backbone == ""), boolInt(b.Backbone == ""))
+		}
+		return cmp.Compare(strings.ToLower(a.Backbone), strings.ToLower(b.Backbone))
+	})
+	return out
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// vodSourceProviders resolves a source ("b:<backbone>" or "p:<id>") to its
+// providers among groups, and the backbone when it names one. ok is false
+// for a source that is not offered.
+func vodSourceProviders(groups []vodSourceGroup, source string) (ids []int64, backbone string, ok bool) {
+	kind, val, _ := strings.Cut(source, ":")
+	for _, g := range groups {
+		for _, p := range g.Providers {
+			switch {
+			case kind == "b" && val != "" && g.Backbone == val:
+				ids, backbone = append(ids, p.ID), val
+			case kind == "p" && strconv.FormatInt(p.ID, 10) == val:
+				return []int64{p.ID}, "", true
+			}
+		}
+	}
+	return ids, backbone, len(ids) > 0
+}
+
 // vodPage browses the imported catalogs: ?kind=movie|series, &category=,
-// &q=, &offset=.
+// &source=, &q=, &offset=.
 func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d := vodData{Kind: q.Get("kind"), Query: strings.TrimSpace(q.Get("q")), Language: q.Get("lang"), Offset: max(atoi(q.Get("offset")), 0),
@@ -97,6 +171,22 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Categories = slices.DeleteFunc(d.Categories, func(c db.ListVODCategoriesAdminRow) bool { return !c.Offered })
+	providers, err := ui.Store.ListProviders(ctx)
+	if err != nil {
+		ui.fail(w, "providers", err)
+		return
+	}
+	d.Sources = vodSources(providers, d.Categories)
+	// The source (a backbone or one provider) narrows the categories and
+	// the titles; a source no longer offered is dropped.
+	var pids []int64 // nil: every provider
+	if src := q.Get("source"); src != "" {
+		var ok bool
+		if pids, d.Backbone, ok = vodSourceProviders(d.Sources, src); ok {
+			d.Source = src
+			d.Categories = slices.DeleteFunc(d.Categories, func(c db.ListVODCategoriesAdminRow) bool { return !slices.Contains(pids, c.ProviderID) })
+		}
+	}
 	// The language narrows the category list and the titles; a category
 	// picked from another language is dropped.
 	var names []string
@@ -104,6 +194,9 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		names = append(names, c.Name)
 	}
 	d.Languages = languagesOf(names)
+	if !slices.ContainsFunc(d.Languages, func(l langOption) bool { return l.Value == d.Language }) {
+		d.Language = "" // not offered by the picked source
+	}
 	var cids []int64 // nil: every category
 	if d.Language != "" {
 		cids = []int64{}
@@ -113,7 +206,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if d.CategoryID > 0 {
-		if d.Language != "" && !slices.Contains(cids, d.CategoryID) {
+		if !slices.ContainsFunc(d.Categories, func(c db.ListVODCategoriesAdminRow) bool { return c.ID == d.CategoryID }) {
 			d.CategoryID = 0
 		} else {
 			cids = []int64{d.CategoryID}
@@ -125,7 +218,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 	if d.Kind == "movie" {
-		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListVODItemsAdmin(ctx, db.ListVODItemsAdminParams{ProviderIds: pids, CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list movies", err)
 			return
@@ -133,10 +226,10 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		for _, m := range rows {
 			d.Rows = append(d.Rows, vodRow{ID: m.ID, Name: m.Name, Image: m.Icon, Rating: m.Rating, Extra: m.ContainerExtension, Disabled: m.Disabled,
 				Title: m.Title, Year: m.Year, Quality: m.Quality, Lang: m.Lang, TmdbID: m.TmdbID, ImdbID: m.ImdbID,
-				MatchSource: m.MatchSource, Locked: m.MatchLocked, Copies: m.Copies})
+				MatchSource: m.MatchSource, Locked: m.MatchLocked, Copies: m.Copies, SourceCopies: m.SourceCopies})
 		}
 	} else {
-		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
+		rows, err := ui.Store.ListSeriesAdmin(ctx, db.ListSeriesAdminParams{ProviderIds: pids, CategoryIds: cids, Search: search, UnmatchedOnly: d.Unmatched, Limit: vodPerPage + 1, Offset: int32(d.Offset)})
 		if err != nil {
 			ui.fail(w, "list series", err)
 			return
@@ -144,7 +237,7 @@ func (ui *UI) vodPage(w http.ResponseWriter, r *http.Request) {
 		for _, s := range rows {
 			d.Rows = append(d.Rows, vodRow{ID: s.ID, Name: s.Name, Image: s.Cover, Rating: s.Rating, Extra: s.ReleaseDate, Disabled: s.Disabled, Series: true,
 				Title: s.Title, Year: s.Year, Quality: s.Quality, Lang: s.Lang, TmdbID: s.TmdbID, ImdbID: s.ImdbID,
-				MatchSource: s.MatchSource, Locked: s.MatchLocked, Copies: s.Copies})
+				MatchSource: s.MatchSource, Locked: s.MatchLocked, Copies: s.Copies, SourceCopies: s.SourceCopies})
 		}
 	}
 	if len(d.Rows) > vodPerPage {

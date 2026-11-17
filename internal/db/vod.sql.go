@@ -373,9 +373,11 @@ const listSeriesAdmin = `-- name: ListSeriesAdmin :many
 SELECT s.id, s.provider_id, s.external_id, s.name, s.category_external_id, s.cover, s.rating,
        s.release_date, s.episodes_fetched_at, s.disabled, s.title, s.year, s.quality, s.lang, s.tmdb_id, s.imdb_id,
        s.match_source, s.match_locked,
-       (SELECT count(*) FROM series c WHERE c.title_key = s.title_key AND NOT c.disabled)::bigint AS copies
+       (SELECT count(*) FROM series c WHERE c.title_key = s.title_key AND NOT c.disabled)::bigint AS copies,
+       (SELECT count(*) FROM series c WHERE c.title_key = s.title_key AND NOT c.disabled
+          AND ($1::bigint[] IS NULL OR c.provider_id = ANY($1::bigint[])))::bigint AS source_copies
 FROM series s
-WHERE ($1::bigint IS NULL OR s.provider_id = $1)
+WHERE ($1::bigint[] IS NULL OR s.provider_id = ANY($1::bigint[]))
   AND ($2::bigint[] IS NULL OR EXISTS (
         SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'series'
           AND c.provider_id = s.provider_id AND c.external_id = s.category_external_id))
@@ -386,7 +388,7 @@ LIMIT $6 OFFSET $5
 `
 
 type ListSeriesAdminParams struct {
-	ProviderID    *int64  `json:"provider_id"`
+	ProviderIds   []int64 `json:"provider_ids"`
 	CategoryIds   []int64 `json:"category_ids"`
 	Search        *string `json:"search"`
 	UnmatchedOnly bool    `json:"unmatched_only"`
@@ -414,11 +416,12 @@ type ListSeriesAdminRow struct {
 	MatchSource        string     `json:"match_source"`
 	MatchLocked        bool       `json:"match_locked"`
 	Copies             int64      `json:"copies"`
+	SourceCopies       int64      `json:"source_copies"`
 }
 
 func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams) ([]ListSeriesAdminRow, error) {
 	rows, err := q.db.Query(ctx, listSeriesAdmin,
-		arg.ProviderID,
+		arg.ProviderIds,
 		arg.CategoryIds,
 		arg.Search,
 		arg.UnmatchedOnly,
@@ -452,6 +455,7 @@ func (q *Queries) ListSeriesAdmin(ctx context.Context, arg ListSeriesAdminParams
 			&i.MatchSource,
 			&i.MatchLocked,
 			&i.Copies,
+			&i.SourceCopies,
 		); err != nil {
 			return nil, err
 		}
@@ -1230,9 +1234,11 @@ const listVODItemsAdmin = `-- name: ListVODItemsAdmin :many
 SELECT i.id, i.provider_id, i.external_id, i.name, i.category_external_id, i.icon, i.rating,
        i.container_extension, i.added_at, i.disabled, i.title, i.year, i.quality, i.lang, i.tmdb_id, i.imdb_id,
        i.match_source, i.match_locked,
-       (SELECT count(*) FROM vod_items c WHERE c.title_key = i.title_key AND NOT c.disabled)::bigint AS copies
+       (SELECT count(*) FROM vod_items c WHERE c.title_key = i.title_key AND NOT c.disabled)::bigint AS copies,
+       (SELECT count(*) FROM vod_items c WHERE c.title_key = i.title_key AND NOT c.disabled
+          AND ($1::bigint[] IS NULL OR c.provider_id = ANY($1::bigint[])))::bigint AS source_copies
 FROM vod_items i
-WHERE ($1::bigint IS NULL OR i.provider_id = $1)
+WHERE ($1::bigint[] IS NULL OR i.provider_id = ANY($1::bigint[]))
   AND ($2::bigint[] IS NULL OR EXISTS (
         SELECT 1 FROM vod_categories c WHERE c.id = ANY($2::bigint[]) AND c.kind = 'movie'
           AND c.provider_id = i.provider_id AND c.external_id = i.category_external_id))
@@ -1243,7 +1249,7 @@ LIMIT $6 OFFSET $5
 `
 
 type ListVODItemsAdminParams struct {
-	ProviderID    *int64  `json:"provider_id"`
+	ProviderIds   []int64 `json:"provider_ids"`
 	CategoryIds   []int64 `json:"category_ids"`
 	Search        *string `json:"search"`
 	UnmatchedOnly bool    `json:"unmatched_only"`
@@ -1271,11 +1277,14 @@ type ListVODItemsAdminRow struct {
 	MatchSource        string     `json:"match_source"`
 	MatchLocked        bool       `json:"match_locked"`
 	Copies             int64      `json:"copies"`
+	SourceCopies       int64      `json:"source_copies"`
 }
 
+// provider_ids NULL = every provider; source_copies counts the title's active
+// copies on those providers (all of them when NULL).
 func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminParams) ([]ListVODItemsAdminRow, error) {
 	rows, err := q.db.Query(ctx, listVODItemsAdmin,
-		arg.ProviderID,
+		arg.ProviderIds,
 		arg.CategoryIds,
 		arg.Search,
 		arg.UnmatchedOnly,
@@ -1309,6 +1318,7 @@ func (q *Queries) ListVODItemsAdmin(ctx context.Context, arg ListVODItemsAdminPa
 			&i.MatchSource,
 			&i.MatchLocked,
 			&i.Copies,
+			&i.SourceCopies,
 		); err != nil {
 			return nil, err
 		}
