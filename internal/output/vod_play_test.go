@@ -60,6 +60,7 @@ func newPlaybackServer(t *testing.T, movie []byte, maxConns int32) (*httptest.Se
 	slots := proxy.NewCapacity()
 	hs.VOD = &fakeVOD{panelURL: panel.srv.URL, maxConns: maxConns}
 	hs.Slots = slots
+	hs.vodLeases.hold = 10 * time.Millisecond // tests that need the hold set their own
 	srv := httptest.NewServer(chiRouter(hs))
 	t.Cleanup(srv.Close)
 	return srv, hs, panel, slots
@@ -83,7 +84,7 @@ func fetch(t *testing.T, url string, hdr map[string]string) (*http.Response, []b
 func TestVODPlaybackRanges(t *testing.T) {
 	movie := make([]byte, 300_000)
 	rand.Read(movie)
-	srv, _, panel, _ := newPlaybackServer(t, movie, 2)
+	srv, hs, panel, slots := newPlaybackServer(t, movie, 2)
 	u := srv.URL + "/movie/alice/alice-pw1/101.mkv"
 
 	resp, body := fetch(t, u, nil)
@@ -117,6 +118,8 @@ func TestVODPlaybackRanges(t *testing.T) {
 		t.Fatal("panel never asked")
 	}
 
+	waitVODIdle(t, hs, slots) // alice's plays no longer hold the panel's lines
+
 	// Access: Kids (102) is not alice's; unknown ids; wrong password.
 	for path, want := range map[string]int{
 		"/movie/alice/alice-pw1/102.mp4":  404,
@@ -134,6 +137,7 @@ func TestVODPlaybackRanges(t *testing.T) {
 func TestVODPlaybackSlots(t *testing.T) {
 	movie := make([]byte, 16<<20) // big enough that an unread response stays open
 	srv, hs, _, slots := newPlaybackServer(t, movie, 1)
+	hs.vodLeases.hold = time.Hour
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/movie/alice/alice-pw1/101.mkv", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -156,15 +160,44 @@ func TestVODPlaybackSlots(t *testing.T) {
 	if hs.Access.ActiveConnections(2) != 0 {
 		t.Error("refused playback kept root's slot")
 	}
-	// The player leaves: both slots come back.
+	// The player drops its connection (buffered ahead, paused): alice's
+	// own slot comes back, but the provider's line stays hers.
 	cancel()
 	resp.Body.Close()
+	waitUserIdle(t, hs, 1)
+	if slots.InUse(1) != 1 || len(hs.Access.Viewers()) != 1 {
+		t.Fatalf("held: provider %d, viewers %+v", slots.InUse(1), hs.Access.Viewers())
+	}
+	if r, body := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", nil); r.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(string(body), "line busy") {
+		t.Errorf("other user while held = %d %q, want 503 line busy", r.StatusCode, body)
+	}
+	// alice comes back to it.
+	if r, body := fetch(t, srv.URL+"/movie/alice/alice-pw1/101.mkv", map[string]string{"Range": "bytes=1000-1999"}); r.StatusCode != 206 || len(body) != 1000 {
+		t.Errorf("resume while held = %d (%d bytes), want 206", r.StatusCode, len(body))
+	}
+	// The hold ends (a kick ends it at once): both slots come back.
+	if vs := hs.Access.Viewers(); len(vs) != 1 || !hs.Access.Kick(vs[0].ID) {
+		t.Fatalf("kick held %+v", vs)
+	}
 	waitVODIdle(t, hs, slots)
 	if vs := hs.Access.Viewers(); len(vs) != 0 {
-		t.Errorf("viewers after the player left = %+v", vs)
+		t.Errorf("viewers after the hold = %+v", vs)
 	}
 	if r, _ := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", map[string]string{"Range": "bytes=0-0"}); r.StatusCode != 206 {
 		t.Errorf("after release = %d", r.StatusCode)
+	}
+}
+
+// waitUserIdle waits until user holds no slot.
+func waitUserIdle(t *testing.T, hs *Handlers, user int64) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for hs.Access.ActiveConnections(user) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("user %d still holds %d slots", user, hs.Access.ActiveConnections(user))
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
@@ -420,7 +453,7 @@ func TestVODWatchHistory(t *testing.T) {
 	done := make(chan struct{})
 	go func() { tr.Run(ctx); close(done) }()
 	hs.Activity = tr
-	hs.vodLeases.resume = 10 * time.Millisecond
+	hs.vodLeases.hold = 10 * time.Millisecond
 	u := srv.URL + "/movie/alice/alice-pw1/101.mkv"
 
 	// Played to the end with one seek while the first request was open.
@@ -431,7 +464,7 @@ func TestVODWatchHistory(t *testing.T) {
 	io.Copy(io.Discard, first.Body)
 	stop()
 	waitVODIdle(t, hs, slots)
-	waitWatched(t, st, 1) // once the resume window passes
+	waitWatched(t, st, 1) // once the hold passes
 	// A HEAD probe: no session.
 	if head, _ := http.Head(u); head.StatusCode != 200 {
 		t.Fatalf("HEAD = %d", head.StatusCode)
@@ -498,25 +531,29 @@ func TestVODResume(t *testing.T) {
 	done := make(chan struct{})
 	go func() { tr.Run(ctx); close(done) }()
 	hs.Activity = tr
-	hs.vodLeases.resume = time.Hour
+	hs.vodLeases.hold = time.Hour
 	u := srv.URL + "/movie/alice/alice-pw1/101.mkv"
 
 	start := time.Now()
 	fetch(t, u, nil)
-	waitVODIdle(t, hs, slots) // slots are free while the session waits
+	waitUserIdle(t, hs, 1) // alice's slot is free while the session waits
+	if slots.InUse(1) != 1 {
+		t.Fatal("the provider's line was not held")
+	}
 	fetch(t, u, map[string]string{"Range": "bytes=0-999"})
-	waitVODIdle(t, hs, slots)
+	waitUserIdle(t, hs, 1)
 	time.Sleep(20 * time.Millisecond)
 	fetch(t, u, map[string]string{"Range": "bytes=1000-1999"})
-	waitVODIdle(t, hs, slots)
+	waitUserIdle(t, hs, 1)
 	st.mu.Lock()
 	n := len(st.watched)
 	st.mu.Unlock()
 	if n != 0 {
-		t.Fatalf("reported before the resume window passed: %d", n)
+		t.Fatalf("reported before the hold passed: %d", n)
 	}
 
 	hs.FlushVOD() // shutdown: reported at once
+	waitVODIdle(t, hs, slots)
 	cancel()
 	<-done
 	st.mu.Lock()
@@ -546,5 +583,91 @@ func waitWatched(t *testing.T, st *activityStore, n int) {
 			t.Fatalf("watched %d sessions, want %d", got, n)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestVODLeaseHold: a playback whose last request ended keeps the
+// provider's line (not the user's slot) for the hold. Other users find the
+// line busy; the same user resumes on it, or a new title takes it over;
+// the hold running out frees it.
+func TestVODLeaseHold(t *testing.T) {
+	l := vodLeases{hold: time.Hour}
+	users, provs := proxy.NewCapacity(), proxy.NewCapacity()
+	take := func(user int64, userMax int) (func() (*proxy.Slot, *proxy.Slot, error), func() (*proxy.Slot, error)) {
+		tu := func() (*proxy.Slot, error) {
+			u, ok := users.TryAcquire(user, userMax)
+			if !ok {
+				return nil, ErrTooManyConnections
+			}
+			return u, nil
+		}
+		return func() (*proxy.Slot, *proxy.Slot, error) {
+			u, err := tu()
+			if err != nil {
+				return nil, nil, err
+			}
+			p, ok := provs.TryAcquire(10, 1)
+			if !ok {
+				u.Release()
+				return nil, nil, errProviderFull
+			}
+			return u, p, nil
+		}, tu
+	}
+	var ended []string
+	play := func(user, id int64) (*vodLease, func(), error) {
+		tk, tu := take(user, 1)
+		_, ls, rel, err := l.acquire(context.Background(), vodAcquire{key: vodKey{user, "movie", id}, providers: []int64{10},
+			take: tk, takeUser: tu, ended: func(ls *vodLease, reason string, _ time.Time) {
+				ended = append(ended, strconv.FormatInt(ls.key.id, 10)+" "+reason)
+			}})
+		if ls != nil {
+			ls.started.Store(true)
+		}
+		return ls, rel, err
+	}
+
+	_, rel, _ := play(1, 1)
+	rel() // the player drops its connection
+	if users.InUse(1) != 0 || provs.InUse(10) != 1 || len(ended) != 0 {
+		t.Fatalf("held: user %d, provider %d, ended %v", users.InUse(1), provs.InUse(10), ended)
+	}
+	if _, _, err := play(2, 1); !errors.Is(err, errProviderFull) {
+		t.Fatalf("other user = %v, want line busy", err)
+	}
+	// Back within the hold: the same lease, the user's slot taken back.
+	ls1, rel, err := play(1, 1)
+	if err != nil || users.InUse(1) != 1 || provs.InUse(10) != 1 || len(ended) != 0 {
+		t.Fatalf("resume: %v, user %d, provider %d, ended %v", err, users.InUse(1), provs.InUse(10), ended)
+	}
+	rel()
+	// Resuming when the user's only slot went elsewhere (live TV) fails
+	// and leaves the line held.
+	live, _ := users.TryAcquire(1, 1)
+	if _, _, err := play(1, 1); !errors.Is(err, ErrTooManyConnections) || provs.InUse(10) != 1 || ls1.ended {
+		t.Fatalf("resume at the limit: %v, provider %d, ended %v", err, provs.InUse(10), ls1.ended)
+	}
+	live.Release()
+	// The same user's next title takes the held line over.
+	_, rel2, err := play(1, 2)
+	if err != nil || len(ended) != 1 || ended[0] != "1 "+vodTakenOver || provs.InUse(10) != 1 {
+		t.Fatalf("next title: %v, ended %v", err, ended)
+	}
+	// The hold runs out: everything is free and the session reported.
+	l.mu.Lock()
+	l.hold = 10 * time.Millisecond
+	l.mu.Unlock()
+	rel2()
+	deadline := time.Now().Add(3 * time.Second)
+	for provs.InUse(10) != 0 || users.InUse(1) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("hold never ran out: user %d, provider %d", users.InUse(1), provs.InUse(10))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(ended) != 2 || ended[1] != "2 "+vodStopped {
+		t.Errorf("ended %v", ended)
 	}
 }
