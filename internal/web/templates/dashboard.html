@@ -46,7 +46,8 @@
 <div class="card table-wrap" data-keep-scroll="live-vod"><table>
   <thead><tr><th>Title</th><th>User</th><th class="wide-only">Provider</th><th class="wide-only">Started</th><th>Duration</th><th title="Sent to the player">Data</th><th><span class="sr-only">Actions</span></th></tr></thead>
   <tbody>{{range .VOD}}
-  <tr><td>{{.Title}} <span class="sub">{{.Kind}}</span></td><td>{{.User}} <span class="sub mono">{{.Addr}}</span></td><td class="wide-only">{{.Provider}}</td>
+  <tr><td>{{.Title}} <span class="sub">{{.Kind}}</span>
+    {{if .Idle}}<span class="pill warn" title="The player closed its connection (buffered ahead or paused). The line stays theirs until {{.HeldUntil}}; others get &quot;line busy&quot;.">Idle {{.Idle}}</span>{{else}}<span class="pill ok" title="The player is downloading">Downloading</span>{{end}}</td><td>{{.User}} <span class="sub mono">{{.Addr}}</span></td><td class="wide-only">{{.Provider}}</td>
     <td class="wide-only">{{.Since}}</td><td>{{.Duration}}</td><td>{{bytesize .Bytes}}</td>
     <td><form method="post" action="/admin/live/viewers/{{.ID}}/kick" data-confirm="Stop {{.Title}} for {{.User}} ({{.Addr}})? Their player may reconnect.">
       <button type="submit" class="iconbtn outline danger" aria-label="Stop {{.Title}} for {{.User}}" title="Disconnect"><svg aria-hidden="true"><use href="#i-x"/></svg></button></form></td></tr>{{end}}

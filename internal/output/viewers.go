@@ -24,6 +24,9 @@ type Viewer struct {
 	ItemID     int64  `json:"item_id,omitempty"` // movie or episode id
 	ProviderID int64  `json:"provider_id,omitempty"`
 	Bytes      int64  `json:"bytes,omitempty"` // sent to the player so far
+	// IdleSince is set while the player has no request open (it buffered
+	// ahead or paused) and the line is held for it; zero while downloading.
+	IdleSince time.Time `json:"idle_since,omitzero"`
 }
 
 // IsVOD reports a movie or episode playback.
@@ -39,13 +42,20 @@ type viewers struct {
 
 type viewerEntry struct {
 	Viewer
-	kick  func()
-	bytes *atomic.Int64 // optional: Viewer.Bytes, live
+	kick func()
+	live *viewerLive // optional
+}
+
+// viewerLive is what a viewer's entry reads live from its connection.
+type viewerLive struct {
+	bytes     *atomic.Int64 // Viewer.Bytes
+	idleSince *atomic.Int64 // Viewer.IdleSince, unix nanoseconds; 0 while downloading
 }
 
 // add registers v; kick must end the connection (and with it, through the
-// caller's cleanup, call remove). It returns remove, which is idempotent.
-func (vs *viewers) add(v Viewer, kick func(), bytes ...*atomic.Int64) (uint64, func()) {
+// caller's cleanup, call remove). live may be nil. It returns remove, which
+// is idempotent.
+func (vs *viewers) add(v Viewer, kick func(), live *viewerLive) (uint64, func()) {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 	if vs.m == nil {
@@ -53,10 +63,7 @@ func (vs *viewers) add(v Viewer, kick func(), bytes ...*atomic.Int64) (uint64, f
 	}
 	vs.next++
 	v.ID = vs.next
-	e := &viewerEntry{Viewer: v, kick: kick}
-	if len(bytes) > 0 {
-		e.bytes = bytes[0]
-	}
+	e := &viewerEntry{Viewer: v, kick: kick, live: live}
 	vs.m[v.ID] = e
 	id := v.ID
 	return id, func() {
@@ -76,8 +83,13 @@ func (vs *viewers) list() []Viewer {
 	out := make([]Viewer, 0, len(vs.m))
 	for _, e := range vs.m {
 		v := e.Viewer
-		if e.bytes != nil {
-			v.Bytes = e.bytes.Load()
+		if e.live != nil && e.live.bytes != nil {
+			v.Bytes = e.live.bytes.Load()
+		}
+		if e.live != nil && e.live.idleSince != nil {
+			if n := e.live.idleSince.Load(); n != 0 {
+				v.IdleSince = time.Unix(0, n)
+			}
 		}
 		out = append(out, v)
 	}

@@ -232,9 +232,11 @@ func (h *Handlers) serveVODCopy(w http.ResponseWriter, r *http.Request, u db.Use
 			userSlot.Release()
 			return nil, nil, errProviderFull
 		},
+		takeUser: func() (*proxy.Slot, error) { return h.Access.Acquire(u) },
 		register: func(ls *vodLease, kick func()) func() {
 			_, remove := h.Access.viewers.add(Viewer{UserID: u.ID, Username: u.Username, Addr: addr, Output: kind,
-				Title: tgt.title, ItemID: id, ProviderID: ls.providerID, Since: ls.since}, kick, &ls.bytes)
+				Title: tgt.title, ItemID: id, ProviderID: ls.providerID, Since: ls.since}, kick,
+				&viewerLive{bytes: &ls.bytes, idleSince: &ls.idleSince})
 			return remove
 		},
 		tookOver: func(old *vodLease) {
@@ -250,7 +252,7 @@ func (h *Handlers) serveVODCopy(w http.ResponseWriter, r *http.Request, u db.Use
 		h.Log.Info("output: vod provider busy", "user_id", u.ID, "username", u.Username, "providers", provIDs,
 			"kind", kind, "id", id)
 		w.Header().Set("Retry-After", "10")
-		http.Error(w, "provider busy, try again shortly", http.StatusServiceUnavailable)
+		http.Error(w, "line busy, try again shortly", http.StatusServiceUnavailable)
 		return false
 	case err != nil:
 		h.Log.Info("output: connection limit", "user_id", u.ID, "username", u.Username, "kind", kind, "id", id,
@@ -444,8 +446,12 @@ func vodTransport() *http.Transport {
 // vodLease is the slot pair one user's playback of one item holds. Players
 // seek by opening a new ranged request (often before closing the old one),
 // so every concurrent request for the same (user, item) shares the lease:
-// seeking never counts as a second connection. The slots are released as
-// soon as the last request ends (a later seek simply re-acquires them).
+// seeking never counts as a second connection. When the last request ends
+// the lease is held for VODHold: players buffer ahead, drop the connection
+// and come back minutes later, and the line is still theirs when they do
+// (anyone else gets "line busy" meanwhile). Only the provider's line is
+// held: the user's own slot is free meanwhile (live TV can have it), and is
+// taken back on return. The user's own next title takes a held line over.
 //
 // Starting another item when the user (or the item's provider) has no free
 // slot takes over: the user's oldest playback that frees the needed slot is
@@ -458,7 +464,9 @@ type vodLease struct {
 	refs               int
 	nextReq            uint64
 	cancels            map[uint64]context.CancelFunc // the requests sharing the lease
-	ended              bool                          // kicked or taken over: slots already released
+	ended              bool                          // slots already released
+	idle               *time.Timer                   // set while held with no request open (userSlot is nil)
+	idleSince          atomic.Int64                  // while held: when its last request ended (unix ns)
 	removeViewer       func()                        // its dashboard entry
 	bytes              atomic.Int64                  // sent to the player, all requests
 	started            atomic.Bool                   // the first byte reached the player
@@ -473,28 +481,19 @@ type vodKey struct {
 	id     int64
 }
 
-// vodResume is how long a stopped playback stays open for its report:
-// reopening the same title within it (a seek that closed the old request
-// first, a reconnect, resuming after a pause) continues the session rather
-// than starting a new one in the logs and the watch history.
-const vodResume = time.Minute
+// VODHold is how long a playback keeps its slots after its last request
+// ends. Reopening the same title within it (a seek that closed the old
+// request first, a reconnect after the player buffered ahead, resuming a
+// pause) continues the same session, on the same line. Players seen in the
+// watch history come back within 4 minutes almost always.
+const VODHold = 5 * time.Minute
 
 // vodLeases tracks active playback leases; the zero value is ready.
 type vodLeases struct {
-	mu sync.Mutex
-	m  map[vodKey]*vodLease
-	// stopped holds playbacks whose last request ended, unreported until
-	// resume passes; slots are already free.
-	stopped map[vodKey]*vodPause
-	resume  time.Duration // 0: vodResume
-	closing bool          // flushed for shutdown: report at once
-}
-
-// vodPause is a stopped playback awaiting its report.
-type vodPause struct {
-	ls    *vodLease
-	at    time.Time // when its last request ended
-	timer *time.Timer
+	mu      sync.Mutex
+	m       map[vodKey]*vodLease
+	hold    time.Duration // 0: VODHold
+	closing bool          // flushed for shutdown: end at once
 }
 
 // vodAcquire describes one playback request to vodLeases.acquire.
@@ -508,6 +507,9 @@ type vodAcquire struct {
 	// take reserves the user's slot and a provider slot (on one of
 	// providers) for a new lease.
 	take func() (user, prov *proxy.Slot, err error)
+	// takeUser reserves just the user's slot, to resume a held lease.
+	// Optional: without it the lease resumes without one.
+	takeUser func() (*proxy.Slot, error)
 	// register lists a new lease on the dashboard; kick must end it. It
 	// returns the entry's remove. Optional.
 	register func(ls *vodLease, kick func()) (remove func())
@@ -529,6 +531,29 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 		l.m = map[vodKey]*vodLease{}
 	}
 	ls, ok := l.m[a.key]
+	if ok && ls.idle != nil { // back within the hold: the same session, on the same line
+		if a.takeUser != nil {
+			u, err := a.takeUser()
+			for errors.Is(err, ErrTooManyConnections) {
+				old := l.oldestLocked(a.key.userID, nil, a.key)
+				if old == nil {
+					break
+				}
+				l.endLocked(old, vodTakenOver)
+				if a.tookOver != nil {
+					a.tookOver(old)
+				}
+				u, err = a.takeUser()
+			}
+			if err != nil {
+				return nil, nil, nil, err // the line stays held
+			}
+			ls.userSlot = u
+		}
+		ls.idle.Stop()
+		ls.idle = nil
+		ls.idleSince.Store(0)
+	}
 	if !ok {
 		var u, p *proxy.Slot
 		for {
@@ -538,9 +563,9 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 			var old *vodLease
 			switch {
 			case errors.Is(err, ErrTooManyConnections):
-				old = l.oldestLocked(a.key.userID, nil)
+				old = l.oldestLocked(a.key.userID, nil, a.key)
 			case errors.Is(err, errProviderFull):
-				old = l.oldestLocked(a.key.userID, a.providers)
+				old = l.oldestLocked(a.key.userID, a.providers, a.key)
 			}
 			if old == nil {
 				return nil, nil, nil, err
@@ -558,13 +583,6 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 		case len(a.providers) > 0:
 			ls.providerID = a.providers[0]
 		}
-		if st := l.stopped[a.key]; st != nil { // resumed: the same session
-			st.timer.Stop()
-			delete(l.stopped, a.key)
-			ls.since, ls.requests, ls.lastErr = st.ls.since, st.ls.requests, st.ls.lastErr
-			ls.bytes.Store(st.ls.bytes.Load())
-			ls.started.Store(st.ls.started.Load())
-		}
 		l.m[a.key] = ls
 		if a.register != nil {
 			ls.removeViewer = a.register(ls, func() { l.kick(ls) })
@@ -580,12 +598,12 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 	return ctx, ls, func() { once.Do(func() { cancel(); l.release(ls, req) }) }, nil
 }
 
-// oldestLocked is userID's oldest lease, on one of providers unless that
-// is nil.
-func (l *vodLeases) oldestLocked(userID int64, providers []int64) *vodLease {
+// oldestLocked is userID's oldest lease other than skip's, on one of
+// providers unless that is nil.
+func (l *vodLeases) oldestLocked(userID int64, providers []int64, skip vodKey) *vodLease {
 	var old *vodLease
 	for _, ls := range l.m {
-		if ls.key.userID != userID || (providers != nil && !slices.Contains(providers, ls.providerID)) {
+		if ls.key.userID != userID || ls.key == skip || (providers != nil && !slices.Contains(providers, ls.providerID)) {
 			continue
 		}
 		if old == nil || ls.since.Before(old.since) {
@@ -596,10 +614,17 @@ func (l *vodLeases) oldestLocked(userID int64, providers []int64) *vodLease {
 }
 
 // endLocked ends ls now: its slots are free at once and its requests are
-// cancelled (they finish unwinding on their own). It is reported at once.
+// cancelled (they finish unwinding on their own). It is reported at once,
+// as ending when its last request did if it was being held.
 func (l *vodLeases) endLocked(ls *vodLease, reason string) {
+	at := time.Now()
+	if ls.idle != nil {
+		ls.idle.Stop()
+		ls.idle = nil
+		at = time.Unix(0, ls.idleSince.Load())
+	}
 	if l.closeLocked(ls) && ls.onEnd != nil {
-		ls.onEnd(ls, reason, time.Now())
+		ls.onEnd(ls, reason, at)
 	}
 }
 
@@ -613,7 +638,9 @@ func (l *vodLeases) closeLocked(ls *vodLease) bool {
 	if l.m[ls.key] == ls {
 		delete(l.m, ls.key)
 	}
-	ls.userSlot.Release()
+	if ls.userSlot != nil {
+		ls.userSlot.Release()
+	}
 	if ls.provSlot != nil {
 		ls.provSlot.Release()
 	}
@@ -647,52 +674,49 @@ func (l *vodLeases) release(ls *vodLease, req uint64) {
 	if ls.refs--; ls.refs > 0 {
 		return
 	}
+	if ls.ended {
+		return
+	}
 	if ls.bytes.Load() == 0 && ls.lastErr != "" {
 		l.endLocked(ls, vodFailed)
 		return
 	}
-	if !l.closeLocked(ls) || ls.onEnd == nil {
+	// Nothing played (a HEAD probe, a player that gave up at once), or
+	// shutting down: no line worth holding.
+	if !ls.started.Load() || l.closing {
+		l.endLocked(ls, vodStopped)
 		return
 	}
-	at := time.Now()
-	if l.closing {
-		ls.onEnd(ls, vodStopped, at)
-		return
+	hold := l.hold
+	if hold <= 0 {
+		hold = VODHold
 	}
-	// Hold the report: a reopen within resume continues this session.
-	if l.stopped == nil {
-		l.stopped = map[vodKey]*vodPause{}
+	ls.idleSince.Store(time.Now().UnixNano())
+	if ls.userSlot != nil {
+		ls.userSlot.Release()
+		ls.userSlot = nil
 	}
-	if prev := l.stopped[ls.key]; prev != nil { // cannot happen: acquire takes it
-		prev.timer.Stop()
-		prev.ls.onEnd(prev.ls, vodStopped, prev.at)
-	}
-	resume := l.resume
-	if resume <= 0 {
-		resume = vodResume
-	}
-	st := &vodPause{ls: ls, at: at}
-	st.timer = time.AfterFunc(resume, func() {
+	var t *time.Timer
+	t = time.AfterFunc(hold, func() {
 		l.mu.Lock()
 		defer l.mu.Unlock()
-		if l.stopped[ls.key] == st {
-			delete(l.stopped, ls.key)
-			ls.onEnd(ls, vodStopped, at)
+		if ls.idle == t {
+			l.endLocked(ls, vodStopped)
 		}
 	})
-	l.stopped[ls.key] = st
+	ls.idle = t
 }
 
-// flush reports every stopped playback now, and from now on reports
-// stops at once (for shutdown).
+// flush ends every held playback now, and from now on ends playbacks as
+// soon as their last request does (for shutdown).
 func (l *vodLeases) flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.closing = true
-	for k, st := range l.stopped {
-		st.timer.Stop()
-		delete(l.stopped, k)
-		st.ls.onEnd(st.ls, vodStopped, st.at)
+	for _, ls := range l.m {
+		if ls.idle != nil {
+			l.endLocked(ls, vodStopped)
+		}
 	}
 }
 
