@@ -81,13 +81,21 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 		return
 	}
 
-	slot, err := h.Access.Acquire(u)
+	network := auth.ClientNetwork(r)
+	slot, old, err := h.Access.AcquireLive(r.Context(), u, id, network)
 	if err != nil {
-		h.Log.Info("output: connection limit", "user_id", u.ID, "channel_id", id, "max", u.MaxConnections)
-		http.Error(w, "connection limit reached", http.StatusForbidden)
+		if r.Context().Err() == nil {
+			h.Log.Info("output: connection limit", "user_id", u.ID, "channel_id", id, "max", u.MaxConnections,
+				"remote", r.RemoteAddr, "user_agent", r.UserAgent())
+			http.Error(w, "connection limit reached", http.StatusForbidden)
+		}
 		return
 	}
 	defer slot.Release()
+	if old != nil {
+		h.Log.Info("viewer taken over", "user_id", u.ID, "channel_id", id, "old_since", old.Since,
+			"remote", r.RemoteAddr, "user_agent", r.UserAgent())
+	}
 
 	v, err := h.Streams.Attach(id)
 	if err != nil {
@@ -103,7 +111,7 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	ctx, kick := context.WithCancel(r.Context())
 	defer kick()
 	_, remove := h.Access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username,
-		Addr: auth.RemoteIP(r), Output: "ts", Since: time.Now()}, kick, nil)
+		Addr: auth.RemoteIP(r), Network: network, Output: "ts", Since: time.Now()}, kick, nil)
 	defer remove()
 
 	h.Log.Info("viewer started", "user_id", u.ID, "channel_id", id)

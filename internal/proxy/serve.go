@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -19,12 +20,21 @@ func ServeViewer(w http.ResponseWriter, r *http.Request, v *Viewer) {
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
 	_ = rc.Flush()
+	// Ending the context (client left, or kicked) also cuts short a write
+	// blocked on a client that stopped reading, instead of waiting out
+	// WriteTimeout: a kicked connection frees its slot at once.
+	ctx := r.Context()
+	stop := context.AfterFunc(ctx, func() { _ = rc.SetWriteDeadline(time.Now()) })
+	defer stop()
 
 	buf := make([]byte, 64*1024)
 	for {
-		n, err := v.Read(r.Context(), buf)
+		n, err := v.Read(ctx, buf)
 		if n > 0 {
 			_ = rc.SetWriteDeadline(time.Now().Add(WriteTimeout))
+			if ctx.Err() != nil { // ended before the deadline was set; AfterFunc may have run already
+				return
+			}
 			wn, werr := w.Write(buf[:n])
 			v.m.cfg.Metrics.addViewerBytes(wn)
 			if werr != nil {

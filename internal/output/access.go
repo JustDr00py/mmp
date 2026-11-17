@@ -3,6 +3,7 @@
 package output
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -34,6 +35,41 @@ func (a *Access) Acquire(u db.User) (*proxy.Slot, error) {
 		return nil, ErrTooManyConnections
 	}
 	return s, nil
+}
+
+// takeOverWait bounds how long a take-over waits for the old connection's
+// slot; a kicked connection releases it as soon as its handler returns.
+const takeOverWait = 3 * time.Second
+
+// AcquireLive is Acquire for a live TS stream of channelID. When u is at
+// the limit and already has that channel open from the same network, the
+// old connection is ended and its slot handed over: it is the same player
+// reconnecting, whose old connection the server has not yet seen close.
+// A different channel, or another network, still gets
+// ErrTooManyConnections. old is the connection taken over, if any.
+func (a *Access) AcquireLive(ctx context.Context, u db.User, channelID int64, network string) (slot *proxy.Slot, old *Viewer, err error) {
+	if s, err := a.Acquire(u); err == nil {
+		return s, nil, nil
+	}
+	v, ok := a.viewers.takeOver(u.ID, channelID, network)
+	if !ok {
+		return nil, nil, ErrTooManyConnections
+	}
+	t := time.NewTicker(10 * time.Millisecond)
+	defer t.Stop()
+	deadline := time.After(takeOverWait)
+	for {
+		if s, err := a.Acquire(u); err == nil {
+			return s, &v, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-deadline:
+			return nil, nil, ErrTooManyConnections
+		case <-t.C:
+		}
+	}
 }
 
 // ActiveConnections is the number of streams u has open.
