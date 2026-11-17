@@ -15,6 +15,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/nameguide"
+	"github.com/JustDr00py/mmp/internal/output"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -78,6 +79,8 @@ type liveVOD struct {
 	Title, Provider, User, Addr string
 	Since, Duration             string
 	Bytes                       uint64
+	Idle                        string // how long the player has had no request open; "" while downloading
+	HeldUntil                   string // while idle: when the held line is let go
 }
 
 // liveSnapshot is everything the dashboard shows.
@@ -199,6 +202,11 @@ func (ui *UI) snapshot(ctx context.Context) (liveSnapshot, error) {
 			s.VOD = append(s.VOD, liveVOD{ID: v.ID, Kind: kind, Title: title, Provider: provName[v.ProviderID],
 				User: v.Username, Addr: v.Addr, Since: clockTime(v.Since, now), Duration: shortDuration(now.Sub(v.Since)),
 				Bytes: uint64(max(v.Bytes, 0))})
+			if !v.IdleSince.IsZero() {
+				lv := &s.VOD[len(s.VOD)-1]
+				lv.Idle = shortDuration(now.Sub(v.IdleSince))
+				lv.HeldUntil = clockTime(v.IdleSince.Add(output.VODHold), now)
+			}
 		}
 	}
 

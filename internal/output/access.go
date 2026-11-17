@@ -60,6 +60,6 @@ func (a *Access) Kick(id uint64) bool { return a.viewers.kick(id) }
 // player) with the viewers; kick must end it. Call the returned remove when
 // it ends.
 func (a *Access) Watch(v Viewer, kick func()) (remove func()) {
-	_, remove = a.viewers.add(v, kick)
+	_, remove = a.viewers.add(v, kick, nil)
 	return remove
 }

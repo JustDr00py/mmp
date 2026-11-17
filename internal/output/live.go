@@ -103,7 +103,7 @@ func (h *Handlers) serveLive(w http.ResponseWriter, r *http.Request, u db.User) 
 	ctx, kick := context.WithCancel(r.Context())
 	defer kick()
 	_, remove := h.Access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username,
-		Addr: auth.RemoteIP(r), Output: "ts", Since: time.Now()}, kick)
+		Addr: auth.RemoteIP(r), Output: "ts", Since: time.Now()}, kick, nil)
 	defer remove()
 
 	h.Log.Info("viewer started", "user_id", u.ID, "channel_id", id)

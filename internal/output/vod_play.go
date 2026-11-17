@@ -235,7 +235,8 @@ func (h *Handlers) serveVODCopy(w http.ResponseWriter, r *http.Request, u db.Use
 		takeUser: func() (*proxy.Slot, error) { return h.Access.Acquire(u) },
 		register: func(ls *vodLease, kick func()) func() {
 			_, remove := h.Access.viewers.add(Viewer{UserID: u.ID, Username: u.Username, Addr: addr, Output: kind,
-				Title: tgt.title, ItemID: id, ProviderID: ls.providerID, Since: ls.since}, kick, &ls.bytes)
+				Title: tgt.title, ItemID: id, ProviderID: ls.providerID, Since: ls.since}, kick,
+				&viewerLive{bytes: &ls.bytes, idleSince: &ls.idleSince})
 			return remove
 		},
 		tookOver: func(old *vodLease) {
@@ -446,7 +447,7 @@ func vodTransport() *http.Transport {
 // seek by opening a new ranged request (often before closing the old one),
 // so every concurrent request for the same (user, item) shares the lease:
 // seeking never counts as a second connection. When the last request ends
-// the lease is held for vodHold: players buffer ahead, drop the connection
+// the lease is held for VODHold: players buffer ahead, drop the connection
 // and come back minutes later, and the line is still theirs when they do
 // (anyone else gets "line busy" meanwhile). Only the provider's line is
 // held: the user's own slot is free meanwhile (live TV can have it), and is
@@ -465,7 +466,7 @@ type vodLease struct {
 	cancels            map[uint64]context.CancelFunc // the requests sharing the lease
 	ended              bool                          // slots already released
 	idle               *time.Timer                   // set while held with no request open (userSlot is nil)
-	idleAt             time.Time                     // when its last request ended
+	idleSince          atomic.Int64                  // while held: when its last request ended (unix ns)
 	removeViewer       func()                        // its dashboard entry
 	bytes              atomic.Int64                  // sent to the player, all requests
 	started            atomic.Bool                   // the first byte reached the player
@@ -480,18 +481,18 @@ type vodKey struct {
 	id     int64
 }
 
-// vodHold is how long a playback keeps its slots after its last request
+// VODHold is how long a playback keeps its slots after its last request
 // ends. Reopening the same title within it (a seek that closed the old
 // request first, a reconnect after the player buffered ahead, resuming a
 // pause) continues the same session, on the same line. Players seen in the
 // watch history come back within 4 minutes almost always.
-const vodHold = 5 * time.Minute
+const VODHold = 5 * time.Minute
 
 // vodLeases tracks active playback leases; the zero value is ready.
 type vodLeases struct {
 	mu      sync.Mutex
 	m       map[vodKey]*vodLease
-	hold    time.Duration // 0: vodHold
+	hold    time.Duration // 0: VODHold
 	closing bool          // flushed for shutdown: end at once
 }
 
@@ -551,6 +552,7 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 		}
 		ls.idle.Stop()
 		ls.idle = nil
+		ls.idleSince.Store(0)
 	}
 	if !ok {
 		var u, p *proxy.Slot
@@ -619,7 +621,7 @@ func (l *vodLeases) endLocked(ls *vodLease, reason string) {
 	if ls.idle != nil {
 		ls.idle.Stop()
 		ls.idle = nil
-		at = ls.idleAt
+		at = time.Unix(0, ls.idleSince.Load())
 	}
 	if l.closeLocked(ls) && ls.onEnd != nil {
 		ls.onEnd(ls, reason, at)
@@ -687,9 +689,9 @@ func (l *vodLeases) release(ls *vodLease, req uint64) {
 	}
 	hold := l.hold
 	if hold <= 0 {
-		hold = vodHold
+		hold = VODHold
 	}
-	ls.idleAt = time.Now()
+	ls.idleSince.Store(time.Now().UnixNano())
 	if ls.userSlot != nil {
 		ls.userSlot.Release()
 		ls.userSlot = nil

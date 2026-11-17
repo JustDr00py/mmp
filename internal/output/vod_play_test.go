@@ -150,7 +150,7 @@ func TestVODPlaybackSlots(t *testing.T) {
 		t.Errorf("seek while playing = %d (%d bytes), want 206", r.StatusCode, len(body))
 	}
 	// The playback is on the dashboard, titled.
-	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].Output != "movie" || vs[0].ItemID != 101 || vs[0].Title == "" || vs[0].ProviderID != 1 {
+	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].Output != "movie" || vs[0].ItemID != 101 || vs[0].Title == "" || vs[0].ProviderID != 1 || !vs[0].IdleSince.IsZero() {
 		t.Errorf("viewers = %+v", vs)
 	}
 	// Another user cannot have the provider's only slot.
@@ -165,8 +165,8 @@ func TestVODPlaybackSlots(t *testing.T) {
 	cancel()
 	resp.Body.Close()
 	waitUserIdle(t, hs, 1)
-	if slots.InUse(1) != 1 || len(hs.Access.Viewers()) != 1 {
-		t.Fatalf("held: provider %d, viewers %+v", slots.InUse(1), hs.Access.Viewers())
+	if vs := hs.Access.Viewers(); slots.InUse(1) != 1 || len(vs) != 1 || vs[0].IdleSince.IsZero() {
+		t.Fatalf("held: provider %d, viewers %+v", slots.InUse(1), vs)
 	}
 	if r, body := fetch(t, srv.URL+"/movie/root/root-pw1/101.mkv", nil); r.StatusCode != http.StatusServiceUnavailable ||
 		!strings.Contains(string(body), "line busy") {
@@ -175,6 +175,10 @@ func TestVODPlaybackSlots(t *testing.T) {
 	// alice comes back to it.
 	if r, body := fetch(t, srv.URL+"/movie/alice/alice-pw1/101.mkv", map[string]string{"Range": "bytes=1000-1999"}); r.StatusCode != 206 || len(body) != 1000 {
 		t.Errorf("resume while held = %d (%d bytes), want 206", r.StatusCode, len(body))
+	}
+	waitUserIdle(t, hs, 1)
+	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].IdleSince.IsZero() {
+		t.Errorf("idle again after the resume: %+v", vs)
 	}
 	// The hold ends (a kick ends it at once): both slots come back.
 	if vs := hs.Access.Viewers(); len(vs) != 1 || !hs.Access.Kick(vs[0].ID) {

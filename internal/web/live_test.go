@@ -143,6 +143,9 @@ func TestLiveControls(t *testing.T) {
 	viewers := &fakeViewers{list: []output.Viewer{
 		{ID: 5, ChannelID: 1, UserID: 9, Username: "sysadmin", Addr: "10.89.0.2", Output: "ts", Since: time.Now().Add(-90 * time.Second)},
 		{ID: 6, ChannelID: 99, Username: "elsewhere", Addr: "10.0.0.9", Output: "hls", Since: time.Now()}, // not live: not shown
+		{ID: 7, UserID: 9, Username: "ob", Addr: "10.0.0.7", Output: "movie", Title: "Playing Film", Since: time.Now().Add(-time.Hour)},
+		{ID: 8, UserID: 9, Username: "ob", Addr: "10.0.0.8", Output: "series", Title: "Held Show", Since: time.Now().Add(-time.Hour),
+			IdleSince: time.Now().Add(-75 * time.Second)},
 	}}
 	ui.Viewers = viewers
 	live := ui.Live.(*fakeLive)
@@ -157,6 +160,11 @@ func TestLiveControls(t *testing.T) {
 	}
 	if strings.Contains(body, "elsewhere") {
 		t.Error("a viewer of a channel that is not live is listed")
+	}
+	// Movies show whether the player is downloading or idle on a held line.
+	if i, j := strings.Index(body, "Playing Film"), strings.Index(body, "Held Show"); i < 0 || j < 0 ||
+		!strings.Contains(body[i:j], ">Downloading<") || !strings.Contains(body[j:], ">Idle 1m15s<") {
+		t.Errorf("VOD rows lack Downloading / Idle labels")
 	}
 
 	post := func(path string, f url.Values) (int, string) {

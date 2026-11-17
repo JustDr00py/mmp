@@ -109,7 +109,7 @@ func (h *HLS) lease(u db.User, id int64, addr, network string) (string, error) {
 	rand.Read(b[:])
 	l := &hlsLease{key: hex.EncodeToString(b[:]), userID: u.ID, channel: ch, slot: slot, nets: []string{network}, lastSeen: time.Now()}
 	_, l.unlist = h.access.viewers.add(Viewer{ChannelID: id, UserID: u.ID, Username: u.Username, Addr: addr,
-		Output: "hls", Since: l.lastSeen}, func() { h.drop(l.key) })
+		Output: "hls", Since: l.lastSeen}, func() { h.drop(l.key) }, nil)
 	h.leases[l.key] = l
 	return l.key, nil
 }
