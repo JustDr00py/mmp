@@ -257,6 +257,32 @@ func avoidBackbones(cands []Candidate, avoid map[string]time.Time, now time.Time
 	return append(out, back...), jumped
 }
 
+// promoteBackbone moves the candidates after i on cands[i]'s backbone up
+// to follow it, keeping their order: cands[i] was skipped only because its
+// account had no free connection (say, a VOD playback holds it), and
+// another reseller of the same backbone carries the same feed, so it is
+// tried before the failover list moves on to other backbones.
+func promoteBackbone(cands []Candidate, i int) {
+	b := cands[i].Backbone
+	if b == "" {
+		return
+	}
+	rest := cands[i+1:]
+	var same, other []Candidate
+	for _, c := range rest {
+		if c.Backbone == b {
+			same = append(same, c)
+		} else {
+			other = append(other, c)
+		}
+	}
+	if len(same) == 0 {
+		return
+	}
+	copy(rest, same)
+	copy(rest[len(same):], other)
+}
+
 // lagWideWindow: when sources on two backbones (or providers) fall behind
 // real time within it, the lag is not one provider's fault.
 const lagWideWindow = 10 * time.Minute
@@ -373,8 +399,10 @@ func (s *Session) Run(ctx context.Context) error {
 		cands, retry := moveFirst(cands, reconnect)
 		reconnect = 0
 		cands, preferred := s.takePreferred(cands)
+		cands = slices.Clone(cands) // reordered below as providers turn out full
 		played := false
-		for _, c := range cands {
+		for i := 0; i < len(cands); i++ {
+			c := cands[i]
 			if c.StreamID != preferred && c.StreamID != retry && s.cfg.Cooldowns.Active(c.StreamID, time.Now()) {
 				continue
 			}
@@ -383,7 +411,10 @@ func (s *Session) Run(ctx context.Context) error {
 				slot, ok = s.cfg.Capacity.TryAcquire(c.ProviderID, c.MaxConnections)
 			}
 			if !ok {
-				continue // provider full: not the stream's fault, no cooldown
+				// Provider full: not the stream's fault, no cooldown. The
+				// feed is fine, so its backbone's other accounts come next.
+				promoteBackbone(cands, i)
+				continue
 			}
 			s.setState("connecting", &c)
 			rc, err := s.cfg.Opener.Open(ctx, c)
@@ -401,6 +432,7 @@ func (s *Session) Run(ctx context.Context) error {
 					s.emit(Event{Type: EventOpenFailed, ProviderID: c.ProviderID, FromStreamID: c.StreamID,
 						Message: "the provider has no free connection: " + err.Error()})
 					lastProblem = err.Error()
+					promoteBackbone(cands, i)
 					continue
 				}
 				d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())

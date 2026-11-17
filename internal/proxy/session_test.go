@@ -975,3 +975,49 @@ func TestLagTracker(t *testing.T) {
 		t.Errorf("after the window: others %v", o)
 	}
 }
+
+// TestSessionFullProviderTriesBackbone: when the first stream's account has
+// no free connection (a VOD playback holds it), the next account on the same
+// backbone plays before the failover list moves on to another backbone.
+func TestSessionFullProviderTriesBackbone(t *testing.T) {
+	a := newFakeProvider(t, 'A', "ok", 0)
+	a2 := newFakeProvider(t, 'C', "ok", 0)
+	b := newFakeProvider(t, 'B', "ok", 0)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, Backbone: "Strong", MaxConnections: 1, URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, Backbone: "Trex", MaxConnections: 1, URL: b.URL + "/2.ts"},
+		{StreamID: 3, ProviderID: 3, Backbone: "Strong", MaxConnections: 1, URL: a2.URL + "/3.ts"},
+	}, func(c *SessionConfig) {
+		if _, ok := c.Capacity.TryAcquire(1, 1); !ok { // the VOD's slot
+			t.Fatal("could not fill provider 1")
+		}
+	})
+	if _, err := h.watch(t, 5*time.Second, func(p [][]byte) bool { return countTag(p, 'C') >= 100 }); err != nil {
+		t.Fatalf("no C while provider 1 was full: %v", err)
+	}
+	if n := a.hits.Load(); n != 0 {
+		t.Errorf("full provider 1 got %d requests", n)
+	}
+	if n := b.hits.Load(); n != 0 {
+		t.Errorf("tried another backbone (%d requests) before the full one's other account", n)
+	}
+}
+
+func TestPromoteBackbone(t *testing.T) {
+	ids := func(cs []Candidate) (out []int64) {
+		for _, c := range cs {
+			out = append(out, c.StreamID)
+		}
+		return out
+	}
+	cands := []Candidate{{StreamID: 1, Backbone: "X"}, {StreamID: 2}, {StreamID: 3, Backbone: "Y"},
+		{StreamID: 4, Backbone: "X"}, {StreamID: 5}, {StreamID: 6, Backbone: "X"}}
+	promoteBackbone(cands, 0)
+	if got := ids(cands); !slices.Equal(got, []int64{1, 4, 6, 2, 3, 5}) {
+		t.Errorf("order = %v", got)
+	}
+	promoteBackbone(cands, 3) // no backbone: unchanged
+	if got := ids(cands); !slices.Equal(got, []int64{1, 4, 6, 2, 3, 5}) {
+		t.Errorf("order after no-backbone = %v", got)
+	}
+}
