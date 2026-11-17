@@ -101,7 +101,7 @@ func (env *Env) listVODMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := env.Store.ListVODItemsAdmin(r.Context(), db.ListVODItemsAdminParams{
-		ProviderID: pid, CategoryIds: idList(cid), Search: search, Limit: limit, Offset: offset})
+		ProviderIds: idList(pid), CategoryIds: idList(cid), Search: search, Limit: limit, Offset: offset})
 	if err != nil {
 		env.Log.Error("api: list movies", "err", err)
 		writeErr(w, http.StatusInternalServerError, "list movies failed")
@@ -119,7 +119,7 @@ func (env *Env) listVODSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := env.Store.ListSeriesAdmin(r.Context(), db.ListSeriesAdminParams{
-		ProviderID: pid, CategoryIds: idList(cid), Search: search, Limit: limit, Offset: offset})
+		ProviderIds: idList(pid), CategoryIds: idList(cid), Search: search, Limit: limit, Offset: offset})
 	if err != nil {
 		env.Log.Error("api: list series", "err", err)
 		writeErr(w, http.StatusInternalServerError, "list series failed")

@@ -21,6 +21,13 @@
 {{define "vod-list"}}
 <div id="vod-list">
 <div class="search row">
+  {{if .Sources}}<select name="source" aria-label="Source">
+    <option value="">All sources</option>
+    {{range .Sources}}<optgroup label="{{with .Backbone}}Backbone {{.}}{{else}}No backbone{{end}}">
+      {{if .Backbone}}<option value="b:{{.Backbone}}"{{if eq (print "b:" .Backbone) $.Source}} selected{{end}}>All of {{.Backbone}} ({{len .Providers}} provider{{if ne (len .Providers) 1}}s{{end}})</option>{{end}}
+      {{range .Providers}}<option value="p:{{.ID}}"{{if eq (print "p:" .ID) $.Source}} selected{{end}}>{{.Name}}</option>{{end}}
+    </optgroup>{{end}}
+  </select>{{end}}
   {{if .Languages}}<select name="lang" aria-label="Language">
     <option value="">All languages</option>
     {{range .Languages}}<option value="{{.Value}}"{{if eq .Value $.Language}} selected{{end}}>{{.Label}} ({{.Categories}} categor{{if eq .Categories 1}}y{{else}}ies{{end}})</option>{{end}}
@@ -41,6 +48,7 @@
     <td class="vod-library">  {{if .Title}}<span>{{.Title}}{{if .Year}} ({{.Year}}){{end}}</span>{{end}}
   {{if eq .Quality "4k"}}<span class="pill">4K</span>{{end}}{{with .Lang}}<span class="pill">{{.}}</span>{{end}}
   {{if gt .Copies 1}}<span class="pill" title="Customers see one title; playback uses any copy">{{.Copies}} copies</span>{{end}}
+  {{if $.Backbone}}<span class="pill" title="Active copies on the providers of backbone {{$.Backbone}}">{{.SourceCopies}} on {{$.Backbone}}</span>{{end}}
   <br>{{if .TmdbID}}<a class="mono" href="{{.TMDBURL}}" target="_blank" rel="noopener noreferrer">TMDB {{.TmdbID}}</a>
     <span class="muted">{{if eq .MatchSource "panel"}}from the panel{{else if eq .MatchSource "tmdb"}}found on TMDB{{else if eq .MatchSource "name"}}from a copy{{else if eq .MatchSource "manual"}}set by hand{{end}}</span>
   {{else}}<span class="muted">{{if .Locked}}split from its copies{{else}}no TMDB id{{end}}</span>{{end}}
@@ -61,10 +69,10 @@
 </table></div>
 <nav class="pager">
   <span class="muted small">{{inc .Offset}}–{{add .Offset (len .Rows)}}</span>
-  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
-  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.NextOffset}}">Next →</a>{{end}}
+  {{if .Offset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&source={{.Source}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.PrevOffset}}">← Previous</a>{{end}}
+  {{if .NextOffset}}<a href="/admin/vod?kind={{.Kind}}&q={{.Query}}&lang={{.Language}}&category={{.CategoryID}}&source={{.Source}}{{if .Unmatched}}&unmatched=1{{end}}&offset={{.NextOffset}}">Next →</a>{{end}}
 </nav>
-{{else if or .Query .CategoryID .Language}}<div class="card empty"><p>Nothing matches.</p></div>
+{{else if or .Query .CategoryID .Language .Source}}<div class="card empty"><p>Nothing matches.</p></div>
 {{else}}<div class="card empty"><p>No {{if eq .Kind "movie"}}movies{{else}}series{{end}} imported yet.</p>
   <p class="muted">Edit an Xtream provider, tick “Import movies &amp; series”, then use “Import catalog” on the providers page.</p></div>{{end}}
 </div>
