@@ -138,11 +138,19 @@ func TestXtreamPlaybackEndToEnd(t *testing.T) {
 		}
 	}
 
-	// Allowance is 1: a second stream (token form) is refused meanwhile.
+	// Allowance is 1: the same channel from the same client (token form)
+	// is a reconnect, so it takes over and the first stream is ended.
 	tokURL := fmt.Sprintf("%s/t/%s/%d.ts", srv.URL, tok, news.ID)
 	r2, stop2 := open(tokURL)
-	if r2.StatusCode != http.StatusForbidden {
-		t.Errorf("second connection = %d, want 403", r2.StatusCode)
+	if r2.StatusCode != http.StatusOK {
+		t.Errorf("reconnect to the same channel = %d, want 200 (take-over)", r2.StatusCode)
+	}
+	ended := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, resp.Body); close(ended) }()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Error("first stream still open after take-over")
 	}
 	stop2()
 	stop()

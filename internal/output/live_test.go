@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/proxy"
 )
 
@@ -125,13 +126,14 @@ func TestLivePlaysAndSharesUpstream(t *testing.T) {
 }
 
 func TestLiveConnectionLimit(t *testing.T) {
-	srv, _, _ := newLiveServer(t)
+	srv, store, _ := newLiveServer(t)
+	store.byUser[1] = append(store.byUser[1], db.ListUserChannelsRow{ID: 12, Name: "Sports"})
 	code, stop := play(t, srv.URL, "/live/alice/alice-pw1/10.ts")
 	if code != 200 {
 		t.Fatalf("first = %d", code)
 	}
-	if code, _ := play(t, srv.URL, "/t/tok-alice/10.ts"); code != http.StatusForbidden {
-		t.Errorf("second connection (max 1) = %d, want 403", code)
+	if code, _ := play(t, srv.URL, "/t/tok-alice/12.ts"); code != http.StatusForbidden {
+		t.Errorf("second channel (max 1) = %d, want 403", code)
 	}
 	stop()
 	// The slot frees once the server notices the client left.
@@ -179,4 +181,66 @@ func chiRouter(h *Handlers) http.Handler {
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r
+}
+
+// A player reconnecting to the channel it is already playing (its read
+// timeout fired during a stall) takes over its old connection instead of
+// being refused: the old one is ended and its slot handed over.
+func TestLiveReconnectTakesOver(t *testing.T) {
+	srv, hs, hits := newLiveHandlers(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/live/alice/alice-pw1/10.ts", nil)
+	old, err := http.DefaultClient.Do(req)
+	if err != nil || old.StatusCode != 200 {
+		t.Fatalf("first = %v %v", old, err)
+	}
+	defer old.Body.Close()
+	// The old player stops reading but keeps its connection open, as after
+	// a stall: the server still counts it.
+	code, stop := play(t, srv.URL, "/t/tok-alice/10.ts")
+	if code != 200 {
+		t.Fatalf("reconnect to the same channel = %d, want 200", code)
+	}
+	defer stop()
+	// The old connection was ended by the server.
+	done := make(chan error, 1)
+	go func() { _, err := io.Copy(io.Discard, old.Body); done <- err }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("old connection still open after take-over")
+	}
+	if n := hs.Access.ActiveConnections(1); n != 1 {
+		t.Errorf("alice connections = %d, want 1", n)
+	}
+	if vs := hs.Access.Viewers(); len(vs) != 1 || vs[0].ChannelID != 10 {
+		t.Errorf("viewers = %+v, want the new connection only", vs)
+	}
+	if n := hits.Load(); n != 1 {
+		t.Errorf("upstream requests = %d, want the session kept", n)
+	}
+}
+
+func TestTakeOverMatchesUserChannelNetwork(t *testing.T) {
+	var vs viewers
+	var kicked []string
+	add := func(name string, user, ch int64, out, network string, since time.Time) {
+		vs.add(Viewer{UserID: user, ChannelID: ch, Output: out, Network: network, Since: since},
+			func() { kicked = append(kicked, name) }, nil)
+	}
+	t0 := time.Now()
+	add("other-user", 2, 10, "ts", "1.2.3.4", t0)
+	add("other-channel", 1, 11, "ts", "1.2.3.4", t0)
+	add("other-network", 1, 10, "ts", "5.6.7.8", t0)
+	add("hls", 1, 10, "hls", "1.2.3.4", t0)
+	add("newer", 1, 10, "ts", "1.2.3.4", t0.Add(time.Second))
+	add("oldest", 1, 10, "ts", "1.2.3.4", t0)
+	if _, ok := vs.takeOver(1, 10, "1.2.3.4"); !ok || len(kicked) != 1 || kicked[0] != "oldest" {
+		t.Errorf("kicked = %v, want [oldest]", kicked)
+	}
+	kicked = nil
+	if _, ok := vs.takeOver(1, 12, "1.2.3.4"); ok || len(kicked) != 0 {
+		t.Errorf("no match: kicked = %v", kicked)
+	}
 }

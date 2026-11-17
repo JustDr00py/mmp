@@ -18,6 +18,9 @@ type Viewer struct {
 	Addr      string    `json:"addr"`   // client IP
 	Output    string    `json:"output"` // "ts", "hls", "preview" (admin preview player), "movie" or "series"
 	Since     time.Time `json:"since"`
+	// Network is the client's network (auth.ClientNetwork): its IPv4
+	// address, or its IPv6 /64, which privacy addresses rotate within.
+	Network string `json:"-"`
 
 	// VOD playback only.
 	Title      string `json:"title,omitempty"`
@@ -96,6 +99,26 @@ func (vs *viewers) list() []Viewer {
 	vs.mu.Unlock()
 	slices.SortFunc(out, func(a, b Viewer) int { return cmp.Or(a.Since.Compare(b.Since), cmp.Compare(a.ID, b.ID)) })
 	return out
+}
+
+// takeOver ends userID's oldest live TS connection to channelID from
+// network and returns it: the same player reconnecting (after a stall, its
+// read timeout fired) while the server still holds its old connection.
+func (vs *viewers) takeOver(userID, channelID int64, network string) (Viewer, bool) {
+	vs.mu.Lock()
+	var old *viewerEntry
+	for _, e := range vs.m {
+		if e.UserID == userID && e.ChannelID == channelID && e.Output == "ts" && e.Network == network &&
+			(old == nil || e.Since.Before(old.Since) || e.Since.Equal(old.Since) && e.ID < old.ID) {
+			old = e
+		}
+	}
+	vs.mu.Unlock()
+	if old == nil {
+		return Viewer{}, false
+	}
+	old.kick()
+	return old.Viewer, true
 }
 
 func (vs *viewers) kick(id uint64) bool {
