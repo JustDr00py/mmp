@@ -61,7 +61,8 @@ func TestParse(t *testing.T) {
 		{"The Convert 2023 BLURAY 1080p BluRay x264 AAC5 1  YTS MX", "", Parsed{"The Convert", 2023, "fhd", ""}},
 		{"ABBA - The Movie (1977)", "", Parsed{"ABBA - The Movie", 1977, "", ""}},
 		{"AC/DC Live at River Plate (2011)", "", Parsed{"AC/DC Live at River Plate", 2011, "", ""}},
-		{"EN (2020) MTV Video Music Awards (2020)", "", Parsed{"EN MTV Video Music Awards", 2020, "", ""}},
+		{"EN (2020) MTV Video Music Awards (2020)", "", Parsed{"MTV Video Music Awards", 2020, "", "English"}},
+		{"IT (2017) STEPHEN KING", "", Parsed{"IT", 2017, "", ""}},
 		{"HD", "", Parsed{"HD", 0, "", ""}},
 		{"  ", "", Parsed{"", 0, "", ""}},
 	} {
