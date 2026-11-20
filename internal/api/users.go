@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -35,6 +37,7 @@ type userView struct {
 	MaxConnections int32      `json:"max_connections"`
 	ExpiresAt      *time.Time `json:"expires_at"`
 	Enabled        bool       `json:"enabled"`
+	Notes          string     `json:"notes"`
 	StreamToken    string     `json:"stream_token"`
 	BouquetIDs     []int64    `json:"bouquet_ids"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -51,7 +54,7 @@ func (env *Env) viewUser(ctx context.Context, u db.User) (userView, error) {
 	}
 	return userView{
 		ID: u.ID, Username: u.Username, Role: u.Role, MaxConnections: u.MaxConnections,
-		ExpiresAt: u.ExpiresAt, Enabled: u.Enabled, StreamToken: u.StreamToken,
+		ExpiresAt: u.ExpiresAt, Enabled: u.Enabled, Notes: u.Notes, StreamToken: u.StreamToken,
 		BouquetIDs: ids, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}, nil
 }
@@ -66,6 +69,7 @@ type userInput struct {
 	ExpiresAt      *time.Time `json:"expires_at"`
 	ClearExpiry    bool       `json:"clear_expiry"` // update only: remove expires_at
 	Enabled        *bool      `json:"enabled"`
+	Notes          *string    `json:"notes"`       // admin-only free text; replaces when present
 	BouquetIDs     *[]int64   `json:"bouquet_ids"` // replaces the set when present
 }
 
@@ -84,8 +88,14 @@ func (in *userInput) validate(creating bool) error {
 	if in.MaxConnections != nil && *in.MaxConnections < 0 {
 		return errors.New("max_connections must be >= 0")
 	}
+	if in.Notes != nil && utf8.RuneCountInString(*in.Notes) > maxNotes {
+		return fmt.Errorf("notes must be at most %d characters", maxNotes)
+	}
 	return nil
 }
+
+// maxNotes caps a user's notes, in characters (the admin UI's limit too).
+const maxNotes = 2000
 
 // Postgres error codes the API maps to client errors.
 const (
@@ -178,7 +188,7 @@ func (env *Env) createUser(w http.ResponseWriter, r *http.Request) {
 		u, err = st.CreateUser(r.Context(), db.CreateUserParams{
 			Username: in.Username, PasswordHash: hash, Role: role,
 			MaxConnections: defInt32(in.MaxConnections, 1), ExpiresAt: in.ExpiresAt,
-			Enabled: defBool(in.Enabled, true), StreamToken: token,
+			Enabled: defBool(in.Enabled, true), StreamToken: token, Notes: defString(in.Notes, ""),
 		})
 		if err != nil {
 			return err
@@ -252,6 +262,7 @@ func (env *Env) updateUser(w http.ResponseWriter, r *http.Request) {
 		ID: id, Username: in.Username, PasswordHash: cur.PasswordHash, Role: cur.Role,
 		MaxConnections: defInt32(in.MaxConnections, cur.MaxConnections),
 		ExpiresAt:      cur.ExpiresAt, Enabled: defBool(in.Enabled, cur.Enabled),
+		Notes: defString(in.Notes, cur.Notes),
 	}
 	if in.Role != "" {
 		p.Role = in.Role

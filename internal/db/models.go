@@ -302,6 +302,7 @@ type User struct {
 	StreamToken    string     `json:"stream_token"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+	Notes          string     `json:"notes"`
 }
 
 type UserBouquet struct {

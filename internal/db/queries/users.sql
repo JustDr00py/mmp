@@ -1,8 +1,8 @@
 -- Users (admins and customers) and their bouquet grants.
 
 -- name: CreateUser :one
-INSERT INTO users (username, password_hash, role, max_connections, expires_at, enabled, stream_token)
-VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;
+INSERT INTO users (username, password_hash, role, max_connections, expires_at, enabled, stream_token, notes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;
 
 -- name: GetUser :one
 SELECT * FROM users WHERE id = $1;
@@ -19,7 +19,7 @@ SELECT * FROM users ORDER BY username;
 -- name: UpdateUser :one
 UPDATE users SET
     username = $2, password_hash = $3, role = $4, max_connections = $5,
-    expires_at = $6, enabled = $7, updated_at = now()
+    expires_at = $6, enabled = $7, notes = $8, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
