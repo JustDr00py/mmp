@@ -18,7 +18,16 @@ const (
 	OutcomeMidPlayFailure = "mid_play_failure"
 	OutcomeProbeOK        = "probe_ok"
 	OutcomeProbeFail      = "probe_fail"
+	// OutcomeFellBehind is a stream that played and then fell behind real
+	// time on its own (not while every source was slow).
+	OutcomeFellBehind = "fell_behind"
+	// OutcomePlayed10m counts each 10 minutes a stream delivered: watch
+	// time, so play failures can be weighed per hour watched.
+	OutcomePlayed10m = "played_10m"
 )
+
+// playedChunk is the watch time one OutcomePlayed10m stands for.
+var playedChunk = 10 * time.Minute // a var: tests shorten it
 
 // OutcomeStore persists outcome counts (satisfied by *db.Queries).
 type OutcomeStore interface {

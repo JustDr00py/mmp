@@ -67,6 +67,7 @@ var outcomeLabels = []struct{ outcome, label string }{
 	{health.OutcomeOpenOK, "Opened"},
 	{health.OutcomeOpenFailed, "Failed to open"},
 	{health.OutcomeMidPlayFailure, "Failed while playing"},
+	{health.OutcomeFellBehind, "Fell behind real time"},
 	{health.OutcomeProbeOK, "Probe worked"},
 	{health.OutcomeProbeFail, "Probe failed"},
 }

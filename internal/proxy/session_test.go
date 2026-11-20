@@ -1021,3 +1021,85 @@ func TestPromoteBackbone(t *testing.T) {
 		t.Errorf("order after no-backbone = %v", got)
 	}
 }
+
+// outcomeCount sums o's pending counts of outcome for streamID.
+func outcomeCount(o *Outcomes, streamID int64, outcome string) int32 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var n int32
+	for k, c := range o.counts {
+		if k.streamID == streamID && k.outcome == outcome {
+			n += c
+		}
+	}
+	return n
+}
+
+// TestSessionLagOutcomes: a stream that falls behind on its own counts as
+// fell_behind, but one kept because every source is slow counts nothing.
+func TestSessionLagOutcomes(t *testing.T) {
+	a := newSlowProvider(t, 0.5)
+	b := newSlowProvider(t, 0.5)
+	o := NewOutcomes(&fakeOutcomeStore{}, nil)
+	h := startSession(t, []Candidate{
+		{StreamID: 1, ProviderID: 1, Backbone: "Strong", URL: a.URL + "/1.ts"},
+		{StreamID: 2, ProviderID: 2, Backbone: "Trex", URL: b.URL + "/2.ts"},
+	}, func(c *SessionConfig) {
+		c.Thresholds = Thresholds{StallTimeout: 2 * time.Second, Window: time.Second, MaxLag: 300 * time.Millisecond}
+		c.StableAfter = time.Hour
+		c.Outcomes = o
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for b.hits.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	h.stop(t)
+	if n := outcomeCount(o, 1, OutcomeFellBehind); n != 1 {
+		t.Errorf("stream 1 fell_behind = %d, want 1", n)
+	}
+	if n := outcomeCount(o, 1, OutcomeMidPlayFailure); n != 0 {
+		t.Errorf("stream 1 also counted %d mid-play failures", n)
+	}
+	if n := outcomeCount(o, 2, OutcomeFellBehind); n != 0 {
+		t.Errorf("stream 2 kept through network-wide lag, yet fell_behind = %d", n)
+	}
+}
+
+// TestSessionRetryCountsFellBehind: a stream that played well and fell
+// behind is reopened, and the lag still counts toward its play health.
+func TestSessionRetryCountsFellBehind(t *testing.T) {
+	a := newSlowProvider(t, 0.5)
+	o := NewOutcomes(&fakeOutcomeStore{}, nil)
+	h := startSession(t, []Candidate{{StreamID: 1, ProviderID: 1, Backbone: "Strong", URL: a.URL + "/1.ts"}},
+		func(c *SessionConfig) {
+			c.Thresholds = Thresholds{StallTimeout: 2 * time.Second, Window: time.Second, MaxLag: 300 * time.Millisecond}
+			c.StableAfter = 100 * time.Millisecond
+			c.Outcomes = o
+		})
+	deadline := time.Now().Add(10 * time.Second)
+	for a.hits.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	h.stop(t)
+	if a.hits.Load() < 2 {
+		t.Fatal("stream 1 was not reopened")
+	}
+	if n := outcomeCount(o, 1, OutcomeFellBehind); n < 1 {
+		t.Errorf("retried lag not counted: fell_behind = %d", n)
+	}
+}
+
+// TestSessionCountsWatchTime: each playedChunk of delivery counts once.
+func TestSessionCountsWatchTime(t *testing.T) {
+	defer func(d time.Duration) { playedChunk = d }(playedChunk)
+	playedChunk = 200 * time.Millisecond
+	a := newSlowProvider(t, 1)
+	o := NewOutcomes(&fakeOutcomeStore{}, nil)
+	h := startSession(t, []Candidate{{StreamID: 1, ProviderID: 1, URL: a.URL + "/1.ts"}},
+		func(c *SessionConfig) { c.Outcomes = o })
+	time.Sleep(1100 * time.Millisecond)
+	h.stop(t)
+	if n := outcomeCount(o, 1, OutcomePlayed10m); n < 3 || n > 5 {
+		t.Errorf("played_10m = %d over ~1s at 200ms chunks, want about 5", n)
+	}
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/JustDr00py/mmp/internal/channel"
 	"github.com/JustDr00py/mmp/internal/db"
+	"github.com/JustDr00py/mmp/internal/health"
 	"github.com/JustDr00py/mmp/internal/source"
 )
 
@@ -44,6 +45,7 @@ func (ui *UI) mountChannels(r chi.Router) {
 		r.Post("/streams", ui.channelAddStream)
 		r.Post("/streams/order", ui.channelReorder)
 		r.Post("/streams/sort", ui.channelSortStreams)
+		r.Post("/streams/play-order", ui.channelApplyPlayOrder)
 		r.Post("/streams/{psid}/move", ui.channelMoveStream)
 		r.Post("/streams/{psid}/remove", ui.channelRemoveStream)
 		r.Post("/merges/unlink", ui.channelUnlinkMerge)
@@ -57,6 +59,8 @@ type channelRow struct {
 	Bouquets int64
 	Playing  bool
 	Game     *db.ListEventOverridesRow // game routing: the slot it plays now
+	// PlayIssue names the sources a reorder is suggested for ("" if none).
+	PlayIssue string
 }
 
 type channelsData struct {
@@ -165,8 +169,24 @@ func (ui *UI) channelsPage(w http.ResponseWriter, r *http.Request) {
 	if len(chans) > channelsPerPage {
 		chans, d.NextOffset = chans[:channelsPerPage], offset+channelsPerPage
 	}
+	ids := make([]int64, len(chans))
+	for i, c := range chans {
+		ids[i] = c.ID
+	}
+	play, err := ui.channelPlay(ctx, ids)
+	if err != nil {
+		ui.fail(w, "channel play health", err)
+		return
+	}
 	for _, c := range chans {
 		row := channelRow{Channel: c, Streams: nStreams[c.ID], Bouquets: nBouquets[c.ID], Playing: playing[c.ID] != 0}
+		if p := play[c.ID]; p.Order != nil {
+			var names []string
+			for _, f := range p.Flagged() {
+				names = append(names, f.Source)
+			}
+			row.PlayIssue = strings.Join(names, ", ")
+		}
 		if g, ok := games[c.ID]; ok {
 			row.Game = &g
 		}
@@ -512,6 +532,10 @@ type streamListData struct {
 	Game  *db.ListEventOverridesRow
 	Slot  []db.ListChannelStreamsRow
 	Ranks []int
+	// Play is how the list's sources played lately; Suggested previews
+	// Play.Order as rows.
+	Play      health.ChannelPlay
+	Suggested []db.ListChannelStreamsRow
 }
 
 func (ui *UI) streamList(r *http.Request, channelID int64) (streamListData, error) {
@@ -528,6 +552,20 @@ func (ui *UI) streamList(r *http.Request, channelID int64) (streamListData, erro
 		d.Game, d.Slot = &g, slot
 	}
 	d.Ranks = playRanks(d.Slot, rows)
+	play, err := ui.channelPlay(r.Context(), []int64{channelID})
+	if err != nil {
+		return streamListData{}, err
+	}
+	d.Play = play[channelID]
+	if d.Play.Order != nil {
+		byID := make(map[int64]db.ListChannelStreamsRow, len(rows))
+		for _, s := range rows {
+			byID[s.ProviderStreamID] = s
+		}
+		for _, id := range d.Play.Order {
+			d.Suggested = append(d.Suggested, byID[id])
+		}
+	}
 	return d, nil
 }
 
