@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -86,7 +87,7 @@ func (ui *UI) usersPage(w http.ResponseWriter, r *http.Request) {
 	d := usersData{Query: q, Flash: userFlashes[r.URL.Query().Get("msg")]}
 	now := time.Now()
 	for _, u := range users {
-		if q != "" && !strings.Contains(strings.ToLower(u.Username), q) {
+		if q != "" && !strings.Contains(strings.ToLower(u.Username), q) && !strings.Contains(strings.ToLower(u.Notes), q) {
 			continue
 		}
 		row := userRow{User: u, Active: active[u.ID], Status: userStatus(u, now)}
@@ -110,6 +111,7 @@ type userForm struct {
 	MaxConnections string
 	Expires        string // YYYY-MM-DD, empty = never
 	Enabled        bool
+	Notes          string
 	BouquetIDs     map[int64]bool
 	Bouquets       []db.Bouquet
 	Error          string
@@ -153,8 +155,12 @@ type parsedUser struct {
 	maxConns                 int32
 	expires                  *time.Time
 	enabled                  bool
+	notes                    string
 	bouquets                 []int64
 }
+
+// maxNotes caps a user's notes, in characters.
+const maxNotes = 2000
 
 // expiryLayout is the date input's format. A date means "through the end
 // of that day" in UTC.
@@ -168,8 +174,9 @@ func parseUserForm(w http.ResponseWriter, r *http.Request) (userForm, parsedUser
 	f := r.PostForm
 	form := userForm{Username: strings.TrimSpace(f.Get("username")), Role: f.Get("role"),
 		MaxConnections: strings.TrimSpace(f.Get("max_connections")), Expires: strings.TrimSpace(f.Get("expires")),
-		Enabled: f.Get("enabled") == "on", BouquetIDs: map[int64]bool{}}
-	p := parsedUser{username: form.Username, password: f.Get("password"), role: form.Role, enabled: form.Enabled}
+		Enabled: f.Get("enabled") == "on", Notes: strings.TrimSpace(strings.ReplaceAll(f.Get("notes"), "\r\n", "\n")),
+		BouquetIDs: map[int64]bool{}}
+	p := parsedUser{username: form.Username, password: f.Get("password"), role: form.Role, enabled: form.Enabled, notes: form.Notes}
 	for _, v := range f["bouquet"] {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil && !form.BouquetIDs[id] {
 			form.BouquetIDs[id] = true
@@ -178,6 +185,9 @@ func parseUserForm(w http.ResponseWriter, r *http.Request) (userForm, parsedUser
 	}
 	if err := auth.ValidateUsername(p.username); err != nil {
 		return form, p, sentence(err)
+	}
+	if utf8.RuneCountInString(p.notes) > maxNotes {
+		return form, p, formError("Notes can be at most " + strconv.Itoa(maxNotes) + " characters.")
 	}
 	if !auth.ValidRole(p.role) {
 		return form, p, formError("Choose a role.")
@@ -300,7 +310,7 @@ func (ui *UI) userCreate(w http.ResponseWriter, r *http.Request) {
 		err = ui.inTx(r.Context(), func(st Store) error {
 			var err error
 			if u, err = st.CreateUser(r.Context(), db.CreateUserParams{Username: p.username, PasswordHash: hash, Role: p.role,
-				MaxConnections: p.maxConns, ExpiresAt: p.expires, Enabled: p.enabled, StreamToken: token}); err != nil {
+				MaxConnections: p.maxConns, ExpiresAt: p.expires, Enabled: p.enabled, StreamToken: token, Notes: p.notes}); err != nil {
 				return err
 			}
 			return setUserBouquets(r.Context(), st, u.ID, p.bouquets)
@@ -350,7 +360,7 @@ func (ui *UI) user(w http.ResponseWriter, r *http.Request) (db.User, bool) {
 
 func (ui *UI) formFromUser(r *http.Request, u db.User) (userForm, error) {
 	f := userForm{ID: u.ID, Username: u.Username, Role: u.Role, MaxConnections: strconv.Itoa(int(u.MaxConnections)),
-		Enabled: u.Enabled, BouquetIDs: map[int64]bool{}}
+		Enabled: u.Enabled, Notes: u.Notes, BouquetIDs: map[int64]bool{}}
 	if u.ExpiresAt != nil {
 		f.Expires = u.ExpiresAt.UTC().Format(expiryLayout)
 	}
@@ -445,7 +455,7 @@ func (ui *UI) userUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	err = ui.inTx(r.Context(), func(st Store) error {
 		if _, err := st.UpdateUser(r.Context(), db.UpdateUserParams{ID: cur.ID, Username: p.username, PasswordHash: cur.PasswordHash,
-			Role: p.role, MaxConnections: p.maxConns, ExpiresAt: p.expires, Enabled: p.enabled}); err != nil {
+			Role: p.role, MaxConnections: p.maxConns, ExpiresAt: p.expires, Enabled: p.enabled, Notes: p.notes}); err != nil {
 			return err
 		}
 		return setUserBouquets(r.Context(), st, cur.ID, p.bouquets)
@@ -480,7 +490,7 @@ func (ui *UI) userResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u, err = ui.Store.UpdateUser(r.Context(), db.UpdateUserParams{ID: u.ID, Username: u.Username, PasswordHash: hash,
-		Role: u.Role, MaxConnections: u.MaxConnections, ExpiresAt: u.ExpiresAt, Enabled: u.Enabled}); err != nil {
+		Role: u.Role, MaxConnections: u.MaxConnections, ExpiresAt: u.ExpiresAt, Enabled: u.Enabled, Notes: u.Notes}); err != nil {
 		ui.fail(w, "reset password", err)
 		return
 	}

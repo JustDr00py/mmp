@@ -27,6 +27,8 @@
     <div class="checks">{{range .Bouquets}}<label class="check"><input type="checkbox" name="bouquet" value="{{.ID}}"{{if index $.BouquetIDs .ID}} checked{{end}}> {{.Name}}</label>{{end}}</div>
     {{else}}<p class="muted small">No bouquets exist yet, so customers see no channels.</p>{{end}}
   </fieldset>
+  <label>Notes<textarea name="notes" rows="3" maxlength="2000" placeholder="who this is, how they pay, their device…">{{.Notes}}</textarea>
+    <span class="hint">only admins see these</span></label>
   <label class="check"><input type="checkbox" name="enabled"{{if .Enabled}} checked{{end}}> Enabled</label>
   <div class="row">
     <button type="submit">{{if .ID}}Save{{else}}Create user{{end}}</button>

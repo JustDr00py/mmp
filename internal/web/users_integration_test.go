@@ -36,7 +36,8 @@ func TestUserPages(t *testing.T) {
 
 	// Create with a generated password: shown once, straight from the POST.
 	resp, body := b.post("/admin/users/new", url.Values{"username": {"alice"}, "role": {"customer"}, "max_connections": {"2"},
-		"expires": {"2030-06-30"}, "enabled": {"on"}, "bouquet": {strconv.FormatInt(sports.ID, 10)}}, b.base)
+		"expires": {"2030-06-30"}, "enabled": {"on"}, "bouquet": {strconv.FormatInt(sports.ID, 10)},
+		"notes": {"  Pays monthly\r\nRoku in the den  "}}, b.base)
 	if resp.StatusCode != http.StatusCreated || resp.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("create = %d %q", resp.StatusCode, resp.Header.Get("Cache-Control"))
 	}
@@ -53,7 +54,7 @@ func TestUserPages(t *testing.T) {
 		}
 	}
 	if !auth.CheckPassword(alice.PasswordHash, pw) || alice.MaxConnections != 2 || alice.ExpiresAt == nil ||
-		!alice.ExpiresAt.Equal(time.Date(2030, 6, 30, 23, 59, 59, 0, time.UTC)) || alice.StreamToken == "" {
+		!alice.ExpiresAt.Equal(time.Date(2030, 6, 30, 23, 59, 59, 0, time.UTC)) || alice.StreamToken == "" || alice.Notes != "Pays monthly\nRoku in the den" {
 		t.Fatalf("stored = %+v", alice)
 	}
 	if ids, _ := q.ListUserBouquetIDs(ctx, alice.ID); len(ids) != 1 || ids[0] != sports.ID {
@@ -86,14 +87,25 @@ func TestUserPages(t *testing.T) {
 		t.Errorf("bad password not reported")
 	}
 
-	// Edit: limits, expiry cleared, bouquets swapped, disabled.
+	// Notes show in the list and are searchable; too long is a form error.
+	if _, body := b.get("/admin/users?q=roku"); !strings.Contains(body, ">alice</a>") || !strings.Contains(body, "Pays monthly") {
+		t.Errorf("notes search/list:\n%s", body)
+	}
+	if _, body := b.get(base); !strings.Contains(body, ">Pays monthly\nRoku in the den</textarea>") {
+		t.Errorf("edit form lacks the notes")
+	}
+	if _, body := b.post(base, url.Values{"username": {"alice"}, "role": {"customer"}, "notes": {strings.Repeat("x", 2001)}}, b.base); !strings.Contains(body, "Notes can be at most 2000") {
+		t.Errorf("long notes not rejected")
+	}
+
+	// Edit: limits, expiry cleared, bouquets swapped, disabled, notes cleared.
 	resp, _ = b.post(base, url.Values{"username": {"alice"}, "role": {"customer"}, "max_connections": {"0"}, "expires": {""},
 		"bouquet": {strconv.FormatInt(news.ID, 10)}}, b.base)
 	if resp.Header.Get("Location") != base+"?msg=saved" {
 		t.Fatalf("update = %d", resp.StatusCode)
 	}
 	alice, _ = q.GetUser(ctx, alice.ID)
-	if alice.MaxConnections != 0 || alice.ExpiresAt != nil || alice.Enabled || !auth.CheckPassword(alice.PasswordHash, pw) {
+	if alice.MaxConnections != 0 || alice.ExpiresAt != nil || alice.Enabled || !auth.CheckPassword(alice.PasswordHash, pw) || alice.Notes != "" {
 		t.Errorf("after update = %+v", alice)
 	}
 	if ids, _ := q.ListUserBouquetIDs(ctx, alice.ID); len(ids) != 1 || ids[0] != news.ID {
@@ -113,6 +125,12 @@ func TestUserPages(t *testing.T) {
 	alice, _ = q.GetUser(ctx, alice.ID)
 	if auth.CheckPassword(alice.PasswordHash, pw) || !auth.CheckPassword(alice.PasswordHash, m[1]) {
 		t.Error("reset did not replace the password")
+	}
+	q.UpdateUser(ctx, db.UpdateUserParams{ID: alice.ID, Username: alice.Username, PasswordHash: alice.PasswordHash, Role: alice.Role,
+		MaxConnections: alice.MaxConnections, Enabled: alice.Enabled, Notes: "keep me"})
+	b.post(base+"/password", url.Values{}, b.base)
+	if alice, _ = q.GetUser(ctx, alice.ID); alice.Notes != "keep me" {
+		t.Errorf("reset password dropped the notes: %q", alice.Notes)
 	}
 
 	// Rotate token.

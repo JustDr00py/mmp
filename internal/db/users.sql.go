@@ -48,8 +48,8 @@ func (q *Queries) CountAdmins(ctx context.Context) (int64, error) {
 
 const createUser = `-- name: CreateUser :one
 
-INSERT INTO users (username, password_hash, role, max_connections, expires_at, enabled, stream_token)
-VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at
+INSERT INTO users (username, password_hash, role, max_connections, expires_at, enabled, stream_token, notes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes
 `
 
 type CreateUserParams struct {
@@ -60,6 +60,7 @@ type CreateUserParams struct {
 	ExpiresAt      *time.Time `json:"expires_at"`
 	Enabled        bool       `json:"enabled"`
 	StreamToken    string     `json:"stream_token"`
+	Notes          string     `json:"notes"`
 }
 
 // Users (admins and customers) and their bouquet grants.
@@ -72,6 +73,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.ExpiresAt,
 		arg.Enabled,
 		arg.StreamToken,
+		arg.Notes,
 	)
 	var i User
 	err := row.Scan(
@@ -85,6 +87,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -99,7 +102,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at FROM users WHERE id = $1
+SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
@@ -116,12 +119,13 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }
 
 const getUserByStreamToken = `-- name: GetUserByStreamToken :one
-SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at FROM users WHERE stream_token = $1
+SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes FROM users WHERE stream_token = $1
 `
 
 func (q *Queries) GetUserByStreamToken(ctx context.Context, streamToken string) (User, error) {
@@ -138,12 +142,13 @@ func (q *Queries) GetUserByStreamToken(ctx context.Context, streamToken string) 
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at FROM users WHERE username = $1
+SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -160,6 +165,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -189,7 +195,7 @@ func (q *Queries) ListUserBouquetIDs(ctx context.Context, userID int64) ([]int64
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at FROM users ORDER BY username
+SELECT id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes FROM users ORDER BY username
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -212,6 +218,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.StreamToken,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Notes,
 		); err != nil {
 			return nil, err
 		}
@@ -224,7 +231,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 }
 
 const setUserStreamToken = `-- name: SetUserStreamToken :one
-UPDATE users SET stream_token = $2, updated_at = now() WHERE id = $1 RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at
+UPDATE users SET stream_token = $2, updated_at = now() WHERE id = $1 RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes
 `
 
 type SetUserStreamTokenParams struct {
@@ -246,6 +253,7 @@ func (q *Queries) SetUserStreamToken(ctx context.Context, arg SetUserStreamToken
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }
@@ -253,9 +261,9 @@ func (q *Queries) SetUserStreamToken(ctx context.Context, arg SetUserStreamToken
 const updateUser = `-- name: UpdateUser :one
 UPDATE users SET
     username = $2, password_hash = $3, role = $4, max_connections = $5,
-    expires_at = $6, enabled = $7, updated_at = now()
+    expires_at = $6, enabled = $7, notes = $8, updated_at = now()
 WHERE id = $1
-RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at
+RETURNING id, username, password_hash, role, max_connections, expires_at, enabled, stream_token, created_at, updated_at, notes
 `
 
 type UpdateUserParams struct {
@@ -266,6 +274,7 @@ type UpdateUserParams struct {
 	MaxConnections int32      `json:"max_connections"`
 	ExpiresAt      *time.Time `json:"expires_at"`
 	Enabled        bool       `json:"enabled"`
+	Notes          string     `json:"notes"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
@@ -277,6 +286,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.MaxConnections,
 		arg.ExpiresAt,
 		arg.Enabled,
+		arg.Notes,
 	)
 	var i User
 	err := row.Scan(
@@ -290,6 +300,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.StreamToken,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Notes,
 	)
 	return i, err
 }

@@ -642,6 +642,7 @@ func TestUsersAPI(t *testing.T) {
 		"slash pw":     {"username": "bob", "password": "sec/ret1"},
 		"bad role":     {"username": "bob", "password": "secret1", "role": "root"},
 		"neg conns":    {"username": "bob", "password": "secret1", "max_connections": -1},
+		"long notes":   {"username": "bob", "password": "secret1", "notes": strings.Repeat("x", 2001)},
 	} {
 		if code, _, _ := call(t, h, http.MethodPost, "/api/v1/users", body); code != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", name, code)
@@ -652,7 +653,7 @@ func TestUsersAPI(t *testing.T) {
 	exp := time.Now().Add(30 * 24 * time.Hour).UTC().Truncate(time.Second)
 	code, u, _ := call(t, h, http.MethodPost, "/api/v1/users", map[string]any{
 		"username": "alice", "password": "alice-pw1", "max_connections": 2,
-		"expires_at": exp, "bouquet_ids": []int64{b1.ID, b2.ID},
+		"expires_at": exp, "bouquet_ids": []int64{b1.ID, b2.ID}, "notes": "VIP",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create = %d %v", code, u)
@@ -661,7 +662,7 @@ func TestUsersAPI(t *testing.T) {
 		t.Fatal("password_hash serialized")
 	}
 	if u["role"] != "customer" || u["enabled"] != true || u["max_connections"] != float64(2) ||
-		len(u["stream_token"].(string)) != 43 || len(u["bouquet_ids"].([]any)) != 2 {
+		len(u["stream_token"].(string)) != 43 || len(u["bouquet_ids"].([]any)) != 2 || u["notes"] != "VIP" {
 		t.Errorf("created user = %v", u)
 	}
 	uid := int64(u["id"].(float64))
@@ -683,7 +684,7 @@ func TestUsersAPI(t *testing.T) {
 
 	// Update without password keeps it; bouquets replaced; expiry cleared.
 	code, u, _ = call(t, h, http.MethodPut, path, map[string]any{"max_connections": 3, "bouquet_ids": []int64{b2.ID}, "clear_expiry": true})
-	if code != 200 || u["max_connections"] != float64(3) || len(u["bouquet_ids"].([]any)) != 1 || u["expires_at"] != nil {
+	if code != 200 || u["max_connections"] != float64(3) || len(u["bouquet_ids"].([]any)) != 1 || u["expires_at"] != nil || u["notes"] != "VIP" {
 		t.Fatalf("update = %d %v", code, u)
 	}
 	stored, _ = q.GetUser(ctx, uid)
