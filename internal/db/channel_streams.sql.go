@@ -386,6 +386,49 @@ func (q *Queries) ListChannelLinks(ctx context.Context) ([]ListChannelLinksRow, 
 	return items, nil
 }
 
+const listChannelStreamSources = `-- name: ListChannelStreamSources :many
+SELECT cs.channel_id, ps.id AS provider_stream_id, pr.id AS provider_id, pr.backbone
+FROM channel_streams cs
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE cs.channel_id = ANY($1::bigint[])
+ORDER BY cs.channel_id, cs.priority, pr.priority, ps.name
+`
+
+type ListChannelStreamSourcesRow struct {
+	ChannelID        int64  `json:"channel_id"`
+	ProviderStreamID int64  `json:"provider_stream_id"`
+	ProviderID       int64  `json:"provider_id"`
+	Backbone         string `json:"backbone"`
+}
+
+// The failover lists of channel_ids in order, with each stream's source
+// (backbone, else provider), for the channel play health.
+func (q *Queries) ListChannelStreamSources(ctx context.Context, channelIds []int64) ([]ListChannelStreamSourcesRow, error) {
+	rows, err := q.db.Query(ctx, listChannelStreamSources, channelIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelStreamSourcesRow
+	for rows.Next() {
+		var i ListChannelStreamSourcesRow
+		if err := rows.Scan(
+			&i.ChannelID,
+			&i.ProviderStreamID,
+			&i.ProviderID,
+			&i.Backbone,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChannelStreams = `-- name: ListChannelStreams :many
 SELECT
     cs.channel_id, cs.priority, cs.added_at,

@@ -13,6 +13,10 @@ const (
 	OutcomeMidPlayFailure = "mid_play_failure"
 	OutcomeProbeOK        = "probe_ok"
 	OutcomeProbeFail      = "probe_fail"
+	OutcomeFellBehind     = "fell_behind"
+	// OutcomePlayed10m is watch time, not an attempt: the provider scores
+	// leave it out, and the channel play health weighs failures by it.
+	OutcomePlayed10m = "played_10m"
 )
 
 const (
@@ -41,6 +45,7 @@ var outcomeWeights = map[string]outcomeWeight{
 	OutcomeProbeOK:        {failure: false, weight: 0.5},
 	OutcomeOpenFailed:     {failure: true, weight: 1},
 	OutcomeMidPlayFailure: {failure: true, weight: 2},
+	OutcomeFellBehind:     {failure: true, weight: 2},
 	OutcomeProbeFail:      {failure: true, weight: 0.5},
 }
 

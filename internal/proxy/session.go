@@ -336,6 +336,14 @@ func reconnectable(reason string) bool {
 	return reason == "eof" || strings.HasPrefix(reason, "read: ")
 }
 
+// playFailure is the outcome for a stream that failed after it played.
+func playFailure(reason string) string {
+	if reason == Behind.String() {
+		return OutcomeFellBehind
+	}
+	return OutcomeMidPlayFailure
+}
+
 // verdictRetry is how often a stream that played well and was then judged
 // unhealthy (stalled, fell behind, bad picture) is reopened before failing
 // over. Such a failure usually means a bad connection or a slow edge server,
@@ -498,6 +506,9 @@ func (s *Session) Run(ctx context.Context) error {
 				// If that fails, the failover event names this failure.
 				if !drop {
 					retried[c.StreamID] = time.Now()
+					// The viewer still saw it: count it toward the play
+					// health even though the stream gets another try.
+					s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, playFailure(res.reason))
 				}
 				s.log.Info("session: upstream failed, retrying same stream", append([]any{"stream_id", c.StreamID,
 					"provider_id", c.ProviderID, "reason", res.reason}, lagAttrs(res.lag)...)...)
@@ -509,7 +520,7 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 			d := s.cfg.Cooldowns.Fail(c.StreamID, time.Now())
 			if res.delivered {
-				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeMidPlayFailure)
+				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, playFailure(res.reason))
 			} else {
 				s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomeOpenFailed)
 			}
@@ -601,8 +612,8 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 	buf := make([]byte, 64*1024)
 	var out []byte
 	var res streamResult
-	var firstAt time.Time
-	var sample []byte // the start of this upstream, for MediaInfo
+	var firstAt, playedMark time.Time // playedMark: the last played10m count
+	var sample []byte                 // the start of this upstream, for MediaInfo
 	sampled := false
 	for {
 		n, err := rc.Read(buf)
@@ -630,7 +641,7 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 					}
 				}
 				if !res.delivered {
-					res.delivered, firstAt = true, now
+					res.delivered, firstAt, playedMark = true, now, now
 					s.setState("streaming", &c)
 					s.log.Info("session: streaming", "stream_id", c.StreamID, "provider_id", c.ProviderID)
 					switch {
@@ -647,6 +658,11 @@ func (s *Session) stream(ctx context.Context, c Candidate, rc io.ReadCloser, spl
 				} else if !res.stable && now.Sub(firstAt) >= s.cfg.StableAfter {
 					s.cfg.Cooldowns.Reset(c.StreamID)
 					res.stable = true
+				}
+				if now.Sub(playedMark) >= playedChunk {
+					// Watch time, so failures can be weighed per hour played.
+					playedMark = playedMark.Add(playedChunk)
+					s.cfg.Outcomes.Record(c.ProviderID, c.StreamID, c.Backbone, OutcomePlayed10m)
 				}
 			}
 		}

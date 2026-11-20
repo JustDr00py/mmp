@@ -147,3 +147,13 @@ SELECT ps.id, ps.name, ps.tvg_id, ps.group_title, pr.id AS provider_id, pr.name 
 FROM provider_streams ps
 JOIN providers pr ON pr.id = ps.provider_id
 WHERE ps.id = ANY(sqlc.arg('ids')::bigint[]);
+
+-- name: ListChannelStreamSources :many
+-- The failover lists of channel_ids in order, with each stream's source
+-- (backbone, else provider), for the channel play health.
+SELECT cs.channel_id, ps.id AS provider_stream_id, pr.id AS provider_id, pr.backbone
+FROM channel_streams cs
+JOIN provider_streams ps ON ps.id = cs.provider_stream_id
+JOIN providers pr ON pr.id = ps.provider_id
+WHERE cs.channel_id = ANY(sqlc.arg('channel_ids')::bigint[])
+ORDER BY cs.channel_id, cs.priority, pr.priority, ps.name;

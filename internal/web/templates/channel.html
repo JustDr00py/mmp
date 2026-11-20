@@ -72,6 +72,19 @@
 </ol>{{else}}<p class="muted small">{{.SourceName}} has no streams.</p>{{end}}
 <h3 class="small">This channel's own</h3>
 {{end}}
+{{with .Play.Flagged}}<div class="card play-health" role="status" data-keep>
+  <p><strong>Play health:</strong> {{range $i, $f := .}}{{if $i}}; {{end}}{{$f.Reason}}{{end}}.
+  {{if $.Play.Order}}Suggested: move {{if eq (len .) 1}}its{{else}}their{{end}} streams below the others.{{else if $.Play.AllBad}}Every source in this list did, so the network or the channel's own feed is the likelier cause: no reorder suggested.{{else}}{{if eq (len .) 1}}It is{{else}}They are{{end}} already below the others.{{end}}</p>
+  <table class="small">
+    <thead><tr><th>Source</th><th class="num">Failures</th><th class="num">Hours</th><th class="num">Per hour</th><th></th></tr></thead>
+    <tbody>{{range $.Play.Sources}}<tr><td>{{.Source}} <span class="muted">· {{.Streams}}</span></td><td class="num">{{.Failures}}{{if .FellBehind}} <span class="muted">({{.FellBehind}} behind)</span>{{end}}</td>
+      <td class="num">{{printf "%.1f" .Hours}}</td><td class="num">{{printf "%.1f" .Rate}}</td><td>{{if .Bad}}<span class="pill bad">slow</span>{{else}}<span class="pill ok">ok</span>{{end}}</td></tr>{{end}}</tbody>
+  </table>
+  {{if $.Play.Order}}<details><summary class="small">Suggested order</summary><ol class="small">{{range $.Suggested}}<li>{{.StreamName}} <span class="muted">· {{.ProviderName}}</span></li>{{end}}</ol></details>
+  <form method="post" action="/admin/channels/{{$.ChannelID}}/streams/play-order" hx-post="/admin/channels/{{$.ChannelID}}/streams/play-order"
+    hx-target="#stream-list" hx-swap="outerHTML"><p class="row"><button type="submit" class="small">Apply suggested order</button>
+    <span class="muted small">Nothing changes until you apply it; the record fades over a few days.</span></p></form>{{end}}
+</div>{{end}}
 {{if .Rows}}
 <form method="post" action="/admin/channels/{{.ChannelID}}/streams/order" hx-post="/admin/channels/{{.ChannelID}}/streams/order"
   hx-target="#stream-list" hx-swap="outerHTML" data-sortable-form>
