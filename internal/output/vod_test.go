@@ -26,7 +26,8 @@ type fakeVOD struct {
 	// copies101, when set, are movie 101's copies (another panel's
 	// copies included), returned as given.
 	copies101 []db.ListUserVODItemCopiesRow
-	tmdb      map[string]string // cached TMDB details by "kind/id"
+	tmdb      map[string]string  // cached TMDB details by "kind/id"
+	episodes  []db.SeriesEpisode // when set, every series' episodes
 }
 
 func f32(v float32) *float32 { return &v }
@@ -138,6 +139,9 @@ func (f *fakeVOD) MovieInfo(_ context.Context, id int64) (json.RawMessage, error
 }
 
 func (f *fakeVOD) SeriesEpisodes(_ context.Context, id int64) (db.Series, []db.SeriesEpisode, error) {
+	if f.episodes != nil {
+		return db.Series{ID: id}, f.episodes, nil
+	}
 	return db.Series{ID: id, Info: json.RawMessage(`{"plot":"Panel plot","youtube_trailer":"abc","episode_run_time":"45"}`)},
 		[]db.SeriesEpisode{
 			{ID: 701, SeriesID: id, Season: 1, EpisodeNum: 1, Title: "Pilot", ContainerExtension: "mkv", DurationSecs: 2700, Plot: "First.", AddedAt: tp(1700000100)},

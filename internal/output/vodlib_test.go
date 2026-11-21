@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
@@ -80,6 +81,30 @@ func TestVODCleanTitles(t *testing.T) {
 	for _, want := range []string{`"name":"Die Hard (1988)"`, `"releasedate":"1988-07-15"`, `"genre":"Action"`, `"plot":"An officer..."`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("info lacks %s:\n%s", want, body)
+		}
+	}
+}
+
+// TestVODCleanEpisodeTitles: with clean titles on, an episode's title is
+// its own name, not the panel's "EN ★ Show - S01E01 - Name [HD]".
+func TestVODCleanEpisodeTitles(t *testing.T) {
+	hs, _ := newTestHandlers(t)
+	hs.VOD = &fakeVOD{episodes: []db.SeriesEpisode{
+		{ID: 701, Season: 1, EpisodeNum: 1, Title: "EN ★ The Show - S01E01 - Minimum Viable Product [SD]", ContainerExtension: "mkv"},
+		{ID: 702, Season: 1, EpisodeNum: 2, Title: "EN ★ The Show - S01E02 - [HD]", ContainerExtension: "mkv"},
+	}}
+	clean := false
+	hs.VODLibrary = func(context.Context) vodmeta.Settings { return vodmeta.Settings{CleanTitles: clean} }
+	h := chiRouter(hs)
+	const info = "/player_api.php?username=alice&password=alice-pw1&action=get_series_info&series_id=7"
+	if _, _, body := get(t, h, info); !strings.Contains(body, `"title":"EN ★ The Show - S01E01 - Minimum Viable Product [SD]"`) {
+		t.Errorf("clean titles off: %s", body)
+	}
+	clean = true
+	_, _, body := get(t, h, info)
+	for _, want := range []string{`"title":"Minimum Viable Product"`, `"title":"Episode 2"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("clean titles on lacks %s:\n%s", want, body)
 		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/JustDr00py/mmp/internal/auth"
 	"github.com/JustDr00py/mmp/internal/db"
 	"github.com/JustDr00py/mmp/internal/source"
+	"github.com/JustDr00py/mmp/internal/vodmeta"
 )
 
 // VODSource is the movie/series catalog as one customer may see it, plus
@@ -389,8 +390,9 @@ func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.U
 	}
 	info := scrubInfo(row.Info)
 	rating, five := ratingStrings(s.Rating)
+	clean := h.vodSettings(ctx).CleanTitles
 	for k, v := range map[string]any{
-		"name": vodName(s.Name, s.Title, s.TmdbTitle, s.Lang, s.Year, s.Quality, h.vodSettings(ctx).CleanTitles), "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
+		"name": vodName(s.Name, s.Title, s.TmdbTitle, s.Lang, s.Year, s.Quality, clean), "cover": s.Cover, "plot": s.Plot, "cast": s.Cast, "director": s.Director,
 		"genre": s.Genre, "releaseDate": s.ReleaseDate, "last_modified": unixPtr(s.LastModified),
 		"rating": rating, "rating_5based": five, "category_id": strconv.FormatInt(s.CategoryID, 10),
 	} {
@@ -411,8 +413,12 @@ func (h *Handlers) seriesInfo(w http.ResponseWriter, ctx context.Context, u db.U
 	count := map[int32]int{}
 	for _, e := range eps {
 		key := strconv.Itoa(int(e.Season))
+		title := e.Title
+		if clean {
+			title = vodmeta.EpisodeTitle(e.Title, s.Title, int(e.EpisodeNum))
+		}
 		bySeason[key] = append(bySeason[key], xtreamEpisode{ID: strconv.FormatInt(e.ID, 10), EpisodeNum: e.EpisodeNum,
-			Title: e.Title, ContainerExtension: e.ContainerExtension, Added: unixPtr(e.AddedAt), Season: e.Season,
+			Title: title, ContainerExtension: e.ContainerExtension, Added: unixPtr(e.AddedAt), Season: e.Season,
 			Info: xtreamEpisodeInfo{DurationSecs: e.DurationSecs, Duration: hms(e.DurationSecs), Plot: e.Plot, MovieImage: e.Image}})
 		count[e.Season]++
 	}
