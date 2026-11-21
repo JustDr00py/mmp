@@ -675,3 +675,83 @@ func TestVODLeaseHold(t *testing.T) {
 		t.Errorf("ended %v", ended)
 	}
 }
+
+// TestVODLeaseSurfing: skipping from episode to episode holds no more
+// provider lines than the user's limit; the longest-idle hold goes first,
+// and a title still playing is not touched.
+func TestVODLeaseSurfing(t *testing.T) {
+	l := vodLeases{hold: time.Hour}
+	users, provs := proxy.NewCapacity(), proxy.NewCapacity()
+	var ended []string
+	play := func(user, id int64, userMax int) (func(), error) {
+		tu := func() (*proxy.Slot, error) {
+			u, ok := users.TryAcquire(user, userMax)
+			if !ok {
+				return nil, ErrTooManyConnections
+			}
+			return u, nil
+		}
+		tk := func() (*proxy.Slot, *proxy.Slot, error) {
+			u, err := tu()
+			if err != nil {
+				return nil, nil, err
+			}
+			p, ok := provs.TryAcquire(10, 3)
+			if !ok {
+				u.Release()
+				return nil, nil, errProviderFull
+			}
+			return u, p, nil
+		}
+		_, ls, rel, err := l.acquire(context.Background(), vodAcquire{key: vodKey{user, "series", id}, providers: []int64{10},
+			userMax: userMax, take: tk, takeUser: tu, ended: func(ls *vodLease, reason string, _ time.Time) {
+				ended = append(ended, strconv.FormatInt(ls.key.id, 10)+" "+reason)
+			}})
+		if ls != nil {
+			ls.started.Store(true)
+		}
+		return rel, err
+	}
+
+	// User 1 (limit 1) skips through three episodes.
+	for id := int64(1); id <= 3; id++ {
+		rel, err := play(1, id, 1)
+		if err != nil {
+			t.Fatalf("episode %d: %v", id, err)
+		}
+		rel()
+	}
+	if provs.InUse(10) != 1 || len(ended) != 2 || ended[0] != "1 "+vodTakenOver || ended[1] != "2 "+vodTakenOver {
+		t.Fatalf("limit 1: provider %d, ended %v", provs.InUse(10), ended)
+	}
+	// The lines left are free for someone else.
+	if _, err := play(2, 9, 1); err != nil {
+		t.Fatalf("other user: %v", err)
+	}
+
+	// User 3 (limit 2): episode 20 keeps playing, 21 and 22 are skipped.
+	l.mu.Lock()
+	for _, ls := range l.m { // clear users 1 and 2
+		l.endLocked(ls, vodStopped)
+	}
+	l.mu.Unlock()
+	ended = nil
+	if _, err := play(3, 20, 2); err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := play(3, 21, 2)
+	rel()
+	time.Sleep(time.Millisecond)
+	rel, err := play(3, 22, 2) // at the limit: 21's hold goes, 20 plays on
+	if err != nil || len(ended) != 1 || ended[0] != "21 "+vodTakenOver || provs.InUse(10) != 2 {
+		t.Fatalf("limit 2: %v, ended %v, provider %d", err, ended, provs.InUse(10))
+	}
+	rel()
+	// Unlimited users keep every hold (the provider's own limit applies).
+	ended = nil
+	if rel, err := play(4, 30, 0); err != nil || len(ended) != 0 {
+		t.Fatalf("no limit: %v, ended %v", err, ended)
+	} else {
+		rel()
+	}
+}
