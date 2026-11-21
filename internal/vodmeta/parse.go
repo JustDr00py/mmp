@@ -60,9 +60,9 @@ var tagNoise = map[string]bool{
 
 var (
 	// titleLeadingLang: a language label opening a title: "EN | x",
-	// "|FR| x", "[DE] x", "EN - x", "EN ★ x", "4K-EN x". Unlike category names a
+	// "|FR| x", "[DE] x", "EN - x", "EN ★ x", "4K-EN x", "MULTI║ x". Unlike category names a
 	// colon does not count ("It: Chapter Two" is no Italian film).
-	titleLeadingLang = regexp.MustCompile(`(?i)^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]+\s*)?(\pL{2,4})\s*(?:[|\]\)/»•·\p{S}]|\s[-\p{Pd}]\s)\s*`)
+	titleLeadingLang = regexp.MustCompile(`(?i)^[^\pL\pN]*(?:(?:VOD|MOVIES?|FILMS?|SERIES|SERIE|4K|UHD|FHD|HD|TV)\s*[^\pL\pN\s]+\s*)?(\pL{2,5})\s*(?:[|\]\)/»•·\p{S}]|\s[-\p{Pd}]\s)\s*`)
 	// titleTrailingLang: "x (EN)", "x [FR]", "x - DE", "x | ES".
 	titleTrailingLang = regexp.MustCompile(`(?i)\s*(?:[\[(]\s*(\pL{2,4})\s*[\])]|\s[|\-]\s*(\pL{2,4}))\s*$`)
 	serviceLabel      = regexp.MustCompile(`^\s*\pL{1,2}\+\s*[-|★•]\s*`)
@@ -360,4 +360,4 @@ func ReleaseYear(date string) int {
 
 // ParseVersion changes whenever Parse reads names differently; titles
 // stored by an older parser are parsed again at startup (see Reparse).
-const ParseVersion = 4
+const ParseVersion = 5

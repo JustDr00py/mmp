@@ -331,8 +331,12 @@ func (h *Handlers) writeVODEntries(ctx context.Context, w io.Writer, u db.User, 
 		for _, e := range eps {
 			show := vodName(e.SeriesName, e.SeriesTitle, e.SeriesTmdbTitle, e.SeriesLang, e.SeriesYear, e.SeriesQuality, clean)
 			name := fmt.Sprintf("%s S%02dE%02d", show, e.Season, e.EpisodeNum)
-			if e.Title != "" {
-				name += " " + e.Title
+			title := e.Title
+			if clean {
+				title = vodmeta.EpisodeName(e.Title, e.SeriesTitle)
+			}
+			if title != "" {
+				name += " " + title
 			}
 			entry(name, e.Cover, "Series: "+show, v.episode(e.ID, e.ContainerExtension))
 		}

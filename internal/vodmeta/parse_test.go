@@ -37,6 +37,9 @@ func TestParse(t *testing.T) {
 		{"EN ★ Avengers  Infinity War - 2018 [3D] [FHD]", "", Parsed{"Avengers Infinity War", 2018, "fhd", "English"}},
 		{"EN ★ Fall 2: Deadpoint - 2026 [CAM-VERSION] [FHD]", "", Parsed{"Fall 2: Deadpoint", 2026, "fhd", "English"}},
 		{"Vivant [Multi-Audio]", "", Parsed{"Vivant", 0, "", ""}},
+		{"MULTI║ Tulsa King", "", Parsed{"Tulsa King", 0, "", ""}},
+		{"LINGO║ Coven Academy (2026)", "", Parsed{"Coven Academy", 2026, "", ""}},
+		{"TENET - The Movie", "", Parsed{"TENET - The Movie", 0, "", ""}},
 		{"EN ★ Day One [Muti Au/Sub]", "", Parsed{"Day One", 0, "", "English"}},
 		// A part that tells copies apart stays.
 		{"EN ★ UFC 328: Chimaev vs Strickland - 2026 [Main Card] [FHD]", "", Parsed{"UFC 328: Chimaev vs Strickland [Main Card]", 2026, "fhd", "English"}},
