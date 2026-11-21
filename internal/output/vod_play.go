@@ -215,7 +215,7 @@ func (h *Handlers) serveVODCopy(w http.ResponseWriter, r *http.Request, u db.Use
 
 	addr := auth.RemoteIP(r)
 	ctx, lease, release, err := h.vodLeases.acquire(ctx, vodAcquire{
-		key: vodKey{u.ID, kind, id}, providers: provIDs,
+		key: vodKey{u.ID, kind, id}, providers: provIDs, userMax: int(u.MaxConnections),
 		take: func() (*proxy.Slot, *proxy.Slot, error) {
 			userSlot, err := h.Access.Acquire(u)
 			if err != nil {
@@ -451,7 +451,9 @@ func vodTransport() *http.Transport {
 // and come back minutes later, and the line is still theirs when they do
 // (anyone else gets "line busy" meanwhile). Only the provider's line is
 // held: the user's own slot is free meanwhile (live TV can have it), and is
-// taken back on return. The user's own next title takes a held line over.
+// taken back on return. Held leases still count toward the user's limit
+// for new titles: at it, the user's next title ends their longest-idle
+// hold first, so skipping through episodes holds one line, not one each.
 //
 // Starting another item when the user (or the item's provider) has no free
 // slot takes over: the user's oldest playback that frees the needed slot is
@@ -507,6 +509,11 @@ type vodAcquire struct {
 	// take reserves the user's slot and a provider slot (on one of
 	// providers) for a new lease.
 	take func() (user, prov *proxy.Slot, err error)
+	// userMax is the user's connection limit (0: none). Held leases do not
+	// keep the user's slot, so without it a user skipping from title to
+	// title would hold a provider line per title. Before a new lease, the
+	// user's held leases beyond userMax are ended (the longest idle first).
+	userMax int
 	// takeUser reserves just the user's slot, to resume a held lease.
 	// Optional: without it the lease resumes without one.
 	takeUser func() (*proxy.Slot, error)
@@ -555,6 +562,16 @@ func (l *vodLeases) acquire(ctx context.Context, a vodAcquire) (_ context.Contex
 		ls.idleSince.Store(0)
 	}
 	if !ok {
+		for a.userMax > 0 && l.countLocked(a.key.userID) >= a.userMax {
+			old := l.idlestLocked(a.key.userID)
+			if old == nil {
+				break // all playing: take below decides
+			}
+			l.endLocked(old, vodTakenOver)
+			if a.tookOver != nil {
+				a.tookOver(old)
+			}
+		}
 		var u, p *proxy.Slot
 		for {
 			if u, p, err = a.take(); err == nil {
@@ -607,6 +624,31 @@ func (l *vodLeases) oldestLocked(userID int64, providers []int64, skip vodKey) *
 			continue
 		}
 		if old == nil || ls.since.Before(old.since) {
+			old = ls
+		}
+	}
+	return old
+}
+
+// countLocked is how many leases userID has, playing or held.
+func (l *vodLeases) countLocked(userID int64) int {
+	n := 0
+	for _, ls := range l.m {
+		if ls.key.userID == userID {
+			n++
+		}
+	}
+	return n
+}
+
+// idlestLocked is userID's held lease idle the longest, or nil.
+func (l *vodLeases) idlestLocked(userID int64) *vodLease {
+	var old *vodLease
+	for _, ls := range l.m {
+		if ls.key.userID != userID || ls.idle == nil {
+			continue
+		}
+		if old == nil || ls.idleSince.Load() < old.idleSince.Load() {
 			old = ls
 		}
 	}
