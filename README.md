@@ -661,6 +661,20 @@ uses one of their connections and one of the provider's.
   `https://` address (the admin cookie then becomes `Secure` automatically). Turn off response buffering
   for streams and the dashboard (`proxy_buffering off;` in nginx; MMP also sends `X-Accel-Buffering: no`)
   and allow long-lived responses.
+- **Cloudflare Tunnel:** both compose files include an optional `cloudflared` service for HTTPS from
+  anywhere without opening a port. Create a tunnel in the Cloudflare dashboard (Zero Trust → Networks →
+  Tunnels), add a Public Hostname pointing at `http://mmp:8080` (`http://gluetun:8080` with the VPN file),
+  then set in `.env`:
+
+  ```
+  COMPOSE_PROFILES=tunnel
+  CLOUDFLARE_TUNNEL_TOKEN=<token from the dashboard>
+  MMP_BASE_URL=https://tv.example.com
+  MMP_HTTP_TRUSTED_PROXIES=172.28.0.20   # cloudflared's fixed address (172.29.0.20 with the VPN file)
+  ```
+
+  `docker compose up -d` then starts it with the rest of the stack. Check Cloudflare's terms before
+  streaming video through it.
 - **Providers on your own network:** a provider chooses every URL MMP fetches (playlist entries, redirects,
   HLS segments), so MMP refuses to connect to loopback, private (10.x, 172.16-31.x, 192.168.x, fd00::/8),
   link-local (including 169.254.169.254 cloud metadata) and other non-public addresses. Otherwise a

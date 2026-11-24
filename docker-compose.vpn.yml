@@ -167,6 +167,28 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # Optional: a Cloudflare Tunnel to MMP, for HTTPS from anywhere without
+  # opening a port. Started only with the "tunnel" profile
+  # (COMPOSE_PROFILES=tunnel in .env) and CLOUDFLARE_TUNNEL_TOKEN set; see the
+  # Cloudflare Tunnel section of .env.example. MMP lives in gluetun's network,
+  # so in the tunnel's Public Hostname point the service at
+  # http://gluetun:8080. The tunnel itself does not go through the VPN.
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:${CLOUDFLARED_VERSION:-latest}
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    # A fixed address, so MMP can trust its X-Forwarded-For
+    # (MMP_HTTP_TRUSTED_PROXIES=172.29.0.20).
+    networks:
+      backend:
+        ipv4_address: ${MMP_CLOUDFLARED_IP:-172.29.0.20}
+    depends_on:
+      mmp:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   backend:
     ipam:
