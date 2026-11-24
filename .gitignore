@@ -9,6 +9,8 @@
 # test & coverage
 *.out
 *.test
+__pycache__/
+*.pyc
 
 # editor / OS
 .idea/

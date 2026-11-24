@@ -15,8 +15,10 @@ SQLC     := $(shell command -v sqlc 2>/dev/null || echo "$(GO) run github.com/sq
 
 # docker compose or podman compose, e.g. make up COMPOSE="podman compose".
 COMPOSE  ?= docker compose
+# gluetun's volume follows the compose project name (the directory, by default).
+VPN_VOLUME ?= mmp_gluetun
 
-.PHONY: build dev test test-integration lint vet staticcheck generate migrate up down
+.PHONY: build dev test test-integration lint vet staticcheck generate migrate up down refresh-vpn-data
 
 build:
 	$(GO) build $(GOFLAGS) -o $(BIN) ./cmd/mmp
@@ -53,3 +55,7 @@ up:
 
 down:
 	$(COMPOSE) down
+
+# Rebuild gluetun's NordVPN server list from Nord's live API (see README).
+refresh-vpn-data:
+	python3 scripts/refresh-nordvpn-servers.py --volume $(VPN_VOLUME)

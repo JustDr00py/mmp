@@ -96,6 +96,20 @@ reaches your providers unprotected; streams fail over or wait meanwhile. Check t
 (`... up -d --force-recreate mmp`), since it lives in gluetun's network. Rootless Podman may need
 `WIREGUARD_IMPLEMENTATION=userspace`.
 
+If gluetun restarts the tunnel every few seconds with `Wireguard setup is complete` but never
+becomes healthy, its bundled server list may predate a provider key rotation (NordVPN rotates its
+WireGuard keys); the servers then silently drop the handshake. The daily updater cannot repair
+this while the tunnel is down, because gluetun's own DNS and HTTP depend on it. Rebuild the list
+from Nord's live API and recreate the stack:
+
+```sh
+make refresh-vpn-data   # or: python3 scripts/refresh-nordvpn-servers.py
+docker compose -f docker-compose.vpn.yml up -d --force-recreate gluetun mmp
+```
+
+The script rewrites only the NordVPN section of the shared volume's `servers.json` and keeps the
+previous file as `servers.json.bak`. Pass `--volume` if your compose project is not named `mmp`.
+
 **Settings → VPN** in the admin UI shows the public IP your providers see (with its country's flag) and
 whether the tunnel is up, and moves the VPN to another country or city, or reconnects it for a different
 server. Streams pause for a few seconds while gluetun reconnects. A location chosen there is kept in MMP's
